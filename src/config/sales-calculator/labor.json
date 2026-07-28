@@ -1,0 +1,52 @@
+{
+  "_comment": "DELIVERY LABOR + CAPACITY MODEL — cost-to-serve, not sell price. Sell prices and vendor/tooling costs live in pricing.json; this file adds the labor side so a quote can show TRUE contribution margin instead of tooling-only margin. Contains ONLY aggregate figures: a blended delivery rate and observed hours per endpoint. No individual pay rate or named person appears here, deliberately.",
+  "_derivation": "Derived 2026-07-28 from 2,734 Autotask time entries over 2026-02-01..2026-07-27 (5.9 months), joined to Datto RMM per-company endpoint counts and to loaded staff costs (Gusto payroll + the NY employer-tax math in the New Hire Break-Even workbook). Method: hours logged against each managed customer / that customer's Datto endpoint count, averaged within contract tier.",
+  "derivedOn": "2026-07-28",
+  "sourceWindow": {
+    "from": "2026-02-01",
+    "to": "2026-07-27",
+    "months": 5.9,
+    "timeEntries": 2734,
+    "customerFacingHoursPerMonth": 132.88
+  },
+
+  "deliveryCostPerHour": 13.6,
+  "_deliveryCostPerHourNote": "Blended loaded cost of one customer-facing delivery hour, weighted by who actually logs the hours. Excludes the fixed advisory retainer (owner-confirmed 2026-07-28: not a billable resource — management and guidance), which sits in the fixed pool instead. Including it would move this figure to ~$42.79/hr on ~4.7 logged hours/month and badly distort per-endpoint economics.",
+
+  "hoursPerEndpointPerMonth": {
+    "basic": 0.239,
+    "standard": 0.239,
+    "comprehensive": 0.442,
+    "complete": 0.697,
+    "comanaged": 0.442
+  },
+  "hoursProxiedFrom": {
+    "basic": "standard",
+    "comanaged": "comprehensive"
+  },
+  "_hoursProxyNote": "No customer is on Basic Care or TCT Ally today, so those two tiers have no observed hours and borrow the nearest measured tier. Treat them as estimates and replace them once a real customer exists on either.",
+
+  "observed": {
+    "standard": { "companies": 9, "endpoints": 57, "hoursPerMonth": 13.94 },
+    "comprehensive": { "companies": 7, "endpoints": 65, "hoursPerMonth": 29.52 },
+    "complete": { "companies": 7, "endpoints": 88, "hoursPerMonth": 64.37 }
+  },
+
+  "capacity": {
+    "scalableDeliveryHoursPerMonth": 246.7,
+    "loggedHoursPerMonth": 224.13,
+    "idleHoursPerMonth": 22.57,
+    "internalHoursPerMonth": 109.42,
+    "_note": "Scalable capacity counts the two offshore delivery contractors only (one full-time at 160 h/mo, one part-time at 86.7 h/mo, both net of PTO and holidays). The owner's own delivery hours are real but not scalable capacity, and the advisory retainer carries no hours. A third contractor present in the historical data left before this model was derived and is excluded."
+  },
+
+  "monthlyFixedPool": 15520.79,
+  "_monthlyFixedPoolNote": "Everything that does NOT scale with an added endpoint: both offshore delivery contractors, the owner's loaded cost, the advisory retainer, the non-technical admin seat, and shop overhead tooling (Kaseya 365 Ops, MSP Success Pro, Thread base). Used only for the break-even endpoint count, never charged into a quote.",
+
+  "_flags": [
+    "Endpoint counts come from Datto RMM and include servers plus any stale or non-billable devices; the billing team's own stale-device log shows drift, which would move hours-per-endpoint.",
+    "Offshore loaded costs come from the break-even workbook, which uses $177.23/seat tooling where the app uses $218.73 — each offshore figure is understated by roughly $40/month.",
+    "48% of all logged time in the source window was internal rather than customer-facing. That is the growth runway and also the main risk: internal work rarely shrinks on its own.",
+    "Hours per endpoint is an average across a small population (7-9 companies per tier). Use it for pricing decisions, not for predicting a single customer."
+  ]
+}

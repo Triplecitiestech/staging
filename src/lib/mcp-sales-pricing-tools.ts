@@ -30,6 +30,7 @@ import {
   type ServiceDef,
 } from '@/lib/sales-calculator/config'
 import { defaultInput } from '@/lib/sales-calculator/defaults'
+import { laborForQuote, laborModelProvenance } from '@/lib/sales-calculator/labor'
 import { normalizeSavedInput } from '@/lib/sales-calculator/saved-quotes'
 import {
   buildEffectivePricing,
@@ -426,6 +427,7 @@ export interface QuoteToolArgs {
   oneTimePrice?: number
   packageId?: string
   includeLineItems?: boolean
+  includeLabor?: boolean
 }
 
 /**
@@ -511,7 +513,17 @@ function lineItemOut(l: LineItem) {
   }
 }
 
-function quoteOut(q: PackageQuote, pkg: PackageDef | undefined, includeLineItems: boolean) {
+function quoteOut(
+  q: PackageQuote,
+  pkg: PackageDef | undefined,
+  includeLineItems: boolean,
+  input: DiscoveryInput,
+  includeLabor: boolean
+) {
+  // Delivery labor + contribution margin + capacity impact. Additive: the
+  // quoted prices above are untouched by this. marginPct is the TOOLING-ONLY
+  // margin the engine reports; trueMargin below is the one to quote internally.
+  const labor = includeLabor ? laborForQuote(q, input, undefined) : null
   return {
     id: q.packageId,
     name: q.packageName,
@@ -521,6 +533,29 @@ function quoteOut(q: PackageQuote, pkg: PackageDef | undefined, includeLineItems
     annualCost: q.annualCost,
     monthlyMargin: q.monthlyMargin,
     marginPct: Math.round(q.marginPct * 1000) / 10,
+    marginPctBasis: 'TOOLING ONLY — vendor cost vs price, no labor. See trueMargin for the real figure.',
+    ...(labor
+      ? {
+          trueMargin: {
+            endpoints: labor.endpoints,
+            hoursPerEndpointPerMonth: labor.hoursPerEndpointPerMonth,
+            hoursAreEstimated: labor.hoursAreProxied,
+            estimatedFromTier: labor.proxiedFrom,
+            deliveryHoursPerMonth: labor.deliveryHoursPerMonth,
+            laborCostPerMonth: labor.laborCostPerMonth,
+            vendorCostPerMonth: labor.vendorCostPerMonth,
+            variableCostPerMonth: labor.variableCostPerMonth,
+            contributionPerMonth: labor.contributionPerMonth,
+            contributionPerYear: labor.contributionPerYear,
+            contributionMarginPct: labor.contributionMarginPct,
+            toolingOnlyMarginPct: labor.toolingOnlyMarginPct,
+            breakevenEndpointsAtThisTier: labor.breakevenEndpointsAtThisTier,
+            fixedPoolPerMonth: labor.fixedPoolPerMonth,
+            caveats: labor.caveats,
+          },
+          capacity: labor.capacity,
+        }
+      : {}),
     supportModel: pkg?.supportModel ?? null,
     microsoft365: {
       billedSeparately: true,
@@ -558,7 +593,7 @@ export function registerSalesPricingTools(server: any) {
         INTERNAL_ONLY,
       inputSchema: {
         section: z
-          .enum(['all', 'tiers', 'modifiers', 'addOns', 'microsoft365', 'calculationRules'])
+          .enum(['all', 'tiers', 'modifiers', 'addOns', 'microsoft365', 'calculationRules', 'laborModel'])
           .optional()
           .describe('Return one section instead of everything (default all). Provenance is always included.'),
         includeServiceLists: z
@@ -607,6 +642,15 @@ export function registerSalesPricingTools(server: any) {
           out.calculationRules = calculationRules(pricing)
           out.quoteToolHint = 'sales_pricing_quote runs these rules for you — prefer it over hand arithmetic.'
         }
+        if (which === 'all' || which === 'laborModel') {
+          out.laborModel = laborModelProvenance()
+          out.laborModelNote =
+            'COST TO SERVE, not sell price. The per-unit rates above cover vendor tooling only, so the margins they imply ' +
+            '(85-93%) are tooling margins, NOT profit. This block adds the delivery-labor side: hours per endpoint per month ' +
+            'by tier, and a blended loaded cost per delivery hour. sales_pricing_quote applies it and returns trueMargin ' +
+            'per tier. Hours scale with the tier as you would hope — Complete Care consumes roughly 3x the labor per ' +
+            'endpoint that Standard Care does.'
+        }
         if (includeAnnotations !== false) {
           out.configAnnotations = annotations
           out.needsConfirmation = annotations.filter((a) => a.path.endsWith('_flag'))
@@ -624,6 +668,7 @@ export function registerSalesPricingTools(server: any) {
       description:
         'Run TCT\'s OWN Sales Calculator: give discovery inputs (standard users, Windows PCs, locations, servers, add-ons) and get the computed MONTHLY and ANNUAL price for EVERY tier — TCT Basic Care, Standard Care, Comprehensive Care, Complete Care and TCT Ally (Co-Managed) — plus cost, margin, the per-line breakdown, and Microsoft 365 licensing shown SEPARATELY. ' +
         'This is the same engine (src/lib/sales-calculator/calc.ts) and the same live pricing the staff calculator at /admin/sales-calculator uses, so the numbers match a quote generated in the UI. Use it instead of multiplying rates by hand from sales_pricing_catalog — the model has lines that are easy to miss (a per-company Business Line charge on Comprehensive/Complete/Ally, a per-internal-IT-admin seat, and one-line-for-all backup sizing), which is why hand-derived totals usually come out short. ' +
+        'ALSO RETURNS TRUE MARGIN AND CAPACITY. Each tier carries a trueMargin block (delivery labor + vendor cost vs price = contribution) and a capacity block (hours this deal consumes vs spare delivery capacity). The plain marginPct field is TOOLING-ONLY and reads far too high — quote trueMargin.contributionMarginPct internally, never marginPct. ' +
         'Only inputs that affect money are accepted. industry and termMonths are accepted and echoed but DO NOT change price — there are no industry, volume or term-length modifiers in this model. ' +
         'STATELESS AND READ-ONLY: nothing is saved, no quote record is created, and pricing cannot be changed through the connector. ' +
         INTERNAL_ONLY,
@@ -656,6 +701,7 @@ export function registerSalesPricingTools(server: any) {
         oneTimePrice: z.number().min(0).optional().describe('One-time project/onboarding price to the customer.'),
         packageId: z.enum(['basic', 'standard', 'comprehensive', 'complete', 'comanaged']).optional().describe('Return only this tier (default: all five).'),
         includeLineItems: z.boolean().optional().describe('Include the per-line breakdown for each tier (default true). Set false for totals only.'),
+        includeLabor: z.boolean().optional().describe('Include delivery-labor cost, TRUE contribution margin and the capacity impact (default true). Set false for the tooling-only view.'),
       },
     },
     async (args: QuoteToolArgs) => {
@@ -698,8 +744,14 @@ export function registerSalesPricingTools(server: any) {
             'total user count — there are no volume breaks; per-unit rates are flat',
           ],
           pricingSource: pricingSourceInfo(record, applied, undefined, unavailable),
-          tiers: selected.map((q) => quoteOut(q, packages.find((p) => p.id === q.packageId), includeLineItems)),
+          tiers: selected.map((q) =>
+            quoteOut(q, packages.find((p) => p.id === q.packageId), includeLineItems, input, args.includeLabor !== false)
+          ),
+          ...(args.includeLabor !== false ? { laborModel: laborModelProvenance() } : {}),
           reminders: [
+            'marginPct on each tier is TOOLING-ONLY (vendor cost vs price). trueMargin.contributionMarginPct is the real figure — it includes delivery labor.',
+            'Contribution excludes the fixed cost pool. A deal is worth taking when contribution is positive; the company is profitable when total contribution exceeds the fixed pool.',
+            'Check capacity.fitsInIdleCapacity before promising delivery — idle capacity is thin, and the runway is mostly internal work that would have to be given up.',
             'Managed monthly/annual totals EXCLUDE Microsoft 365 licensing — quote it as its own line.',
             'TCT Ally monthly EXCLUDES day-to-day labor; helpdesk, moves/adds/changes and projects bill hourly on top.',
             'Comprehensive Care includes the monitoring/security stack but bills remediation hourly; Complete Care includes it.',
