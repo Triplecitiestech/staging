@@ -26,6 +26,7 @@
 // away from the registry the way a written tool list would.
 
 import { KNOWN_LIMITS, type KnownLimit } from './known-limits'
+import { instrumentToolHandler, type ToolTelemetryFacts } from './telemetry'
 
 // ---------------------------------------------------------------------------
 // Recorded registry
@@ -60,6 +61,12 @@ export interface ToolRegisteringServer {
  * Wrap a server so every registerTool call is recorded, then forwarded
  * unchanged. Registration behavior is untouched — this only observes.
  *
+ * It also wraps each tool's HANDLER with usage telemetry (see ./telemetry.ts).
+ * This is the single hook for both concerns and the reason it lives here: the
+ * proxy already sees every registration, so a tool cannot be added without
+ * being recorded AND measured. Per-tool logging calls across 126 tools would
+ * drift the first time someone added the 127th.
+ *
  * Returns the wrapper plus the array it fills. The array is populated
  * synchronously during the createMcpHandler callback, so it is complete by the
  * time any tool handler can run.
@@ -87,7 +94,16 @@ export function recordingServer<T extends ToolRegisteringServer>(
             // rather than taking the whole connector down.
             recorded.push({ name, description: '', params: [] })
           }
-          return target.registerTool(name, config, handler)
+          let instrumented = handler
+          try {
+            instrumented = instrumentToolHandler(name, telemetryFactsFor(name), handler)
+          } catch {
+            // Instrumentation is observability, not function. If it cannot be
+            // applied, register the ORIGINAL handler — the tool keeps working
+            // and only its telemetry is lost.
+            instrumented = handler
+          }
+          return target.registerTool(name, config, instrumented)
         }
       }
       const v = Reflect.get(target, prop, receiver)
@@ -471,6 +487,25 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
       'Both uploads read-back verified',
     ],
   },
+}
+
+/**
+ * Classification handed to the telemetry layer for one tool.
+ *
+ * Derived from TOOL_FACTS / vendorOf — the SAME reviewed data the capability
+ * report uses, so there is exactly one classification table. An unclassified
+ * tool falls back to the same conservative default the report shows
+ * (read/read); the TOOL_FACTS completeness test in capability-registry.test.ts
+ * keeps that case from lasting.
+ */
+function telemetryFactsFor(toolName: string): ToolTelemetryFacts {
+  const facts = TOOL_FACTS[toolName]
+  return {
+    vendor: vendorOf(toolName),
+    access: facts?.access ?? 'read',
+    risk: facts?.risk ?? 'read',
+    staged: facts?.staged ?? false,
+  }
 }
 
 // ---------------------------------------------------------------------------
