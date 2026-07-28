@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import type { ConnectorUsagePayload } from '@/lib/connector/usage-metrics'
 
 // ---- Types ----
 
@@ -537,6 +538,183 @@ function MarketingCard() {
   )
 }
 
+/**
+ * MCP connector usage — last 24h, from the same endpoint the full dashboard
+ * uses. Refusals are shown next to failures but counted separately: a refusal is
+ * the approval gate or a kill switch doing its job, not breakage.
+ */
+function ConnectorUsageCard() {
+  const [data, setData] = useState<ConnectorUsagePayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [failedToLoad, setFailedToLoad] = useState(false)
+
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch('/api/admin/connector/usage?window=24h', {
+        credentials: 'include',
+        signal,
+      })
+      if (res.ok) {
+        const body = await res.json()
+        setData(body.usage ?? null)
+      } else {
+        setFailedToLoad(true)
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setFailedToLoad(true)
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
+  }, [fetchData])
+
+  if (loading) return <CardSkeleton title="MCP Connector" />
+
+  const summary = data?.summary
+  const calls = summary?.calls ?? 0
+  const failures = summary?.failures ?? 0
+  const pending = data?.stagedWrites?.pendingApproval ?? 0
+  // Not-yet-migrated, failed-to-load and no-calls-at-all all read as 'unknown'
+  // rather than a green "healthy" that would be a claim we cannot make.
+  //
+  // Judged on the failure RATE, not on any failure at all: these are
+  // user-driven tool calls, so a handful of vendor 400s/timeouts in a day is
+  // background noise. A cron failing is an incident; a tech mistyping a ticket
+  // id is not, and a permanently violet dot teaches everyone to ignore it.
+  const failureRate = calls > 0 ? failures / calls : 0
+  const status: 'healthy' | 'degraded' | 'down' | 'unknown' =
+    failedToLoad || !data || data.telemetryTableMissing || calls === 0
+      ? 'unknown'
+      : failureRate > 0.5
+        ? 'down'
+        : failureRate >= 0.1
+          ? 'degraded'
+          : 'healthy'
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <StatusDot status={status} />
+          <h3 className="text-sm font-medium text-white">MCP Connector</h3>
+        </div>
+        <SystemBadge label="Last 24h" />
+      </div>
+
+      {failedToLoad ? (
+        <p className="text-xs text-rose-400">
+          Could not load connector usage. Open the dashboard for the error.
+        </p>
+      ) : data?.telemetryTableMissing ? (
+        <p className="text-xs text-violet-300">
+          Telemetry table not created yet — POST /api/migrations/run, then calls start recording.
+          Connector tools are unaffected.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-4 gap-2">
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <p className="text-lg font-bold text-white">{calls.toLocaleString()}</p>
+              <p className="text-[10px] text-slate-500">Calls</p>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <p className="text-lg font-bold text-cyan-400">{(summary?.writes ?? 0).toLocaleString()}</p>
+              <p className="text-[10px] text-slate-500">Writes</p>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <p className="text-lg font-bold text-violet-400">{(summary?.refusals ?? 0).toLocaleString()}</p>
+              <p className="text-[10px] text-slate-500">Refused</p>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <p className={`text-lg font-bold ${failures > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                {failures.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-slate-500">Failed</p>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400 space-y-1">
+            <div className="flex justify-between">
+              <span>Technicians using it</span>
+              <span className="text-white">{summary?.actors ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Distinct tools called</span>
+              <span className="text-white">{summary?.tools ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Config writes awaiting approval</span>
+              <span className={pending > 0 ? 'text-violet-300' : 'text-white'}>{pending}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 pt-3 border-t border-slate-700/50 flex gap-3">
+        <Link href="/admin/connector/usage" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Usage dashboard →
+        </Link>
+        <Link href="/admin/connector/staged-writes" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Write approvals →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Navigation card for /admin/monitoring. Deliberately fetches nothing: the AI
+ * spend numbers already render in AiUsageMeter above this grid, and
+ * /api/admin/system-health is the heaviest endpoint on the page (already
+ * requested twice per load — see docs/gotchas.md).
+ */
+function PlatformMonitoringCard() {
+  return (
+    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 flex flex-col">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <StatusDot status="healthy" />
+          <h3 className="text-sm font-medium text-white">Platform Monitoring</h3>
+        </div>
+        <SystemBadge label="Cost & limits" />
+      </div>
+
+      <div className="text-xs text-slate-400 space-y-1 flex-1">
+        <div className="flex justify-between">
+          <span>AI spend by feature and model</span>
+          <span className="text-slate-500">1h → 60d</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Database size and row limits</span>
+          <span className="text-slate-500">quota</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Threshold alerts</span>
+          <span className="text-slate-500">email</span>
+        </div>
+        <p className="text-[11px] text-slate-500 pt-1">
+          Anthropic dollars live here. The connector makes no Anthropic calls, so its usage page
+          reports response size in bytes instead.
+        </p>
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-slate-700/50 flex gap-3">
+        <Link href="/admin/monitoring" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Open monitoring →
+        </Link>
+        <Link href="/admin/reporting/status" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Pipeline status →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 function CardSkeleton({ title }: { title: string }) {
   return (
     <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 animate-pulse">
@@ -562,6 +740,8 @@ export default function DashboardStatusCards() {
       <ReportingPipelineCard />
       <AIUsageCard />
       <MarketingCard />
+      <ConnectorUsageCard />
+      <PlatformMonitoringCard />
     </div>
   )
 }
