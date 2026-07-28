@@ -235,12 +235,16 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
       'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
       'manufacturerServiceProviderProductNumber',
     ],
-    requiredOnCreate: ['name', 'billingCodeID', 'unitPrice'],
-    // periodType is flagged isRequired AND isReadOnly at once. That combination
-    // is contradictory, and the flags alone cannot say whether it is settable
-    // at create and merely immutable after. It is allowed on CREATE ONLY so the
-    // question can be settled empirically by a real approved create, and
-    // rejected on update where isReadOnly is unambiguous.
+    // periodType is required here even though Autotask flags it isReadOnly.
+    // SETTLED EMPIRICALLY 2026-07-28: service ids 131-136 were created through
+    // this connector with periodType 2 and read back as Monthly, so it is
+    // genuinely settable at create; and the one staged create that omitted it
+    // failed on Autotask's own "Missing Required Field: periodType" AFTER
+    // burning a human approval. Listing it here turns that into a stage-time
+    // rejection with a precise message instead of a wasted approval round trip.
+    requiredOnCreate: ['name', 'billingCodeID', 'unitPrice', 'periodType'],
+    // Settable at create, immutable after — so it widens the accepted set on
+    // create only and is rejected on update, where isReadOnly is unambiguous.
     createOnlyFields: ['periodType'],
     labelFields: ['name'],
     risk: 'billing',
@@ -261,7 +265,13 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
       'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
       'manufacturerServiceProviderProductNumber',
     ],
-    requiredOnCreate: ['name', 'billingCodeID'],
+    // periodType included on the same reasoning as the service area, but note
+    // the weaker provenance: live entityInformation reports ServiceBundles
+    // .periodType isRequired AND isReadOnly exactly as it does for Services, and
+    // that flag proved accurate there — no bundle create has actually exercised
+    // it yet. Requiring it costs a caller nothing (periodType is a legitimate
+    // create value) and saves an approval round trip if the flag is right again.
+    requiredOnCreate: ['name', 'billingCodeID', 'periodType'],
     createOnlyFields: ['periodType'],
     labelFields: ['name'],
     risk: 'billing',
