@@ -24,24 +24,44 @@ import { AutotaskClient } from '@/lib/autotask'
 import { patchConfigEntity, createConfigEntity, deleteConfigEntity } from '@/lib/autotask-write'
 import {
   CONFIG_WRITE_AREAS,
+  FieldsNotAllowlistedError,
   OVERLAY_KEY_STATUS_SLA,
   buildDiff,
   buildTargetLabel,
   detectDrift,
+  resolveConfigArea,
   snapshotFields,
   validateSlaOverlayMappings,
   validateStagedChange,
   type ConfigWriteOperation,
   type StagedChangeInput,
 } from './staged-writes-core'
+import { ClassifiedConnectorError, throwClassified } from './failure-envelope'
+import {
+  classifyRejectedFields,
+  classifyUnsupportedOperation,
+  stagedWriteDriftedFailure,
+  stagedWriteNotApprovedFailure,
+  validateBeforeStaging,
+  type DuplicateWarning,
+} from './autotask-write-validation'
 
 const TTL_MINUTES = Number(process.env.CONNECTOR_STAGED_WRITE_TTL_MINUTES || 60)
 
 function assertWritesEnabled(): void {
   if (process.env.CONNECTOR_CONFIG_WRITES_ENABLED !== 'true') {
-    throw new Error(
-      'Config writes are disabled: set CONNECTOR_CONFIG_WRITES_ENABLED=true in Vercel env vars to enable the staged-write gate. Read tools are unaffected.'
-    )
+    // POLICY_BLOCKED, not a failure: the kill switch is a TCT guardrail doing
+    // exactly its job. Classifying it as an error invites a caller to treat it
+    // as something to work around.
+    throwClassified({
+      reasonCode: 'POLICY_BLOCKED',
+      message:
+        'Autotask config writes are disabled by the connector kill switch, so nothing can be staged or executed. Read tools are unaffected.',
+      evidence: 'Environment variable CONNECTOR_CONFIG_WRITES_ENABLED is not set to "true" on this deployment.',
+      remediation:
+        'Ask Kurtis to set CONNECTOR_CONFIG_WRITES_ENABLED=true in the Vercel environment. This is a deliberate switch — do not attempt another write path.',
+      surface: 'autotask',
+    })
   }
 }
 
@@ -67,13 +87,43 @@ export interface StageResult {
   expiresAt: Date
   approvalUrl: string
   note: string
+  /** Same-name/SKU records that already exist. Advisory — see findDuplicates. */
+  duplicateWarnings?: DuplicateWarning[]
+  /** Caveats the approver should read before approving (e.g. contradictory field metadata). */
+  validationNotes?: string[]
+}
+
+/**
+ * Validate the request, then classify any rejection with live API metadata.
+ *
+ * The pure allowlist check throws plain Errors for shape problems and a typed
+ * FieldsNotAllowlistedError for field problems. Only the latter needs a live
+ * lookup to attribute blame, so only that path pays for one.
+ */
+async function validateAndClassify(input: StagedChangeInput) {
+  const area = resolveConfigArea(input.area)
+  const spec = CONFIG_WRITE_AREAS[area]
+
+  // Operation not offered by this area: ask the API whether that is a vendor
+  // limit (UPSTREAM_UNSUPPORTED) or our gap (NOT_IMPLEMENTED), rather than
+  // reporting the connector's own allowlist as though it were the reason.
+  if (spec && spec.targetSystem === 'autotask' && !spec.operations.includes(input.operation)) {
+    await classifyUnsupportedOperation(area, spec.entity, input.operation, spec.operations)
+  }
+
+  try {
+    return validateStagedChange(input)
+  } catch (err) {
+    if (err instanceof FieldsNotAllowlistedError) await classifyRejectedFields(err)
+    throw err
+  }
 }
 
 export async function stageConfigWrite(
   input: StagedChangeInput & { reason?: string; stagedBy: string },
 ): Promise<StageResult> {
   assertWritesEnabled()
-  const spec = validateStagedChange(input)
+  const spec = await validateAndClassify(input)
   const client = new AutotaskClient()
 
   let before: Record<string, unknown> | null = null
@@ -112,7 +162,24 @@ export async function stageConfigWrite(
     }
   }
 
-  const diff = buildDiff(input.operation, before, input.operation === 'delete' ? {} : proposed)
+  // Business validation AFTER the snapshot (so an update knows its own id for
+  // the duplicate check) but BEFORE anything is persisted — a staged row that
+  // cannot possibly execute is a waste of the approver's attention.
+  const { duplicateWarnings, notes } =
+    spec.targetSystem === 'autotask'
+      ? await validateBeforeStaging(client, spec, input.operation, proposed, input.entityId)
+      : { duplicateWarnings: [] as DuplicateWarning[], notes: [] as string[] }
+
+  const baseDiff = buildDiff(input.operation, before, input.operation === 'delete' ? {} : proposed)
+  // Warnings are appended to the DIFF, not just returned to the caller, because
+  // the diff is what the human actually reads on the approval page.
+  const diff = [
+    baseDiff,
+    ...duplicateWarnings.map(
+      (w) => `\n⚠ DUPLICATE ${w.field} "${w.value}": ${w.note}\n   existing: ${w.matches.map((m) => `#${m.id} ${String(m.name ?? '')}${m.isActive === false ? ' (inactive)' : ''}`).join(', ')}`,
+    ),
+    ...notes.map((n) => `\nℹ ${n}`),
+  ].join('\n')
   const expiresAt = new Date(Date.now() + TTL_MINUTES * 60_000)
 
   const row = await prisma.connectorStagedWrite.create({
@@ -145,6 +212,8 @@ export async function stageConfigWrite(
     expiresAt,
     approvalUrl: approvalUrl(),
     note: `NOTHING has been written. A staff member must approve this at ${approvalUrl()} (system_settings permission), then call autotask_execute_staged_write with this id. Expires ${expiresAt.toISOString()}.`,
+    ...(duplicateWarnings.length ? { duplicateWarnings } : {}),
+    ...(notes.length ? { validationNotes: notes } : {}),
   }
 }
 
@@ -234,25 +303,54 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
   assertWritesEnabled()
   await expireOverdue()
   const row = await prisma.connectorStagedWrite.findUnique({ where: { id } })
-  if (!row) throw new Error('Staged write not found.')
+  if (!row) {
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      message: `No staged write exists with id ${id}.`,
+      remediation: 'Check the id against autotask_list_staged_writes.',
+      surface: 'autotask',
+      details: { stagedWriteId: id },
+    })
+  }
   if (row.targetSystem === 'unifi') {
     // Refuse BEFORE the single-use claim so the approved row isn't burned.
-    throw new Error('This staged write targets UniFi — execute it with unifi_execute_staged_write.')
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      // The tool name stays in the MESSAGE, not only in remediation: this is the
+      // one piece of information that makes the failure self-correcting, and
+      // some clients surface only the message.
+      message: 'This staged write targets UniFi, not Autotask — execute it with unifi_execute_staged_write instead.',
+      remediation: 'Call unifi_execute_staged_write with the same staged-write id.',
+      surface: 'autotask',
+      details: { stagedWriteId: id, targetSystem: row.targetSystem },
+    })
   }
   if (row.status !== 'approved') {
-    throw new Error(
-      row.status === 'pending_approval'
-        ? `Not approved yet. A staff member must approve it first at ${approvalUrl()}.`
-        : `Cannot execute: staged write is '${row.status}'.`
+    throwClassified(
+      stagedWriteNotApprovedFailure({
+        id,
+        status: row.status,
+        targetLabel: row.targetLabel,
+        approvalUrl: approvalUrl(),
+      }),
     )
   }
 
-  // Single-use claim — a concurrent duplicate call loses this race and errors.
+  // Single-use claim — a concurrent duplicate call loses this race.
   const claimed = await prisma.connectorStagedWrite.updateMany({
     where: { id, status: 'approved' },
     data: { status: 'executing' },
   })
-  if (claimed.count !== 1) throw new Error('Staged write was already picked up by another execution.')
+  if (claimed.count !== 1) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message: 'This staged write was already picked up by another execution.',
+      evidence: `The single-use claim on ${id} did not win — its status was no longer 'approved' at claim time.`,
+      remediation: 'Check the outcome with autotask_list_staged_writes before re-staging; the change may already have been applied.',
+      surface: 'autotask',
+      details: { stagedWriteId: id },
+    })
+  }
 
   // Marks failures whose terminal status is already persisted, so the outer
   // catch doesn't overwrite e.g. 'drifted' with 'failed'.
@@ -260,6 +358,13 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
   const fail = async (message: string, status = 'failed'): Promise<never> => {
     await prisma.connectorStagedWrite.update({ where: { id }, data: { status, error: message } })
     throw new HandledStageError(message)
+  }
+
+  /** Persist the terminal 'drifted' status, then throw the classified envelope. */
+  const failDrifted = async (drifted: string[], verb: 'written' | 'deleted'): Promise<never> => {
+    const failure = stagedWriteDriftedFailure({ id, targetLabel: row.targetLabel, driftedFields: drifted, verb })
+    await prisma.connectorStagedWrite.update({ where: { id }, data: { status: 'drifted', error: failure.message } })
+    throwClassified(failure)
   }
 
   try {
@@ -296,12 +401,7 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
       // approved diff no longer describes reality.
       const live = await client.getConfigRow(spec.entity, row.entityId!)
       const drifted = detectDrift(before, live ? snapshotFields(spec, live) : null)
-      if (drifted.length) {
-        return await fail(
-          `Live record changed since staging (fields: ${drifted.join(', ')}). Nothing written — restage to see the current values.`,
-          'drifted'
-        )
-      }
+      if (drifted.length) return await failDrifted(drifted, 'written')
       apiResult = await patchConfigEntity(row.entityPath, { id: row.entityId, ...proposed })
       const after = await client.getConfigRow(spec.entity, row.entityId!)
       verification = after ? snapshotFields(spec, after) : null
@@ -314,12 +414,7 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
     } else {
       const live = await client.getConfigRow(spec.entity, row.entityId!)
       const drifted = detectDrift(before, live ? snapshotFields(spec, live) : null)
-      if (drifted.length && live) {
-        return await fail(
-          `Live record changed since staging (fields: ${drifted.join(', ')}). Nothing deleted — restage to review.`,
-          'drifted'
-        )
-      }
+      if (drifted.length && live) return await failDrifted(drifted, 'deleted')
       apiResult = await deleteConfigEntity(`${row.entityPath}/${row.entityId}`)
       const gone = await client.getConfigRow(spec.entity, row.entityId!)
       verification = { deleted: gone === null }
@@ -331,7 +426,10 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
     })
     return { stagedWriteId: id, status: 'executed', targetLabel: row.targetLabel, apiResult, verification }
   } catch (err) {
+    // Both of these already persisted their terminal status; re-writing it here
+    // would overwrite 'drifted' with 'failed' and lose why it stopped.
     if (err instanceof HandledStageError) throw err
+    if (err instanceof ClassifiedConnectorError) throw err
     const message = err instanceof Error ? err.message : String(err)
     await prisma.connectorStagedWrite.update({ where: { id }, data: { status: 'failed', error: message } }).catch(() => {})
     throw err

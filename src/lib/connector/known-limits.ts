@@ -37,18 +37,30 @@ export interface KnownLimit {
 const SPEC_AUDIT_PENDING =
   'Carried from prior in-tenant assessment recorded in docs/gotchas.md; re-verification against the current published vendor spec is PENDING (coverage audit in progress). Treat as strong prior, not a settled fact.'
 
+// Rows carrying this were confirmed against LIVE entityInformation on the date
+// given — not from memory, not from a doc. The connector now DERIVES these
+// verdicts at call time (src/lib/connector/autotask-capability.ts), so this
+// string records that a check happened; it is not the mechanism. If Kaseya
+// ships a change, the live lookup reports the new truth and
+// autotask_surface_drift_report flags the difference, rather than this file
+// quietly continuing to assert a stale limitation.
+const LIVE_VERIFIED_2026_07_28 =
+  'Confirmed against LIVE entityInformation on 2026-07-28 via autotask_entity_capabilities. Re-derived live on every call — never served from this row.'
+
 export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
   'Autotask PSA (Kaseya)': [
     {
       capability: 'Read or write workflow rule (Event) definitions — conditions and actions',
       reason: 'VENDOR_NO_API',
-      verifiedBy: SPEC_AUDIT_PENDING,
+      verifiedBy:
+        'GET /v1.0/WorkflowRules/entityInformation returns 404 — there is no such REST entity on this instance. ' + LIVE_VERIFIED_2026_07_28,
       notes: 'Closest available surface is autotask_notification_history — what actually fired, not the rule that fired it.',
     },
     {
       capability: 'Read or write notification template content',
       reason: 'VENDOR_NO_API',
-      verifiedBy: SPEC_AUDIT_PENDING,
+      verifiedBy:
+        'GET /v1.0/NotificationTemplates/entityInformation returns 404 — there is no such REST entity on this instance. ' + LIVE_VERIFIED_2026_07_28,
       notes: 'Template NAMES appear in autotask_notification_history; bodies do not.',
     },
     {
@@ -70,10 +82,35 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       verifiedBy: SPEC_AUDIT_PENDING,
     },
     {
-      capability: 'Write billing codes',
+      capability: 'Write billing codes (create, update or delete)',
       reason: 'VENDOR_NO_API',
-      verifiedBy: 'BillingCodes expose no write surface in the REST API. ' + SPEC_AUDIT_PENDING,
-      notes: 'Reads work fully via autotask_list_billing_codes.',
+      verifiedBy:
+        'entityInformation reports BillingCodes canCreate false, canUpdate false, canDelete false (canQuery true). ' + LIVE_VERIFIED_2026_07_28,
+      notes:
+        'Reads work fully via autotask_list_billing_codes. NON-OBVIOUS: most BillingCodes FIELDS report isReadOnly false (name, unitPrice, unitCost, useType…), which looks writable — the ENTITY-level capability overrides that and forbids every write. Entity capability always wins over field flags.',
+    },
+    {
+      capability: 'Delete a Service (the catalog entity, not a ticket)',
+      reason: 'VENDOR_NO_API',
+      verifiedBy: 'entityInformation reports Services.canDelete false (canCreate/canUpdate/canQuery all true). ' + LIVE_VERIFIED_2026_07_28,
+      notes:
+        'Deactivation IS available (isActive false) through the gated write flow, area service. ServiceBundles by contrast DO support delete (canDelete true), so do not generalise from one to the other.',
+    },
+    {
+      capability: 'Set or change Services.markupRate / ServiceBundles.unitCost',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports Services.markupRate isReadOnly true and ServiceBundles.unitCost isReadOnly true. ' + LIVE_VERIFIED_2026_07_28,
+      notes:
+        'Both are computed by Autotask (markup from unitPrice/unitCost; a bundle\'s unitCost rolls up from its member services). The service_pricing allowlist previously accepted markupRate — a latent bug that would have failed or silently no-opped at execute time. Removed 2026-07-28.',
+    },
+    {
+      capability: 'Edit an existing service-bundle membership row (ServiceBundleServices update)',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports ServiceBundleServices canCreate true, canDelete true, canUpdate FALSE. ' + LIVE_VERIFIED_2026_07_28,
+      notes:
+        'Membership is therefore add/remove only — change a bundle by deleting the row and creating a new one. Both are implemented behind the approval gate (area service_bundle_member).',
     },
     {
       capability: 'Read or write queue routing, inbound email processing, queue notification settings',

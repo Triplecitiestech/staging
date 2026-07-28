@@ -30,9 +30,59 @@ export interface ConfigWriteAreaSpec {
   operations: ConfigWriteOperation[]
   allowedFields: string[]
   requiredOnCreate?: string[]
+  /**
+   * Fields accepted on CREATE but rejected on UPDATE. Exists for Autotask
+   * fields flagged isRequired AND isReadOnly at once, where the flags cannot
+   * say whether the field is settable at create and merely immutable after.
+   * Not merged into allowedFields, so an update naming one is refused with the
+   * live read-only metadata as evidence.
+   */
+  createOnlyFields?: string[]
   /** Fields concatenated into the human-readable target label. */
   labelFields: string[]
   risk: 'low' | 'billing'
+}
+
+/**
+ * Retired area names → their replacement.
+ *
+ * `service_pricing` was update-only over five fields and wrongly listed the
+ * read-only markupRate. It is superseded by the full `service` area. Kept as an
+ * alias rather than deleted so a saved skill or prompt that still names it
+ * keeps working — there is exactly ONE implementation, and the alias resolves
+ * to it before anything is validated or stored.
+ */
+export const CONFIG_AREA_ALIASES: Record<string, string> = {
+  service_pricing: 'service',
+}
+
+/** Resolve an area name through the alias map. */
+export function resolveConfigArea(area: string): string {
+  return CONFIG_AREA_ALIASES[area] ?? area
+}
+
+/**
+ * Thrown when a caller names fields the area does not allowlist.
+ *
+ * Carries the field names as DATA rather than only in a message string, so the
+ * staging layer can ask live entityInformation why each one was refused and
+ * return the right reason code: a field the API reports read-only is
+ * INVALID_INPUT, while a field the API says is perfectly writable is a
+ * connector gap — NOT_IMPLEMENTED, naming what would need to be added.
+ */
+export class FieldsNotAllowlistedError extends Error {
+  readonly area: string
+  readonly entity: string
+  readonly fields: string[]
+  readonly allowedFields: string[]
+  constructor(area: string, entity: string, fields: string[], allowedFields: string[]) {
+    super(`Field(s) not writable in ${area}: ${fields.join(', ')}. Allowed: ${allowedFields.join(', ')}`)
+    this.name = 'FieldsNotAllowlistedError'
+    this.area = area
+    this.entity = entity
+    this.fields = fields
+    this.allowedFields = allowedFields
+  }
 }
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
@@ -153,19 +203,93 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
     entity: 'Products',
     writePath: () => 'Products',
     operations: ['update'],
-    allowedFields: ['unitPrice', 'unitCost', 'msrp', 'markupRate', 'isActive'],
+    // markupRate removed 2026-07-28: live entityInformation reports
+    // Products.markupRate isReadOnly true, exactly as it does for Services. This
+    // was the SECOND instance of the same latent bug, found by running the new
+    // drift report over the existing allowlists — it would have failed or
+    // silently no-opped at execute time. Autotask computes markup from
+    // unitPrice/unitCost; change those instead.
+    allowedFields: ['unitPrice', 'unitCost', 'msrp', 'isActive'],
     labelFields: ['name'],
     risk: 'billing',
   },
-  service_pricing: {
-    area: 'service_pricing',
-    label: 'Service (pricing)',
+  // Services: canQuery/canCreate/canUpdate true, canDelete FALSE (live
+  // entityInformation, 2026-07-28). Delete is therefore absent by derivation,
+  // not by choice — deactivate with isActive:false instead.
+  //
+  // markupRate is deliberately NOT here. It is flagged isReadOnly TRUE by live
+  // entityInformation (it is computed from unitPrice/unitCost), yet the
+  // original service_pricing allowlist accepted it — a latent bug that would
+  // have failed or silently no-opped at execute time. Do not re-add it: the
+  // capability layer will reject it with the live metadata as evidence.
+  service: {
+    area: 'service',
+    label: 'Service',
     targetSystem: 'autotask',
     entity: 'Services',
     writePath: () => 'Services',
-    operations: ['update'],
-    allowedFields: ['unitPrice', 'unitCost', 'markupRate', 'isActive', 'invoiceDescription'],
+    operations: ['create', 'update'],
+    allowedFields: [
+      'name', 'billingCodeID', 'unitPrice', 'unitCost', 'description', 'invoiceDescription',
+      'isActive', 'sku', 'catalogNumberPartNumber', 'serviceLevelAgreementID', 'vendorCompanyID',
+      'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
+      'manufacturerServiceProviderProductNumber',
+    ],
+    requiredOnCreate: ['name', 'billingCodeID', 'unitPrice'],
+    // periodType is flagged isRequired AND isReadOnly at once. That combination
+    // is contradictory, and the flags alone cannot say whether it is settable
+    // at create and merely immutable after. It is allowed on CREATE ONLY so the
+    // question can be settled empirically by a real approved create, and
+    // rejected on update where isReadOnly is unambiguous.
+    createOnlyFields: ['periodType'],
     labelFields: ['name'],
+    risk: 'billing',
+  },
+  // ServiceBundles: canDelete TRUE (unlike Services), so delete is offered —
+  // still behind the same approval gate. unitCost is read-only: it rolls up
+  // from member services.
+  service_bundle: {
+    area: 'service_bundle',
+    label: 'Service bundle',
+    targetSystem: 'autotask',
+    entity: 'ServiceBundles',
+    writePath: () => 'ServiceBundles',
+    operations: ['create', 'update', 'delete'],
+    allowedFields: [
+      'name', 'billingCodeID', 'unitPrice', 'percentageDiscount', 'unitDiscount', 'description',
+      'invoiceDescription', 'isActive', 'sku', 'catalogNumberPartNumber', 'serviceLevelAgreementID',
+      'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
+      'manufacturerServiceProviderProductNumber',
+    ],
+    requiredOnCreate: ['name', 'billingCodeID'],
+    createOnlyFields: ['periodType'],
+    labelFields: ['name'],
+    risk: 'billing',
+  },
+  // Bundle membership. ServiceBundleServices reports canCreate TRUE,
+  // canUpdate FALSE, canDelete TRUE — so membership is add/remove, never
+  // "edit", which is why update is absent here. All three of its fields are
+  // isReadOnly true yet the entity is creatable: for a join row, isReadOnly
+  // means "immutable once written", set at create time.
+  service_bundle_member: {
+    area: 'service_bundle_member',
+    label: 'Service bundle member (service in a bundle)',
+    targetSystem: 'autotask',
+    entity: 'ServiceBundleServices',
+    writePath: (parentId) => `ServiceBundles/${parentId}/Services`,
+    parentIdField: 'serviceBundleID',
+    parentIdFromField: 'serviceBundleID',
+    operations: ['create', 'delete'],
+    // serviceID is create-only, not plainly writable: the API reports it
+    // isReadOnly true, which for this join entity means "immutable once the row
+    // exists". Membership therefore changes by removing and re-adding a row,
+    // never by editing one — hence no update operation. Segregating it here also
+    // keeps the drift report honest, which is how this was caught: listing it as
+    // an ordinary writable field made the report flag our own allowlist as a bug.
+    allowedFields: [],
+    createOnlyFields: ['serviceID'],
+    requiredOnCreate: ['serviceID'],
+    labelFields: ['serviceID'],
     risk: 'billing',
   },
   work_type_modifier: {
@@ -219,7 +343,8 @@ export interface StagedChangeInput {
 
 /** Throws a caller-actionable error if the staged change is not allowed. */
 export function validateStagedChange(input: StagedChangeInput): ConfigWriteAreaSpec {
-  const spec = CONFIG_WRITE_AREAS[input.area]
+  const area = resolveConfigArea(input.area)
+  const spec = CONFIG_WRITE_AREAS[area]
   if (!spec) {
     throw new Error(`Unknown config area '${input.area}'. Writable areas: ${Object.keys(CONFIG_WRITE_AREAS).join(', ')}`)
   }
@@ -235,10 +360,13 @@ export function validateStagedChange(input: StagedChangeInput): ConfigWriteAreaS
   if (input.operation !== 'delete') {
     const keys = Object.keys(input.changes ?? {})
     if (!keys.length) throw new Error('changes must contain at least one field.')
-    const bad = keys.filter((k) => !spec.allowedFields.includes(k))
-    if (bad.length) {
-      throw new Error(`Field(s) not writable in ${spec.area}: ${bad.join(', ')}. Allowed: ${spec.allowedFields.join(', ')}`)
-    }
+    // Create-only fields widen the accepted set on create only; on update they
+    // fall through to the not-allowlisted path and get the read-only evidence.
+    const acceptable = input.operation === 'create'
+      ? [...spec.allowedFields, ...(spec.createOnlyFields ?? [])]
+      : spec.allowedFields
+    const bad = keys.filter((k) => !acceptable.includes(k))
+    if (bad.length) throw new FieldsNotAllowlistedError(spec.area, spec.entity, bad, acceptable)
   }
   if (input.operation === 'create') {
     const missing = (spec.requiredOnCreate ?? []).filter((k) => input.changes?.[k] == null)
