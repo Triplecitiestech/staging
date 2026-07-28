@@ -1,6 +1,19 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-20. Latest: **Human-vs-automated ticket classification** shipped on branch `claude/tct-automated-alerts-reporting-e4s0qr` — support metrics now count human tickets only; automated alerts report as "Security & Monitoring Activity". Post-deploy verification below. Previous (2026-07-18): **Datto RMM read-only reporting tools** (17 `datto_rmm_*` tools) added to the MCP connector on branch `claude/datto-rmm-reporting-tools-ngxkzy` — operator verification steps below. Previous (2026-07-16): **IT Glue document-folder tools** unified on `claude/itglue-document-folders-lf5xa9`; pending operator step below. Earlier pending items may still be open.
+> **Last updated**: 2026-07-28. Latest: **Connector usage telemetry + `/admin/connector/usage`** on branch `claude/connector-telemetry-dashboard-glcz62` — one migration POST then live verification, steps below. Previous (2026-07-20): **Human-vs-automated ticket classification** shipped on branch `claude/tct-automated-alerts-reporting-e4s0qr` — support metrics now count human tickets only; automated alerts report as "Security & Monitoring Activity". Post-deploy verification below. Previous (2026-07-18): **Datto RMM read-only reporting tools** (17 `datto_rmm_*` tools) added to the MCP connector on branch `claude/datto-rmm-reporting-tools-ngxkzy` — operator verification steps below. Previous (2026-07-16): **IT Glue document-folder tools** unified on `claude/itglue-document-folders-lf5xa9`; pending operator step below. Earlier pending items may still be open.
+
+## Connector usage telemetry: post-deploy operator steps (2026-07-28) — ⏳ waiting on deploy
+
+Ships on `claude/connector-telemetry-dashboard-glcz62`. The telemetry table does not exist until step 1, so nothing is recorded before it — connector tool calls work normally either way, and the dashboard says so explicitly.
+
+- [ ] **[1 — POST MIGRATIONS]** PowerShell:
+  `Invoke-RestMethod -Method POST -Uri "https://www.triplecitiestech.com/api/migrations/run" -Headers @{ Authorization = "Bearer <MIGRATION_SECRET>" }`
+  Expect `✅ connector_tool_calls table` in the results array.
+- [ ] **[2 — MAKE A FEW CONNECTOR CALLS]** In any Claude surface with the TCT connector: run one read (e.g. `autotask_search_companies`), and if you want a refusal row, one staged write (`autotask_stage_config_write`) — a successful stage is recorded as a refusal (`approval_required`) by design. No reconnect is needed: no tool names or signatures changed, so the cached tool list is still correct.
+- [ ] **[3 — OPEN THE DASHBOARD]** `https://www.triplecitiestech.com/admin/connector/usage` (staff login). Expect your own email under "Per technician", the read under top tools, the stage call under "Writes, itemised" with outcome `refusal` / "Needs human approval", and a response-weight row. Switch the window (24h / 7d / 30d) and confirm the numbers move.
+- [ ] **[4 — CHECK MOBILE]** Same URL on a phone: tables must scroll inside their own boxes with no sideways scrolling of the page itself.
+- [ ] **[5 — IF THE PAGE SAYS "Telemetry table not created yet"]** step 1 did not run (or ran against a different database). If it loads but stays empty after step 2, check the Vercel function logs for `connector.telemetry.insert_failed` — it is logged once per instance with the reason.
+- **Known follow-up (not built):** no retention/prune job — the table grows one row per tool call. Worth a cron (or partitioning) before the volume matters; say the word and I will add it.
 
 ## SLA reporting (Autotask-native, Fully-Managed only): post-deploy operator steps (2026-07-21) — ⏳ waiting on deploy
 
