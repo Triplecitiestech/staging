@@ -34,6 +34,8 @@ export interface LaborModel {
   deliveryCostPerHour: number;
   hoursPerEndpointPerMonth: Record<string, number>;
   hoursProxiedFrom?: Record<string, string>;
+  /** Per tier: 'hourly' | 'hourly-remediation' | 'included' — whether labor is recovered as T&M. */
+  laborBillingModel?: Record<string, string>;
   observed?: Record<string, { companies: number; endpoints: number; hoursPerMonth: number }>;
   capacity: {
     scalableDeliveryHoursPerMonth: number;
@@ -86,6 +88,15 @@ export interface LaborResult {
   /** Endpoints of this tier needed to cover the fixed pool from contribution alone. */
   breakevenEndpointsAtThisTier: number;
 
+  /** How this tier recovers labor: 'hourly' | 'hourly-remediation' | 'included'. */
+  laborBillingModel: string;
+  /**
+   * True when this tier bills labor as T&M, so the labor cost charged above is
+   * substantially recovered as revenue and contribution here is UNDERSTATED.
+   * The recovery is not modelled — see labor.json _billableCaptureFinding.
+   */
+  laborIsRecoverable: boolean;
+
   caveats: string[];
 }
 
@@ -128,6 +139,9 @@ export function laborForQuote(
   const idleRemaining = round2(cap.idleHoursPerMonth - deliveryHours);
   const perEndpoint = hoursPerEndpoint > 0 ? hoursPerEndpoint : Infinity;
 
+  const billingModel = model.laborBillingModel?.[quote.packageId] ?? 'included';
+  const recoverable = billingModel === 'hourly' || billingModel === 'hourly-remediation';
+
   const caveats: string[] = [
     "Contribution excludes the fixed cost pool (staff, overhead) — that is covered once, via breakevenEndpointsAtThisTier, not charged per deal.",
     "Microsoft 365 licensing is excluded from both price and cost here, matching the quote's own policy.",
@@ -135,6 +149,13 @@ export function laborForQuote(
   if (proxiedFrom) {
     caveats.push(
       `No customer is on this tier yet, so hours per endpoint are borrowed from "${proxiedFrom}". Treat the labor figure as an estimate.`
+    );
+  }
+  if (recoverable) {
+    caveats.push(
+      billingModel === 'hourly'
+        ? 'This tier bills labor at the hourly rate, so most of the labor cost above is recovered as T&M revenue — contribution here is a FLOOR, not the expected figure. The recovery is not modelled because the source billable flags do not track the tier\'s commercial model.'
+        : 'This tier includes the monitoring/security stack but bills REMEDIATION hourly, so part of the labor cost above is recovered as T&M revenue and contribution is somewhat understated.'
     );
   }
   if (endpoints === 0) {
@@ -182,6 +203,9 @@ export function laborForQuote(
         ? Math.ceil(model.monthlyFixedPool / (contribution / endpoints))
         : 0,
 
+    laborBillingModel: billingModel,
+    laborIsRecoverable: recoverable,
+
     caveats,
   };
 }
@@ -194,6 +218,7 @@ export function laborModelProvenance(model: LaborModel = laborModelConfig) {
     deliveryCostPerHour: model.deliveryCostPerHour,
     hoursPerEndpointPerMonth: model.hoursPerEndpointPerMonth,
     hoursProxiedFrom: model.hoursProxiedFrom ?? {},
+    laborBillingModel: model.laborBillingModel ?? {},
     observedByTier: model.observed ?? {},
     capacity: model.capacity,
     monthlyFixedPool: model.monthlyFixedPool,

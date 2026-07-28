@@ -30,7 +30,7 @@ const quoteFor = (id: string, i: DiscoveryInput) => buildAllQuotes(i).find((q) =
 describe("the derived model itself", () => {
   it("carries the observed hours-per-endpoint figures, rising with tier", () => {
     const h = laborModelConfig.hoursPerEndpointPerMonth;
-    expect(h.standard).toBeCloseTo(0.239, 3);
+    expect(h.standard).toBeCloseTo(0.253, 3);
     expect(h.comprehensive).toBeCloseTo(0.442, 3);
     expect(h.complete).toBeCloseTo(0.697, 3);
     // The whole premise: richer tiers really do cost more labor per endpoint.
@@ -40,16 +40,44 @@ describe("the derived model itself", () => {
     expect(h.complete / h.standard).toBeGreaterThan(2.5);
   });
 
-  it("marks the two tiers with no live customers as proxied, so their labor is never read as measured", () => {
-    expect(laborModelConfig.hoursProxiedFrom).toEqual({ basic: "standard", comanaged: "comprehensive" });
-    for (const id of ["basic", "comanaged"]) {
-      const r = laborForQuote(quoteFor(id, input()), input());
-      expect(r.hoursAreProxied).toBe(true);
-      expect(r.caveats.join(" ")).toMatch(/borrowed from/);
+  it("puts TCT Ally BELOW Standard Care — the customer's own IT does day-to-day", () => {
+    // Owner-directed 2026-07-28. Ally is not a proxy of Comprehensive: co-managed
+    // means TCT supplies the stack and an escalation bench, not front-line work.
+    const h = laborModelConfig.hoursPerEndpointPerMonth;
+    expect(h.comanaged).toBeLessThan(h.standard);
+    expect(h.comanaged).toBeLessThan(h.comprehensive);
+    // But above the pure-monitoring floor, so Ally margin is not overstated.
+    expect(h.comanaged).toBeGreaterThan(0.088);
+  });
+
+  it("marks Basic as proxied, so its labor is never read as measured", () => {
+    expect(laborModelConfig.hoursProxiedFrom).toEqual({ basic: "standard" });
+    const r = laborForQuote(quoteFor("basic", input()), input());
+    expect(r.hoursAreProxied).toBe(true);
+    expect(r.caveats.join(" ")).toMatch(/borrowed from/);
+    for (const id of ["standard", "comprehensive", "complete", "comanaged"]) {
+      expect(laborForQuote(quoteFor(id, input()), input()).hoursAreProxied, id).toBe(false);
     }
-    for (const id of ["standard", "comprehensive", "complete"]) {
-      expect(laborForQuote(quoteFor(id, input()), input()).hoursAreProxied).toBe(false);
+  });
+
+  it("flags the tiers that recover labor as T&M, so their contribution reads as a floor", () => {
+    const i = input();
+    const model = (id: string) => laborForQuote(quoteFor(id, i), i);
+    // Owner-confirmed: on Basic and Standard anything a customer needs is billable.
+    for (const id of ["basic", "standard", "comanaged"]) {
+      const r = model(id);
+      expect(r.laborBillingModel, id).toBe("hourly");
+      expect(r.laborIsRecoverable, id).toBe(true);
+      expect(r.caveats.join(" "), id).toMatch(/FLOOR/);
     }
+    const comp = model("comprehensive");
+    expect(comp.laborBillingModel).toBe("hourly-remediation");
+    expect(comp.laborIsRecoverable).toBe(true);
+    // Complete Care absorbs support — nothing to recover.
+    const complete = model("complete");
+    expect(complete.laborBillingModel).toBe("included");
+    expect(complete.laborIsRecoverable).toBe(false);
+    expect(complete.caveats.join(" ")).not.toMatch(/FLOOR/);
   });
 
   it("excludes the advisory retainer from the delivery rate", () => {

@@ -14,17 +14,27 @@
   "_deliveryCostPerHourNote": "Blended loaded cost of one customer-facing delivery hour, weighted by who actually logs the hours. Excludes the fixed advisory retainer (owner-confirmed 2026-07-28: not a billable resource — management and guidance), which sits in the fixed pool instead. Including it would move this figure to ~$42.79/hr on ~4.7 logged hours/month and badly distort per-endpoint economics.",
 
   "hoursPerEndpointPerMonth": {
-    "basic": 0.239,
-    "standard": 0.239,
+    "basic": 0.253,
+    "standard": 0.253,
     "comprehensive": 0.442,
     "complete": 0.697,
-    "comanaged": 0.442
+    "comanaged": 0.15
   },
   "hoursProxiedFrom": {
-    "basic": "standard",
-    "comanaged": "comprehensive"
+    "basic": "standard"
   },
-  "_hoursProxyNote": "No customer is on Basic Care or TCT Ally today, so those two tiers have no observed hours and borrow the nearest measured tier. Treat them as estimates and replace them once a real customer exists on either.",
+  "_hoursProxyNote": "No customer is on Basic Care today, so it borrows Standard Care's measured figure. Replace it once a real customer lands there.",
+  "_comanagedNote": "TCT Ally is set BELOW Standard Care by owner direction (2026-07-28): the customer's own IT staff handle day-to-day helpdesk, moves/adds/changes and projects, so TCT's included labor is tool-stack management plus an escalation bench, not front-line work. 0.15 is an estimate, not a measurement — no customer is on Ally yet. It sits deliberately above the 0.088 h/endpoint 'pure monitoring' floor (Standard Care's non-billable share) so the tier's margin is not overstated. Revisit with real data on the first Ally customer.",
+
+  "laborBillingModel": {
+    "basic": "hourly",
+    "standard": "hourly",
+    "comprehensive": "hourly-remediation",
+    "complete": "included",
+    "comanaged": "hourly",
+    "_note": "Which tiers recover labor as time-and-materials rather than absorbing it. Owner-confirmed 2026-07-28: on Basic and Standard Care anything a customer needs is billable at the hourly rate; Comprehensive includes the monitoring/security stack but bills remediation; Complete Care absorbs support; Ally bills day-to-day labor (pricing.json packages.comanaged.hourlyLabor). The labor COST in this model is charged against every tier regardless — it is real cost either way — so contribution on the hourly tiers is UNDERSTATED by whatever T&M revenue those hours recover. See _billableCaptureFinding before trying to model that revenue.",
+    "_billableCaptureFinding": "T&M revenue is deliberately NOT modelled, because the source data cannot support it. Over the 6-month window the share of customer hours flagged billable was 65.4% on Standard, 63.4% on Comprehensive and 69.1% on Complete — i.e. Complete Care, which is supposed to be all-inclusive, shows the SAME billable share as the tiers that bill hourly. The flag therefore does not track each tier's commercial model, so it cannot be used to derive recovered revenue. Verifying actual capture needs the invoiced status from BillingItems (autotask_search_time_entries with withBillingStatus=true), which was not reachable when this was derived."
+  },
 
   "observed": {
     "standard": { "companies": 9, "endpoints": 57, "hoursPerMonth": 13.94 },
