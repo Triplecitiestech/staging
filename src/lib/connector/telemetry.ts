@@ -419,21 +419,25 @@ function actorEmailFrom(args: unknown[]): string | null {
   return null
 }
 
+/**
+ * An MCP tool handler. Variadic because the SDK dispatches
+ * `handler(args, extra)` for a tool that declares an inputSchema and
+ * `handler(extra)` for one that does not — the wrapper must be callable either
+ * way, so it deliberately does not narrow the original handler's own arity.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyHandler = (...args: any[]) => any
+export type ToolHandler = (...args: any[]) => any
 
 /**
  * Wrap one tool handler so the call is timed, classified and recorded. The
- * wrapper is variadic and returns the handler's own result unchanged: the MCP
- * SDK dispatches `handler(args, extra)` or `handler(extra)` depending on
- * whether the tool declares an inputSchema, and neither behaviour changes here.
- * A thrown error is recorded and re-thrown untouched.
+ * handler's arguments are passed straight through and its result is returned
+ * unchanged; a thrown error is recorded and re-thrown untouched.
  */
-export function instrumentToolHandler<H extends AnyHandler>(
+export function instrumentToolHandler(
   toolName: string,
   facts: ToolTelemetryFacts,
-  handler: H
-): H {
+  handler: ToolHandler
+): ToolHandler {
   // Task-capable handlers are objects-with-methods rather than plain callables
   // (SDK `createTask`). registerTool never produces one, but wrapping such a
   // handler would drop the method — so leave it alone instead.
@@ -458,7 +462,7 @@ export function instrumentToolHandler<H extends AnyHandler>(
     }
   }
 
-  return wrapped as unknown as H
+  return wrapped
 }
 
 function emit(opts: {
