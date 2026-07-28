@@ -80,7 +80,29 @@ export function getProtectedResourceMetadata(): Record<string, unknown> {
       bearer_methods_supported: ['header'],
     }
     const scopes = process.env.CONNECTOR_ENTRA_SCOPES
-    if (scopes) body.scopes_supported = scopes.split(/\s+/).filter(Boolean)
+    if (scopes) {
+      const list = scopes.split(/\s+/).filter(Boolean)
+      // Advertise offline_access so a client that builds its authorization
+      // request from this metadata asks Entra for a REFRESH token.
+      //
+      // Why: Entra access tokens live 60-90 minutes (randomized, ~75 min avg —
+      // learn.microsoft.com/entra/identity-platform/configurable-token-lifetimes).
+      // Without a refresh token the connector session simply dies at expiry and
+      // the user has to reconnect by hand. This metadata previously advertised
+      // only the mcp.access scope, so whether a refresh token was ever issued
+      // depended entirely on the client adding offline_access on its own.
+      // Making it explicit removes that dependency. Harmless if the client
+      // already requests it.
+      //
+      // NOTE this is necessary but may not be sufficient for the reported
+      // once-or-twice-daily disconnects: a redirect URI registered as `spa`
+      // caps refresh tokens at 24 hours regardless (Web platform gets 90 days),
+      // and a Conditional Access sign-in-frequency policy forces reauth on its
+      // own schedule. Both are tenant config, not code. See
+      // docs/runbooks/CONNECTOR_AUTH_ENTRA.md § Disconnects.
+      if (!list.includes('offline_access')) list.push('offline_access')
+      body.scopes_supported = list
+    }
     return body
   }
   const domain = authkitDomain()
