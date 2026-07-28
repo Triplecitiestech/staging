@@ -14,9 +14,9 @@
 import { z } from 'zod'
 import { AutotaskClient } from '@/lib/autotask'
 import { getStatusSlaOverlay } from '@/lib/connector/staged-writes'
-import { FAILURE_ENVELOPE_TOOL_NOTE, toolFailure } from '@/lib/connector/failure-envelope'
+import { FAILURE_ENVELOPE_TOOL_NOTE, failureResult, toolFailure } from '@/lib/connector/failure-envelope'
 import { buildAutotaskDriftReport, checkAutotaskCapability, connectorAutotaskEntities } from '@/lib/connector/autotask-drift'
-import { capabilityCacheStats } from '@/lib/connector/autotask-capability'
+import { capabilityCacheStats, classifyEntityInformationError } from '@/lib/connector/autotask-capability'
 
 let _client: AutotaskClient | null = null
 function autotask(): AutotaskClient {
@@ -237,7 +237,15 @@ export function registerConfigReadTools(server: any) {
       inputSchema: { entity: z.string().describe('REST entity name, e.g. TicketCategories') },
     },
     async ({ entity }: { entity: string }) => {
-      try { return ok(await autotask().getEntityCapabilities(entity)) } catch (e) { return fail(e) }
+      // Success path unchanged. On failure, a 404 is routed through the SHARED
+      // no-REST-surface verdict so this tool and autotask_capability_check
+      // cannot disagree about the same entity — they did before this was added
+      // (INVALID_INPUT here vs UPSTREAM_UNSUPPORTED there), which is precisely
+      // the ambiguity the envelope exists to remove.
+      try { return ok(await autotask().getEntityCapabilities(entity)) } catch (e) {
+        const shared = classifyEntityInformationError(entity, e)
+        return shared ? failureResult(shared) : fail(e)
+      }
     }
   )
 

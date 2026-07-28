@@ -21,6 +21,7 @@ import {
   connectorFailure,
   throwClassified,
   type ConnectorFailure,
+  type FailureInput,
 } from './failure-envelope'
 
 // ---------------------------------------------------------------------------
@@ -194,6 +195,44 @@ function isNotFound(err: unknown): boolean {
 }
 
 /**
+ * THE single definition of "Autotask has no such REST entity".
+ *
+ * Exported because more than one tool can hit this condition, and they must
+ * agree. Live verification caught them disagreeing: asking
+ * autotask_entity_capabilities about a non-existent entity returned
+ * INVALID_INPUT (a bare 404 classified as validation) while
+ * autotask_capability_check returned UPSTREAM_UNSUPPORTED for the very same
+ * entity. One fact must not have two reason codes depending on which tool was
+ * asked — that is the ambiguity this contract exists to remove.
+ *
+ * The message deliberately covers BOTH readings, because a 404 genuinely cannot
+ * distinguish a typo from an absent entity.
+ */
+export function entityHasNoRestSurfaceFailure(entity: string, err?: unknown): FailureInput {
+  return {
+    reasonCode: 'UPSTREAM_UNSUPPORTED',
+    message: `Autotask has no REST entity named "${entity}" on this instance, so nothing can be read from or written to it through the API.`,
+    evidence: `GET /v1.0/${entity}/entityInformation returned 404 on this instance.`,
+    remediation:
+      'Confirm the entity name is spelled exactly as Autotask names it (a typo 404s identically). If the spelling is right, this data is UI-only — there is no REST surface to build against.',
+    surface: 'autotask',
+    ...(err ? { vendorError: err instanceof Error ? err.message : String(err) } : {}),
+    details: { entity },
+  }
+}
+
+/**
+ * Classify a failure from any raw entityInformation call.
+ *
+ * Returns the shared no-REST-surface envelope for a 404, or null to let the
+ * caller's normal classification handle it.
+ */
+export function classifyEntityInformationError(entity: string, err: unknown): FailureInput | null {
+  if (err instanceof ClassifiedConnectorError) return null
+  return isNotFound(err) ? entityHasNoRestSurfaceFailure(entity, err) : null
+}
+
+/**
  * Get the capability snapshot for one entity, from cache when fresh.
  *
  * Failure behaviour is the crux of this module:
@@ -233,17 +272,7 @@ export async function getEntityCapabilitySnapshot(
     // reason code — never re-classify it as a capability question.
     if (err instanceof ClassifiedConnectorError) throw err
 
-    if (isNotFound(err)) {
-      throwClassified({
-        reasonCode: 'UPSTREAM_UNSUPPORTED',
-        message: `Autotask has no REST entity named "${entity}" on this instance, so nothing can be read from or written to it through the API.`,
-        evidence: `GET /v1.0/${entity}/entityInformation returned 404 on this instance.`,
-        remediation:
-          `Confirm the entity name is spelled exactly as Autotask names it (a typo 404s identically). If the spelling is right, this data is UI-only — there is no REST surface to build against.`,
-        surface: 'autotask',
-        details: { entity },
-      })
-    }
+    if (isNotFound(err)) throwClassified(entityHasNoRestSurfaceFailure(entity, err))
 
     if (cached) {
       return {
