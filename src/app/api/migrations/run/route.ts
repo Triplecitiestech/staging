@@ -653,6 +653,34 @@ export async function POST(request: Request) {
     // other connector tables). One row per tool call, written fire-and-forget by
     // src/lib/connector/telemetry.ts and read by /admin/connector/usage.
     //
+    // Delivery Economics weekly snapshots. Append-only: the trend (internal-work
+    // share, capacity, hours per endpoint) is the finding, so history must
+    // accumulate and is never overwritten. Full report JSON is retained so past
+    // questions can be re-asked without re-pulling Autotask.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS delivery_economics_snapshots (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          window_from DATE NOT NULL,
+          window_to DATE NOT NULL,
+          customer_hours_per_month NUMERIC(10,2),
+          internal_hours_per_month NUMERIC(10,2),
+          idle_hours_per_month NUMERIC(10,2),
+          internal_share_pct NUMERIC(6,2),
+          time_entries INTEGER,
+          captured_by TEXT,
+          report JSONB NOT NULL
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS delivery_economics_snapshots_captured_idx ON delivery_economics_snapshots (captured_at DESC)'
+      )
+      results.push('✅ delivery_economics_snapshots table')
+    } catch (e) {
+      results.push(`❌ delivery_economics_snapshots: ${e instanceof Error ? e.message : String(e)}`)
+    }
+
     // PRIVACY: there is deliberately NO column for tool arguments, response
     // bodies or error messages. Arguments carry Autotask ticket contents,
     // employee names and client data; the response size is stored as a
