@@ -62,16 +62,22 @@ taking it on trust.
 
 ## Open items — status
 
-1. **Auth mechanism contradicts the help page. STILL UNSETTLED — needs one live
-   call.** The spec says header `apiKey`; `help.quotemanager.kaseya.com/.../api.htm`
-   says a query parameter, with inconsistent casing (`apikey` vs `apiKey`). These
-   disagree on the *mechanism*, not just the casing.
-   **Built, not guessed:** the client defaults to the **header** (the spec is
-   generated from the vendor's implementation; the help page is hand-written prose),
-   and **`kqm_probe_connection`** settles it against the live API by trying each
-   mechanism *in isolation* — never both at once, since a key sent two ways makes a
-   success uninterpretable. If the probe says the help page is right, set
-   `KASEYA_QUOTE_MANAGER_AUTH_MODE=query` to switch with no code change.
+1. **Auth mechanism — SETTLED LIVE 2026-07-29: the API accepts the key BOTH ways.**
+   The spec says header `apiKey`; `help.quotemanager.kaseya.com/.../api.htm` says a
+   query parameter, with inconsistent casing (`apikey` vs `apiKey`). The probe ran
+   against the live API and **both mechanisms returned 200** — so neither doc is
+   wrong; each is incomplete.
+   **We keep the header default, and not merely because the spec says so:** a key
+   sent as a query parameter ends up in the URL, and therefore in access logs, proxy
+   logs, and any error report that echoes the request line. The header keeps it out
+   of all of them. Do not set `KASEYA_QUOTE_MANAGER_AUTH_MODE=query` without a
+   specific reason.
+   The probe tries each mechanism *in isolation* — never both at once, since a key
+   sent two ways would make a success uninterpretable — and reports **`accepted`**
+   (every mechanism that worked), not just the first. An earlier version returned
+   only the first success and declared the help page disregardable, which the
+   evidence never supported; that was a real defect in the diagnostic and is
+   regression-locked by four tests, one per outcome.
 2. **Env var:** `KASEYA_QUOTE_MANAGER_API_KEY` — created in Vercel 2026-07-29.
    Already in the failure-envelope secret-scrub list so it can never appear in an
    error envelope. Optional: `KASEYA_QUOTE_MANAGER_AUTH_MODE` (`header` default).
@@ -84,8 +90,8 @@ taking it on trust.
    sufficient alone.
 4. **`pageSize` maximum is not stated in the spec** (though 100 is its stated
    *default*). Clamped to 100 per the help page rather than passing a larger value
-   through and gambling on undocumented behaviour. `kqm_probe_connection` reports
-   `pageSizeCapHonoured`.
+   through and gambling on undocumented behaviour. **Confirmed live 2026-07-29:**
+   `pageSizeCapHonoured: true` — a `pageSize=100` request returned at most 100 rows.
 5. **No total count anywhere.** Every list response is a bare JSON array — no
    envelope, no `totalCount`. A swept read therefore reports `truncated: true` when
    it hits the page cap instead of implying it fetched everything, and a single-page
@@ -167,8 +173,16 @@ Automated, in `src/lib/mcp-kaseya-quote-manager-tools.test.ts` (18 tests):
 - Every registered tool has a reviewed `TOOL_FACTS` entry (`access: read`,
   `staged: false`) and resolves to the Kaseya Quote Manager vendor label.
 
-**Still requires a live call with a real key** (run `kqm_probe_connection`):
-auth-mechanism resolution, `pageSize` cap confirmation, real 429 behaviour, and
-live-vs-spec response-shape drift. No live call has been made — no assertion here
-depends on one, and none of the above should be read as confirming the API behaves
-as documented.
+**Live verification — first real calls made 2026-07-29** via `kqm_probe_connection`
+against production (commit `d8f9992bc179`):
+
+- `configured: true` — `KASEYA_QUOTE_MANAGER_API_KEY` reaches the running app and
+  authenticates.
+- **Both** auth mechanisms returned 200 (see open item 1). Header retained.
+- `pageSizeCapHonoured: true`.
+- `/v1/warehouse` returned a bare JSON array, matching the spec's declared shape.
+
+**Still unverified:** real 429 / rate-limit behaviour (not provoked deliberately),
+response-shape drift on the other 19 resources, and whether any list endpoint
+behaves differently at scale. Those are observations to make in normal use, not
+blockers.

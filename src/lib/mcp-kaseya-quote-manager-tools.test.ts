@@ -254,6 +254,93 @@ describe('KaseyaQuoteManagerClient is read-only by construction', () => {
   })
 })
 
+describe('probeAuth reports what it observed, without overstating it', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    __resetKqmClient()
+  })
+
+  /** Stub the API to accept the key only via the given mechanisms. */
+  function stubAccepting(modes: Array<'header' | 'query'>) {
+    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      const viaHeader = headers.apiKey !== undefined
+      const viaQuery = String(url).includes('apiKey=')
+      const okHeader = viaHeader && modes.includes('header')
+      const okQuery = viaQuery && modes.includes('query')
+      if (okHeader || okQuery) {
+        return new Response(JSON.stringify([{ id: 1 }]), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response('unauthorized', { status: 401, statusText: 'Unauthorized' })
+    })
+    __resetKqmClient()
+  }
+
+  it('BOTH accepted: says neither doc is wrong and keeps the header for log-hygiene reasons', async () => {
+    // What the live API actually does (probed 2026-07-29). The original logic
+    // picked the first success and declared the help page disregardable — a
+    // claim the evidence never supported.
+    stubAccepting(['header', 'query'])
+    const out = await new KaseyaQuoteManagerClient({ apiKey: 'k', authMode: 'header' }).probeAuth()
+
+    expect(out.accepted).toEqual(['header', 'query'])
+    expect(out.working).toBe('header')
+    expect(out.recommendation).toMatch(/BOTH ways/)
+    expect(out.recommendation).toMatch(/neither vendor doc is wrong/)
+    // The security reason to prefer the header must be stated, not just "spec says so".
+    expect(out.recommendation).toMatch(/access logs|proxy logs/)
+    // And it must NOT claim a vendor doc can be ignored.
+    expect(out.recommendation).not.toMatch(/can be disregarded/)
+  })
+
+  it('both accepted while configured for query: reports the mode actually in use', async () => {
+    // `working` must describe what the client will DO, not probe order.
+    stubAccepting(['header', 'query'])
+    const out = await new KaseyaQuoteManagerClient({ apiKey: 'k', authMode: 'query' }).probeAuth()
+    expect(out.working).toBe('query')
+    expect(out.accepted).toEqual(['header', 'query'])
+  })
+
+  it('only query accepted: says to switch, and flags the URL-leak tradeoff', async () => {
+    stubAccepting(['query'])
+    const out = await new KaseyaQuoteManagerClient({ apiKey: 'k', authMode: 'header' }).probeAuth()
+    expect(out.accepted).toEqual(['query'])
+    expect(out.working).toBe('query')
+    expect(out.recommendation).toMatch(/KASEYA_QUOTE_MANAGER_AUTH_MODE=query/)
+    expect(out.recommendation).toMatch(/leaks into URLs/)
+  })
+
+  it('only header accepted: no change needed', async () => {
+    stubAccepting(['header'])
+    const out = await new KaseyaQuoteManagerClient({ apiKey: 'k', authMode: 'header' }).probeAuth()
+    expect(out.accepted).toEqual(['header'])
+    expect(out.recommendation).toMatch(/No change needed/)
+  })
+
+  it('neither accepted: blames the key, not the mechanism', async () => {
+    // The dangerous wrong answer here would be "the mechanism must be wrong",
+    // sending someone to flip a setting when the key is the problem.
+    stubAccepting([])
+    const out = await new KaseyaQuoteManagerClient({ apiKey: 'k', authMode: 'header' }).probeAuth()
+    expect(out.accepted).toEqual([])
+    expect(out.working).toBeNull()
+    expect(out.recommendation).toMatch(/key itself is the most likely cause/)
+  })
+
+  it('no key: reports unconfigured without making any call', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (u: string | URL) => {
+      calls.push(String(u))
+      return new Response('[]', { status: 200 })
+    })
+    __resetKqmClient()
+    const out = await new KaseyaQuoteManagerClient({ apiKey: '' }).probeAuth()
+    expect(out.configured).toBe(false)
+    expect(out.accepted).toEqual([])
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe('KaseyaQuoteManagerClient paging', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
