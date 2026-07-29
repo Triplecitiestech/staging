@@ -469,3 +469,77 @@ describe('computeRateVariance', () => {
     expect(rows).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Pagination regression
+// ---------------------------------------------------------------------------
+
+describe('contract service unit fetching', () => {
+  it('scopes unit queries per contract and to a window', async () => {
+    // The first live run returned $0 managed revenue because unit rows were
+    // pulled account-wide: ContractServiceUnits holds one row per service PER
+    // BILLING PERIOD, so a three-year contract contributes ~36 rows per
+    // service, the query exceeded the 500-record first page, and this zone
+    // 405s on the nextPageUrl GET for includeFields queries. Every unit query
+    // must therefore carry BOTH a contractId and a date window.
+    const { fetchDeliveryTelemetry } = await import('./service')
+    const unitCalls: { contractId?: number; from?: Date; to?: Date }[] = []
+    const serviceCalls: { contractId?: number }[] = []
+
+    const autotask = {
+      searchTimeEntries: async () => [],
+      listContracts: async () => [
+        { id: 9001, companyID: 398, contractName: 'TCT Complete Care', statusName: 'Active' },
+      ],
+      getServicesList: async () => ({ services: CATALOG, serviceBundles: [] }),
+      listContractServices: async (o: { contractId?: number } = {}) => {
+        serviceCalls.push(o)
+        return CONTRACT_SERVICES.filter((r) => r.contractID === o.contractId)
+      },
+      listContractServiceUnits: async (o: { contractId?: number; from?: Date; to?: Date } = {}) => {
+        unitCalls.push(o)
+        return CONTRACT_SERVICE_UNITS.filter((r) => r.contractID === o.contractId)
+      },
+    }
+    const datto = { getV2: async () => ({ sites: [] }) }
+
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const t = await fetchDeliveryTelemetry({
+      from: new Date('2026-07-01'),
+      to: new Date('2026-07-31'),
+      autotask: autotask as any,
+      datto: datto as any,
+    })
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    expect(unitCalls).toHaveLength(1)
+    expect(unitCalls[0].contractId).toBe(9001)
+    expect(unitCalls[0].from).toBeInstanceOf(Date)
+    expect(unitCalls[0].to).toBeInstanceOf(Date)
+    expect(serviceCalls[0].contractId).toBe(9001)
+    // And the billed units actually landed.
+    expect(t.billing.find((b) => b.companyId === 398)?.units.user).toBe(15)
+  })
+
+  it('reports an empty Datto response as a failed source, not as zero endpoints', async () => {
+    const { fetchDeliveryTelemetry } = await import('./service')
+    const autotask = {
+      searchTimeEntries: async () => [],
+      listContracts: async () => [],
+      getServicesList: async () => ({ services: CATALOG, serviceBundles: [] }),
+      listContractServices: async () => [],
+      listContractServiceUnits: async () => [],
+    }
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const t = await fetchDeliveryTelemetry({
+      from: new Date('2026-07-01'),
+      to: new Date('2026-07-31'),
+      autotask: autotask as any,
+      datto: { getV2: async () => ({ sites: [] }) } as any,
+    })
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    const datto = t.dataSources.find((d) => d.source === 'datto-endpoints')!
+    expect(datto.ok).toBe(false)
+    expect(t.warnings.join(' ')).toMatch(/not because those tiers have no customers/)
+  })
+})

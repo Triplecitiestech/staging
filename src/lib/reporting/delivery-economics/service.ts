@@ -27,6 +27,7 @@ import type {
   CapacityMember,
   CompanyBilling,
   CompanyTier,
+  DataSourceStatus,
   DeliveryEconomicsReport,
   DeliveryTimeEntry,
   EndpointCount,
@@ -73,8 +74,28 @@ export interface DeliveryEconomicsTelemetry {
   endpoints: EndpointCount[]
   billing: CompanyBilling[]
   unclassifiedServices: string[]
+  dataSources: DataSourceStatus[]
   warnings: string[]
 }
+
+/** Bounded-concurrency map. Keeps per-contract fan-out off Autotask's throat. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++
+      if (i >= items.length) return
+      out[i] = await fn(items[i])
+    }
+  })
+  await Promise.all(workers)
+  return out
+}
+
+const CONTRACT_FETCH_CONCURRENCY = 6
+/** Lookback for unit rows, wide enough to catch the anchor period and the one before it. */
+const UNIT_WINDOW_LOOKBACK_DAYS = 45
 
 /**
  * Contract service lines -> per-company billed unit mix.
@@ -84,43 +105,103 @@ export interface DeliveryEconomicsTelemetry {
  * ContractServiceUnits the quantity for a given billing period. There is no
  * single endpoint that returns a recurring invoice line whole.
  *
- * A failure here degrades the billed-unit sections only — the capacity and
- * billing-capture sections do not depend on contracts.
+ * FETCHED PER CONTRACT, AND THAT IS NOT AN OPTIMISATION — it is the only thing
+ * that works. `queryAll` paginates by following `pageDetails.nextPageUrl` with a
+ * GET, which this Autotask zone rejects with HTTP 405 whenever the original
+ * query used `includeFields` (docs/gotchas.md -> Autotask). ContractServiceUnits
+ * holds ONE ROW PER SERVICE PER BILLING PERIOD, so a single three-year contract
+ * contributes ~36 rows per service and an account-wide query blows past the
+ * 500-record first page immediately — which is exactly how the first live run
+ * came back with an empty billed-unit section and $0 managed revenue. Scoping to
+ * one contract and a ~6-week window keeps every response inside one page, so
+ * nextPageUrl is never followed. Do NOT "simplify" this back to one call.
+ *
+ * A failure here degrades the billed-unit sections only — capacity and
+ * billing-capture do not depend on contracts.
  */
 async function fetchCompanyBilling(
   autotask: AutotaskClient,
   contracts: { id: number; companyID: number; contractName: string | null }[],
   tiers: CompanyTier[],
   anchorDate: string,
+  to: Date,
   warnings: string[]
-): Promise<{ billing: CompanyBilling[]; unclassifiedServices: string[] }> {
+): Promise<{ billing: CompanyBilling[]; unclassifiedServices: string[]; status: DataSourceStatus }> {
+  const fail = (detail: string): { billing: CompanyBilling[]; unclassifiedServices: string[]; status: DataSourceStatus } => {
+    warnings.push(
+      `Contract service lines unavailable (${detail}). Per-billed-unit economics are omitted for this run ` +
+        'rather than estimated — every per-unit figure would otherwise read as zero.'
+    )
+    return { billing: [], unclassifiedServices: [], status: { source: 'contract-service-lines', ok: false, detail } }
+  }
+
+  let services: ServiceCatalogEntry[]
   try {
-    const [catalog, contractServices, contractServiceUnits] = await Promise.all([
-      withRetry(() => autotask.getServicesList({ activeOnly: false }), { maxRetries: 2 }),
-      withRetry(() => autotask.listContractServices(), { maxRetries: 2 }),
-      withRetry(() => autotask.listContractServiceUnits(), { maxRetries: 2 }),
-    ])
-    const services: ServiceCatalogEntry[] = catalog.services.map((s) => ({
+    const catalog = await withRetry(() => autotask.getServicesList({ activeOnly: false }), { maxRetries: 2 })
+    services = catalog.services.map((s) => ({
       id: Number(s.id),
       name: String(s.name ?? ''),
       unitPrice: s.unitPrice == null ? null : Number(s.unitPrice),
       unitCost: s.unitCost == null ? null : Number(s.unitCost),
     }))
-    const { companies, unclassifiedServices } = buildCompanyBilling({
-      contracts,
-      services,
-      contractServices,
-      contractServiceUnits,
-      tiers,
-      anchorDate,
-    })
-    return { billing: companies, unclassifiedServices }
   } catch (err) {
-    warnings.push(
-      `Contract service lines unavailable (${err instanceof Error ? err.message : String(err)}). ` +
-        'Per-billed-unit economics are omitted for this run rather than estimated.'
+    return fail(`service catalogue: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  const unitsFrom = new Date(to.getTime() - UNIT_WINDOW_LOOKBACK_DAYS * 86_400_000)
+  const perContractErrors: string[] = []
+
+  const results = await mapLimit(contracts, CONTRACT_FETCH_CONCURRENCY, async (c) => {
+    try {
+      const [svc, units] = await Promise.all([
+        withRetry(() => autotask.listContractServices({ contractId: c.id }), { maxRetries: 2 }),
+        withRetry(() => autotask.listContractServiceUnits({ contractId: c.id, from: unitsFrom, to }), { maxRetries: 2 }),
+      ])
+      return { svc, units }
+    } catch (err) {
+      perContractErrors.push(`contract ${c.id}: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  })
+
+  const okResults = results.filter((r): r is NonNullable<typeof r> => r !== null)
+  if (okResults.length === 0) {
+    return fail(
+      contracts.length === 0
+        ? 'no active contracts to read lines from'
+        : `all ${contracts.length} contracts failed — first: ${perContractErrors[0] ?? 'unknown'}`
     )
-    return { billing: [], unclassifiedServices: [] }
+  }
+
+  const { companies, unclassifiedServices } = buildCompanyBilling({
+    contracts,
+    services,
+    contractServices: okResults.flatMap((r) => r.svc),
+    contractServiceUnits: okResults.flatMap((r) => r.units),
+    tiers,
+    anchorDate,
+  })
+
+  // A partial read is reported as partial. Silently dropping a contract would
+  // understate that customer's revenue and never look like an error.
+  if (perContractErrors.length) {
+    warnings.push(
+      `${perContractErrors.length} of ${contracts.length} contracts could not be read, so their revenue and units are ` +
+        `MISSING rather than zero: ${perContractErrors.slice(0, 3).join('; ')}` +
+        `${perContractErrors.length > 3 ? '; …' : ''}`
+    )
+  }
+
+  return {
+    billing: companies,
+    unclassifiedServices,
+    status: {
+      source: 'contract-service-lines',
+      ok: true,
+      detail: perContractErrors.length
+        ? `${okResults.length}/${contracts.length} contracts read`
+        : `${okResults.length} contracts read`,
+    },
   }
 }
 
@@ -130,7 +211,11 @@ interface RawDattoSite {
 }
 
 /** Datto sites → endpoints per Autotask company. 0-indexed pagination. */
-async function fetchEndpointCounts(datto: DattoRmmClient, warnings: string[]): Promise<EndpointCount[]> {
+async function fetchEndpointCounts(
+  datto: DattoRmmClient,
+  warnings: string[],
+  statuses: DataSourceStatus[]
+): Promise<EndpointCount[]> {
   const byCompany = new Map<number, number>()
   try {
     for (let page = 0; page < 8; page++) {
@@ -148,11 +233,26 @@ async function fetchEndpointCounts(datto: DattoRmmClient, warnings: string[]): P
       }
       if (rows.length < 250) break
     }
+    statuses.push({
+      source: 'datto-endpoints',
+      ok: byCompany.size > 0,
+      detail: byCompany.size > 0
+        ? `${byCompany.size} companies mapped`
+        : 'Datto returned no site rows carrying an autotaskCompanyId',
+    })
+    if (byCompany.size === 0) {
+      warnings.push(
+        'Datto RMM returned no sites mapped to an Autotask company, so the per-tier endpoint table shows 0 companies ' +
+          'because it has no denominator — not because those tiers have no customers.'
+      )
+    }
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
     warnings.push(
-      `Datto RMM endpoint counts unavailable (${err instanceof Error ? err.message : String(err)}). ` +
-        'Per-tier hours-per-endpoint cannot be computed without them.'
+      `Datto RMM endpoint counts unavailable (${detail}). Per-tier hours-per-endpoint cannot be computed without them, ` +
+        'so that table reads 0 companies — treat it as unmeasured, not empty.'
     )
+    statuses.push({ source: 'datto-endpoints', ok: false, detail })
   }
   return [...byCompany.entries()].map(([companyId, endpoints]) => ({ companyId, endpoints }))
 }
@@ -166,12 +266,16 @@ export async function fetchDeliveryTelemetry(opts: {
   const autotask = opts.autotask ?? new AutotaskClient()
   const datto = opts.datto ?? new DattoRmmClient()
   const warnings: string[] = []
+  const dataSources: DataSourceStatus[] = []
+  let sliceFailures = 0
+  let sliceCount = 0
 
   // Time entries, half-month at a time, de-duplicated by id. One failed slice
   // degrades that slice only — a partial window is reported, never silently
   // treated as "no work happened then".
   const byId = new Map<number, DeliveryTimeEntry>()
   for (const slice of buildFetchSlices(opts.from, opts.to)) {
+    sliceCount++
     try {
       const rows = await withRetry(
         () => autotask.searchTimeEntries({ from: slice.from, to: slice.to, withBillingStatus: true }),
@@ -193,12 +297,21 @@ export async function fetchDeliveryTelemetry(opts: {
         })
       }
     } catch (err) {
+      sliceFailures++
       warnings.push(
         `Time entries ${slice.from.toISOString().slice(0, 10)}..${slice.to.toISOString().slice(0, 10)} failed ` +
           `(${err instanceof Error ? err.message : String(err)}). Figures for that period are missing, not zero.`
       )
     }
   }
+
+  dataSources.push({
+    source: 'time-entries',
+    ok: sliceFailures < sliceCount,
+    detail: sliceFailures
+      ? `${sliceCount - sliceFailures}/${sliceCount} windows read, ${byId.size} entries`
+      : `${byId.size} entries across ${sliceCount} windows`,
+  })
 
   let tiers: CompanyTier[] = []
   let billing: CompanyBilling[] = []
@@ -212,6 +325,20 @@ export async function fetchDeliveryTelemetry(opts: {
         statusName: c.statusName ?? null,
       }))
     )
+    dataSources.push({
+      source: 'contracts',
+      ok: tiers.length > 0,
+      detail: tiers.length > 0
+        ? `${contracts.length} active contracts, ${tiers.length} companies tiered`
+        : `${contracts.length} active contracts but none matched a tier name — every customer reads as unmanaged`,
+    })
+    if (contracts.length > 0 && tiers.length === 0) {
+      warnings.push(
+        `Autotask returned ${contracts.length} active contracts but none matched a known tier name, so every customer ` +
+          'reads as unmanaged and the per-tier tables are empty. Tier comes from the contract NAME — check for a ' +
+          'renamed or newly-named managed contract.'
+      )
+    }
     // Anchor on the window end: the billed unit mix reported is the one in
     // force at the end of the measured period, so revenue and hours describe
     // the same customer base.
@@ -220,23 +347,29 @@ export async function fetchDeliveryTelemetry(opts: {
       contracts.map((c) => ({ id: c.id, companyID: c.companyID, contractName: c.contractName ?? null })),
       tiers,
       opts.to.toISOString().slice(0, 10),
+      opts.to,
       warnings
     )
     billing = result.billing
     unclassifiedServices = result.unclassifiedServices
+    dataSources.push(result.status)
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
     warnings.push(
-      `Autotask contracts unavailable (${err instanceof Error ? err.message : String(err)}). ` +
-        'Every customer will read as unmanaged and per-tier figures will be empty.'
+      `Autotask contracts unavailable (${detail}). Every customer will read as unmanaged, and both the per-tier and ` +
+        'per-billed-unit tables will be empty — that is a failed read, not a business result.'
     )
+    dataSources.push({ source: 'contracts', ok: false, detail })
+    dataSources.push({ source: 'contract-service-lines', ok: false, detail: 'skipped — contracts could not be read' })
   }
 
   return {
     entries: [...byId.values()],
     tiers,
-    endpoints: await fetchEndpointCounts(datto, warnings),
+    endpoints: await fetchEndpointCounts(datto, warnings, dataSources),
     billing,
     unclassifiedServices,
+    dataSources,
     warnings,
   }
 }
@@ -261,6 +394,7 @@ export async function generateDeliveryEconomicsReport(opts: {
     endpoints: telemetry.endpoints,
     billing: telemetry.billing,
     unclassifiedServices: telemetry.unclassifiedServices,
+    dataSources: telemetry.dataSources,
     capacity: DELIVERY_ROSTER,
     excludedResources: EXCLUDED_RESOURCES,
     // Same blended loaded rate the sales calculator quotes against, so a deal
