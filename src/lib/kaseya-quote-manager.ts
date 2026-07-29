@@ -227,6 +227,17 @@ export class KaseyaQuoteManagerClient {
   async probeAuth(): Promise<{
     configured: boolean
     working: AuthMode | null
+    /**
+     * EVERY mechanism that authenticated — not just the first one found.
+     *
+     * `working` alone was misreporting reality: the live API (probed 2026-07-29)
+     * accepts the key BOTH ways, and because `header` is checked first, the tool
+     * reported header and then claimed the help page "can be disregarded". Both
+     * docs are right; each is just incomplete. A probe that collapses two
+     * successes into one answer is the kind of confident-but-unsupported claim
+     * this whole diagnostic exists to prevent.
+     */
+    accepted: AuthMode[]
     results: Array<{ mode: AuthMode; ok: boolean; status: number | null; detail: string }>
     defaultMode: AuthMode
     pageSizeCapHonoured: boolean | null
@@ -236,6 +247,7 @@ export class KaseyaQuoteManagerClient {
       return {
         configured: false,
         working: null,
+        accepted: [],
         results: [],
         defaultMode: this.authMode,
         pageSizeCapHonoured: null,
@@ -268,7 +280,11 @@ export class KaseyaQuoteManagerClient {
       }
     }
 
-    const working = results.find((r) => r.ok)?.mode ?? null
+    const accepted = results.filter((r) => r.ok).map((r) => r.mode)
+    // Prefer the configured mode when the API accepts more than one, so this
+    // reports what the client will actually DO rather than whichever mechanism
+    // happened to be probed first.
+    const working = accepted.includes(this.authMode) ? this.authMode : (accepted[0] ?? null)
 
     // Only worth asking once we know how to authenticate at all.
     let pageSizeCapHonoured: boolean | null = null
@@ -284,23 +300,47 @@ export class KaseyaQuoteManagerClient {
 
     structuredLog.info(
       { correlationId: `kqm-probe-${Date.now()}`, operation: 'kqm.probe_auth' },
-      `Kaseya Quote Manager auth probe: working=${working ?? 'none'} default=${this.authMode}`,
+      `Kaseya Quote Manager auth probe: accepted=[${accepted.join(',')}] using=${working ?? 'none'} default=${this.authMode}`,
     )
 
     return {
       configured: true,
       working,
+      accepted,
       results,
       defaultMode: this.authMode,
       pageSizeCapHonoured,
-      recommendation:
-        working === null
-          ? 'NEITHER mechanism authenticated. The key itself is the most likely cause (wrong value, not yet active, or the deployment predates the variable being added). Do not assume the mechanism is wrong until a key known to be good has been tried.'
-          : working === this.authMode
-            ? `The spec-declared mechanism (${working}) is correct and is already the default. No change needed — the help page's contradictory description can be disregarded.`
-            : `The help page is right and the spec is wrong: ${working} works, the default is ${this.authMode}. Set KASEYA_QUOTE_MANAGER_AUTH_MODE=${working} in Vercel to switch without a code change, and tell Claude Code to make it the default.`,
+      recommendation: recommendAuth(accepted, this.authMode),
     }
   }
+}
+
+/**
+ * Turn the probe's observations into advice, without overstating them.
+ *
+ * The both-accepted branch is the one the live API actually takes (2026-07-29),
+ * and it is the reason this is a function with four cases rather than the
+ * original three-way ternary: that version reported the first success and
+ * declared the other vendor doc wrong, which the evidence never supported.
+ */
+function recommendAuth(accepted: AuthMode[], defaultMode: AuthMode): string {
+  if (accepted.length === 0) {
+    return 'NEITHER mechanism authenticated. The key itself is the most likely cause (wrong value, not yet active, or the deployment predates the variable being added). Do not assume the mechanism is wrong until a key known to be good has been tried.'
+  }
+  if (accepted.length > 1) {
+    return (
+      `The API accepts the key BOTH ways (${accepted.join(' and ')}), so neither vendor doc is wrong — each is ` +
+      `incomplete. KEEP the ${defaultMode} default, and not merely because the spec says so: a key sent as a query ` +
+      `parameter ends up in URLs, and therefore in access logs, proxy logs and any error report that echoes the ` +
+      `request line. The header keeps it out of all of those. Do not set KASEYA_QUOTE_MANAGER_AUTH_MODE=query ` +
+      `without a specific reason.`
+    )
+  }
+  const only = accepted[0]
+  if (only === defaultMode) {
+    return `Only the ${only} mechanism authenticated, which is already the default. No change needed. (The other vendor doc describes a mechanism this instance rejects.)`
+  }
+  return `Only the ${only} mechanism authenticated, but the default is ${defaultMode}. Set KASEYA_QUOTE_MANAGER_AUTH_MODE=${only} in Vercel to switch without a code change, and tell Claude Code to make it the default. Note that a query-parameter key leaks into URLs and logs, so if ${only} is 'query' that is a constraint to live with, not a preference.`
 }
 
 /** Module-level singleton so the rate-limit window is shared in a warm lambda. */
