@@ -140,6 +140,20 @@ export interface CompanyBilling {
   passthroughRevenue: number
 }
 
+/**
+ * Per-upstream fetch outcome.
+ *
+ * Exists because the first live run showed a page full of confident zeros while
+ * the actual cause — an Autotask pagination failure — sat in a note below the
+ * fold. A zero and an unavailable source must never look the same, so the report
+ * states which sources answered and the UI leads with any that did not.
+ */
+export interface DataSourceStatus {
+  source: 'time-entries' | 'contracts' | 'contract-service-lines' | 'datto-endpoints'
+  ok: boolean
+  detail: string | null
+}
+
 /** A service catalogue entry, reduced to what the billing layer needs. */
 export interface ServiceCatalogEntry {
   id: number
@@ -277,6 +291,8 @@ export interface DeliveryEconomicsReport {
   tierUnitMix: TierUnitMix[]
   laborFit: LaborFit | null
   rateVariance: RateVariance[]
+  /** Which upstreams answered. Empty on snapshots taken before this existed. */
+  dataSources: DataSourceStatus[]
   /** Services whose billing unit could not be determined from the name. */
   unclassifiedServices: string[]
   /** Managed recurring revenue per month at contracted rates. */

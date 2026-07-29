@@ -27,6 +27,7 @@ import type {
   CapacityMember,
   CapacitySummary,
   CompanyBilling,
+  DataSourceStatus,
   CompanyTier,
   DeliveryEconomicsReport,
   DeliveryTier,
@@ -423,6 +424,8 @@ export function buildDeliveryEconomicsReport(input: {
   /** Billed unit mix per company. Omit when contract lines are unavailable. */
   billing?: CompanyBilling[]
   unclassifiedServices?: string[]
+  /** Per-upstream fetch outcomes, so a failed read never reads as a zero. */
+  dataSources?: DataSourceStatus[]
   /** Blended loaded cost of a delivery hour. */
   deliveryCostPerHour: number
 }): DeliveryEconomicsReport {
@@ -515,6 +518,7 @@ export function buildDeliveryEconomicsReport(input: {
     tierUnitMix,
     laborFit,
     rateVariance,
+    dataSources: input.dataSources ?? [],
     unclassifiedServices: input.unclassifiedServices ?? [],
     managedRevenuePerMonth: round2(managedRevenue),
     passthroughRevenuePerMonth: round2(passthroughRevenue),

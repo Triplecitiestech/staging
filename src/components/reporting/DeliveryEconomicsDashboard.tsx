@@ -79,6 +79,11 @@ interface LaborFitInfo {
   observations: number
   warnings: string[]
 }
+interface DataSourceRow {
+  source: string
+  ok: boolean
+  detail: string | null
+}
 interface RateVarianceRow {
   companyId: number
   tier: string
@@ -116,6 +121,7 @@ interface Report {
   tierUnitMix?: TierUnitMixRow[]
   laborFit?: LaborFitInfo | null
   rateVariance?: RateVarianceRow[]
+  dataSources?: DataSourceRow[]
   unclassifiedServices?: string[]
   managedRevenuePerMonth?: number
   passthroughRevenuePerMonth?: number
@@ -154,6 +160,13 @@ const BAND_LABEL: Record<string, string> = {
   'under-30-min': 'Under 30 min (alert-sized)',
   '30-min-to-2-h': '30 min – 2 h',
   'over-2-h': '2 h or more (project-sized)',
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  'time-entries': 'Autotask time entries',
+  contracts: 'Autotask contracts (tiers)',
+  'contract-service-lines': 'Contract service lines (billed units)',
+  'datto-endpoints': 'Datto RMM endpoint counts',
 }
 
 const UNIT_LABEL: Record<string, string> = {
@@ -269,6 +282,7 @@ export default function DeliveryEconomicsDashboard() {
   const maxMonthHours = Math.max(1, ...(report?.monthly ?? []).map((m) => m.customerHours + m.internalHours))
   const projectSized = report?.nonBillableSizeBands.find((b) => b.band === 'over-2-h')
   const unitRows = report?.unitEconomics ?? []
+  const failedSources = (report?.dataSources ?? []).filter((d) => !d.ok)
   // Null when labour could not be attributed at all — summing the measured rows
   // would present a partial total as a complete one.
   const totalContribution = unitRows.some((u) => u.monthlyContribution !== null)
@@ -314,6 +328,26 @@ export default function DeliveryEconomicsDashboard() {
       )}
       {error && (
         <div className="mb-4 p-3 bg-rose-950/40 border border-rose-900 rounded-lg text-sm text-rose-200">{error}</div>
+      )}
+
+      {failedSources.length > 0 && (
+        <div className="mb-4 p-4 bg-rose-950/40 border border-rose-900 rounded-lg">
+          <div className="text-sm font-semibold text-rose-200">
+            {failedSources.length} data source{failedSources.length > 1 ? 's' : ''} did not answer for this snapshot
+          </div>
+          <p className="text-xs text-rose-200/80 mt-1 max-w-3xl">
+            Figures that depend on them are <span className="font-semibold">missing, not zero</span>. Fix the source and
+            press Refresh — do not read the affected tables as a business result.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-rose-200/90 list-disc pl-5">
+            {failedSources.map((d) => (
+              <li key={d.source}>
+                <span className="font-medium">{SOURCE_LABEL[d.source] ?? d.source}</span>
+                {d.detail ? <> — {d.detail}</> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {!report ? (
