@@ -1279,6 +1279,28 @@ export class AutotaskClient {
   }
 
   /**
+   * Fetch a ticket's current assignment — the resource AND its role.
+   *
+   * Narrow explicit-field query (same pattern as getTicketResolution) rather
+   * than widening TICKET_QUERY_FIELDS, which the reporting sync also uses.
+   * Exists so an assignment write can be VERIFIED by read-back instead of
+   * trusting a 200: Autotask requires assignedResourceID and
+   * assignedResourceRoleID together, and a write that does not stick must never
+   * be reported as success.
+   */
+  async getTicketAssignment(ticketId: number): Promise<{ assignedResourceID: number | null; assignedResourceRoleID: number | null } | null> {
+    const results = await this.queryAll<{ id: number; assignedResourceID?: number | null; assignedResourceRoleID?: number | null }>('Tickets', {
+      op: 'eq', field: 'id', value: ticketId,
+    }, ['id', 'assignedResourceID', 'assignedResourceRoleID']);
+    const row = results[0];
+    if (!row) return null;
+    return {
+      assignedResourceID: row.assignedResourceID ?? null,
+      assignedResourceRoleID: row.assignedResourceRoleID ?? null,
+    };
+  }
+
+  /**
    * Fetch a ticket's current Resolution text. `resolution` is NOT in
    * TICKET_QUERY_FIELDS (it's large and unused by the reporting sync), so this
    * queries it explicitly — used to append to the Resolution field on close.

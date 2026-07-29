@@ -23,6 +23,7 @@ import { throwClassified, type FailureInput } from './failure-envelope'
 import { checkField, checkOperation } from './autotask-capability'
 import {
   CONFIG_WRITE_AREAS,
+  fieldSupplyRoutes,
   type ConfigWriteAreaSpec,
   type ConfigWriteOperation,
   type FieldsNotAllowlistedError,
@@ -93,13 +94,18 @@ export function stagedWriteDriftedFailure(row: {
  * Turn a not-allowlisted-field rejection into an evidence-backed envelope.
  *
  * Asks live entityInformation about every refused field and splits them:
+ *   - supplied as parentId      → INVALID_INPUT  (supported, wrong place)
  *   - read-only upstream        → INVALID_INPUT  (the caller must drop it)
  *   - unknown to the API        → INVALID_INPUT  (misspelled or nonexistent)
  *   - writable but not exposed  → NOT_IMPLEMENTED (a connector gap, named)
  *
  * A mixed batch reports the connector gap, because that is the actionable half:
  * telling the owner "we could add this" is worth more than repeating that a
- * computed field is computed.
+ * computed field is computed. The parentId case is checked FIRST and separately,
+ * because it is the one split where the connector already does what was asked —
+ * classifying it as a gap would send someone to build an allowlist entry for a
+ * field that has always worked, and the fix the caller needs is to move it out
+ * of `changes`.
  *
  * Never returns — always throws a classified error.
  */
@@ -108,6 +114,19 @@ export async function classifyRejectedFields(err: FieldsNotAllowlistedError): Pr
   const unknown: string[] = []
   const buildable: string[] = []
   const evidence: string[] = []
+
+  const spec = CONFIG_WRITE_AREAS[err.area]
+  const viaParentId = spec ? err.fields.filter((f) => fieldSupplyRoutes(spec, f).includes('parent_id')) : []
+  if (viaParentId.length) {
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      message: `${viaParentId.map((f) => `${err.entity}.${f}`).join(', ')} ${viaParentId.length === 1 ? 'is' : 'are'} supplied as the '${err.area}' area's parentId, not inside changes.`,
+      evidence: `The '${err.area}' area targets a child REST path and takes ${spec?.parentIdField} as parentId, which is written into the create payload.`,
+      remediation: `Re-stage with parentId set to the ${viaParentId.join(', ')} value and remove ${viaParentId.length === 1 ? 'it' : 'them'} from changes. This is a supported write — do NOT report it as a connector gap or an Autotask limitation.`,
+      surface: 'autotask',
+      details: { area: err.area, entity: err.entity, parentIdFields: viaParentId },
+    })
+  }
 
   for (const field of err.fields) {
     try {

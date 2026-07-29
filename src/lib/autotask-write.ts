@@ -101,8 +101,49 @@ export async function createTicketTimeEntry(
   return post('TimeEntries', body, impersonationResourceId)
 }
 
+// ---------------------------------------------------------------------------
+// Resource assignment: Autotask requires the resource and its ROLE together
+// ---------------------------------------------------------------------------
+//
+// Any write that sets assignedResourceID without assignedResourceRoleID is
+// rejected with HTTP 500 and:
+//
+//   "Data violation: When assigning a Resource, you must assign both a
+//    assignedResourceID and assignedResourceRoleID."
+//
+// So assignment on create and on PATCH both failed 100% of the time until
+// 2026-07-29. The pairing is enforced HERE rather than in the MCP tools, so no
+// current or future caller of createTicket/updateTicket can reintroduce a lone
+// assignedResourceID.
+
+/**
+ * Role used when a caller supplies a resource but no role.
+ *
+ * Live role ids in this instance (from autotask_list_roles): Engineer 29683355,
+ * Help Desk 29683464, Network Engineer 29683460. Engineer is the default
+ * because it is the general-purpose delivery role. DO NOT default to Low/High
+ * Voltage Technician (29683465) — it is a cabling role and would misattribute
+ * the work, and its rate is wrong for ticket delivery.
+ */
+export const DEFAULT_ASSIGNED_RESOURCE_ROLE_ID = 29683355
+
+/**
+ * Complete an assignment payload so the required pair is never half-supplied.
+ *
+ * Pure, and exported for the regression test. Only fills the role when a real
+ * resource is being SET: clearing an assignment (null) must not acquire a role,
+ * and a payload that touches neither field is returned untouched.
+ */
+export function applyAssignedResourceRole(fields: Record<string, unknown>): Record<string, unknown> {
+  const resource = fields.assignedResourceID
+  const assigningSomeone = typeof resource === 'number' && resource > 0
+  if (!assigningSomeone) return fields
+  if (fields.assignedResourceRoleID != null) return fields
+  return { ...fields, assignedResourceRoleID: DEFAULT_ASSIGNED_RESOURCE_ROLE_ID }
+}
+
 export async function updateTicket(ticketID: number, fields: Record<string, unknown>, impersonationResourceId?: number): Promise<unknown> {
-  return patch('Tickets', { id: ticketID, ...fields }, impersonationResourceId)
+  return patch('Tickets', { id: ticketID, ...applyAssignedResourceRole(fields) }, impersonationResourceId)
 }
 
 // Create a new ticket. Autotask enforces title + companyID + status + priority,
@@ -121,6 +162,8 @@ export async function createTicket(
     dueDateTime?: string;
     contactID?: number;
     assignedResourceID?: number;
+    /** Required by Autotask WITH assignedResourceID; defaulted if omitted. */
+    assignedResourceRoleID?: number;
     ticketType?: number;
   },
   impersonationResourceId?: number
@@ -136,8 +179,9 @@ export async function createTicket(
   if (data.dueDateTime !== undefined) body.dueDateTime = data.dueDateTime
   if (data.contactID !== undefined) body.contactID = data.contactID
   if (data.assignedResourceID !== undefined) body.assignedResourceID = data.assignedResourceID
+  if (data.assignedResourceRoleID !== undefined) body.assignedResourceRoleID = data.assignedResourceRoleID
   if (data.ticketType !== undefined) body.ticketType = data.ticketType
-  return post<{ itemId?: number }>('Tickets', body, impersonationResourceId)
+  return post<{ itemId?: number }>('Tickets', applyAssignedResourceRole(body), impersonationResourceId)
 }
 
 // ============================================

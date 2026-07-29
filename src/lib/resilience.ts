@@ -28,13 +28,14 @@ export function generateCorrelationId(): string {
 
 /** Categories of errors for determining retry behavior */
 export type ErrorCategory =
-  | 'connection'    // DB/network connection failures
-  | 'timeout'       // Operation timed out
-  | 'rate_limit'    // Rate limited by external service
-  | 'server_error'  // 5xx from external service
-  | 'auth'          // Authentication/authorization failure
-  | 'validation'    // Bad input / client error
-  | 'unknown';      // Unclassified
+  | 'connection'      // DB/network connection failures
+  | 'timeout'         // Operation timed out
+  | 'rate_limit'      // Rate limited by external service
+  | 'server_error'    // 5xx from external service
+  | 'data_violation'  // Upstream schema rule broken (missing/paired required field)
+  | 'auth'            // Authentication/authorization failure
+  | 'validation'      // Bad input / client error
+  | 'unknown';        // Unclassified
 
 export interface ClassifiedError {
   category: ErrorCategory;
@@ -57,11 +58,40 @@ const RATE_LIMIT_PATTERNS = [
 ];
 
 /**
+ * Bodies that name a SCHEMA rule: a required field was missing, or two fields
+ * that must be supplied together were not.
+ *
+ * These are never retryable — the identical call can never succeed — but the
+ * HTTP STATUS does not say so. Autotask answers a schema violation with
+ * `500 {"errors":["Data violation: When assigning a Resource, you must assign
+ * both a assignedResourceID and assignedResourceRoleID."]}`, which read as a
+ * server error and sent a caller into a pointless retry loop (2026-07-29).
+ * So the body decides, and it is checked BEFORE any status pattern.
+ *
+ * Keep this list tight and specific. A loose phrase like "is required" would
+ * also swallow ordinary 400s, whose caller-fixable "correct the argument"
+ * classification is already right.
+ */
+const DATA_VIOLATION_PATTERNS = [
+  'data violation',
+  'missing required field',
+  'required field is missing',
+  'must assign both',
+];
+
+/**
  * Classify an error to determine if it's transient (retryable) or permanent.
  */
 export function classifyError(err: unknown): ClassifiedError {
   const message = err instanceof Error ? err.message : String(err);
   const lowerMessage = message.toLowerCase();
+
+  // Schema violation — checked FIRST, because it is the only signal here that
+  // the status code actively contradicts (Autotask returns 500 for these) and
+  // the phrases are specific enough that nothing transient matches them.
+  if (DATA_VIOLATION_PATTERNS.some(p => lowerMessage.includes(p))) {
+    return { category: 'data_violation', isTransient: false, message, original: err };
+  }
 
   // Rate limit
   if (RATE_LIMIT_PATTERNS.some(p => lowerMessage.includes(p.toLowerCase()))) {

@@ -18,10 +18,12 @@ import {
   classifyThrown,
   condenseVendorError,
   connectorFailure,
+  extractVendorRule,
   scrubSecrets,
   toolFailure,
   type ConnectorReasonCode,
 } from './failure-envelope'
+import { classifyError } from '@/lib/resilience'
 import {
   __setCapabilityFetcher,
   capabilityCacheStats,
@@ -40,6 +42,7 @@ import {
 import {
   CONFIG_WRITE_AREAS,
   FieldsNotAllowlistedError,
+  fieldSupplyRoutes,
   resolveConfigArea,
   validateStagedChange,
 } from './staged-writes-core'
@@ -447,7 +450,85 @@ describe('connector gaps are distinguished from vendor limits', () => {
   it('a create missing a required field fails at stage time with a useful message', () => {
     expect(() =>
       validateStagedChange({ area: 'service', operation: 'create', changes: { name: 'ZZ-CONNECTOR-TEST' } }),
-    ).toThrow(/requires: billingCodeID, unitPrice/)
+    ).toThrow(/requires: billingCodeID, unitPrice, periodType/)
+  })
+
+  // -------------------------------------------------------------------------
+  // The create-only field regression, found in production 2026-07-28.
+  //
+  // autotask_capability_check answered "Services.periodType is read-only in the
+  // Autotask API, so it cannot be written by anyone / Do not offer to change
+  // this field" for a field that is REQUIRED on create. A caller obeying that
+  // omits periodType and every Service create fails — which is exactly the
+  // false vendor-limitation claim this layer was built to eliminate, produced
+  // by the layer itself. Live proof it is settable: service ids 131-136 created
+  // with periodType 2 and read back Monthly; the one create that omitted it got
+  // Autotask's own "Missing Required Field: periodType".
+  // -------------------------------------------------------------------------
+
+  it('a create-only field is never reported as an upstream limitation', async () => {
+    const v = await checkAutotaskCapability({ entity: 'Services', field: 'periodType' })
+    expect(v.verdict).not.toBe('UPSTREAM_UNSUPPORTED')
+    expect(v.message).not.toMatch(/cannot be written by anyone/)
+    expect(v.remediation).not.toMatch(/Do not offer to change this field/)
+    // It must say the thing that makes a create succeed.
+    expect(v.message).toMatch(/IS settable when creating/)
+    expect(v.message).toMatch(/REQUIRED on create/)
+    expect(v.remediation).toMatch(/Include periodType/)
+  })
+
+  it('a create-only field answers per operation, not with one flat verdict', async () => {
+    const onCreate = await checkAutotaskCapability({ entity: 'Services', field: 'periodType', operation: 'create' })
+    expect(onCreate.api.permits).toBe(true)
+    expect(onCreate.verdict).toBe('POLICY_GATED')
+    expect(onCreate.reasonCodeIfAttempted).toBe('POLICY_BLOCKED')
+
+    const onUpdate = await checkAutotaskCapability({ entity: 'Services', field: 'periodType', operation: 'update' })
+    expect(onUpdate.api.permits).toBe(false)
+    expect(onUpdate.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    // Still must not claim it is unwritable outright — only immutable after create.
+    expect(onUpdate.message).toMatch(/cannot be changed afterwards/)
+    expect(onUpdate.message).toMatch(/not unwritable/)
+    expect(onUpdate.remediation).toMatch(/Drop periodType from the update/)
+  })
+
+  it('the create-only carve-out does NOT soften a genuinely unwritable field', async () => {
+    // The guard against over-correcting: markupRate is read-only and is NOT a
+    // createOnlyField anywhere, so it must still come back UPSTREAM_UNSUPPORTED.
+    const v = await checkAutotaskCapability({ entity: 'Services', field: 'markupRate' })
+    expect(v.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    expect(v.message).toMatch(/cannot be written by anyone/)
+    expect(v.remediation).toMatch(/computed from unitPrice and unitCost/)
+    // Even when create is named explicitly — read-only here means read-only.
+    const onCreate = await checkAutotaskCapability({ entity: 'Services', field: 'markupRate', operation: 'create' })
+    expect(onCreate.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    expect(onCreate.api.permits).toBe(false)
+  })
+
+  it('periodType is required on create in every area that accepts it', () => {
+    // Autotask rejects a create without it, so the connector must too — at stage
+    // time, before a human spends an approval on a write that cannot succeed.
+    for (const spec of Object.values(CONFIG_WRITE_AREAS)) {
+      if (!(spec.createOnlyFields ?? []).includes('periodType')) continue
+      expect(spec.requiredOnCreate, `${spec.area} accepts periodType on create`).toContain('periodType')
+    }
+  })
+
+  it('the drift report still flags a create-only field the API has never heard of', async () => {
+    // createOnlyFields used to skip the suspect check entirely, so a typo in one
+    // was unreportable. Only the read-only half of the check should be skipped.
+    const spec = CONFIG_WRITE_AREAS.service
+    const original = spec.createOnlyFields
+    spec.createOnlyFields = [...(original ?? []), 'periodTypo']
+    try {
+      const report = await buildAutotaskDriftReport({ entities: ['Services'] })
+      const suspects = report.gaps.flatMap((g) => g.suspectAllowlistedFields)
+      expect(suspects).toContainEqual({ field: 'periodTypo', area: 'service', problem: 'unknown to the API' })
+      // …while the legitimate create-only field stays unflagged.
+      expect(suspects.map((s) => s.field)).not.toContain('periodType')
+    } finally {
+      spec.createOnlyFields = original
+    }
   })
 
   it('no allowlist anywhere accepts a markupRate — both instances of the bug are closed', async () => {
@@ -483,6 +564,128 @@ describe('connector gaps are distinguished from vendor limits', () => {
     expect((await checkField('Products', 'periodType')).isReadOnly).toBe(false)
   })
 
+  // -------------------------------------------------------------------------
+  // Parent-id fields: settable through the connector, but not via `changes`.
+  //
+  // Found by running the drift report the checklist asked for. Nothing consulted
+  // parentIdField, so three separate surfaces made a confident false claim about
+  // a field the connector has always written. ServiceBundleServices
+  // .serviceBundleID is the worst of them: isReadOnly true upstream, REQUIRED on
+  // every bundle-membership create, and answered as "cannot be written by
+  // anyone" — the periodType bug a second time.
+  // -------------------------------------------------------------------------
+
+  it('a read-only parent-id field is never reported as unwritable by anyone', async () => {
+    // The exact wording that was wrong. serviceBundleID is written into the
+    // create payload by executeStagedWrite on every bundle-membership create.
+    const create = await checkAutotaskCapability({
+      entity: 'ServiceBundleServices',
+      field: 'serviceBundleID',
+      operation: 'create',
+    })
+    expect(create.verdict).toBe('POLICY_GATED')
+    expect(create.api.permits).toBe(true)
+    expect(create.connector.implemented).toBe(true)
+    expect(create.connector.areas).toContain('service_bundle_member')
+    expect(create.fixableBy).toBe('tct_human')
+    expect(create.message).not.toMatch(/cannot be written by anyone/i)
+    expect(create.remediation).toMatch(/parentId/)
+    // And it must not send the caller to put it in changes, where it is refused.
+    expect(create.remediation).toMatch(/NOT inside changes/)
+  })
+
+  it('a parent-id field is immutable on update without being called an Autotask limit on create', async () => {
+    const update = await checkAutotaskCapability({
+      entity: 'ServiceBundleServices',
+      field: 'serviceBundleID',
+      operation: 'update',
+    })
+    // Honest on update: fixed once created. Still not "unwritable".
+    expect(update.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    expect(update.api.permits).toBe(false)
+    expect(update.message).toMatch(/not unwritable/i)
+    expect(update.reasonCodeIfAttempted).toBe('INVALID_INPUT')
+  })
+
+  it('a writable parent-id field is not reported as an unbuilt connector gap', async () => {
+    // Holidays.holidaySetID: writable upstream, supplied as the holiday area's
+    // parentId. This answered SUPPORTED_NOT_IMPLEMENTED / fixableBy claude_code,
+    // and the remediation told someone to add an allowlist entry for a field
+    // that has always worked.
+    const create = await checkAutotaskCapability({
+      entity: 'Holidays',
+      field: 'holidaySetID',
+      operation: 'create',
+    })
+    expect(create.verdict).toBe('POLICY_GATED')
+    expect(create.reasonCodeIfAttempted).toBe('POLICY_BLOCKED')
+    expect(create.fixableBy).toBe('tct_human')
+    expect(create.connector.areas).toContain('holiday')
+    expect(create.remediation).toMatch(/parentId/)
+  })
+
+  it('the drift report does not list a parent-id field as a missing writable field', async () => {
+    const report = await buildAutotaskDriftReport({ entities: ['Holidays', 'ServiceBundleServices'] })
+    expect(report.unchecked).toEqual([])
+    const missing = report.gaps.flatMap((g) => g.missingWritableFields)
+    expect(missing).not.toContain('holidaySetID')
+    expect(missing).not.toContain('serviceBundleID')
+    // ...and it is not laundered into the suspect list either: read-only upstream
+    // is expected for a parent link and is not a latent bug.
+    expect(report.summary.suspectAllowlistedFields, JSON.stringify(report.gaps, null, 2)).toBe(0)
+  })
+
+  it('the drift report still flags a parent-id field the API has never heard of', async () => {
+    // The half of the suspect check that DOES apply to parent-id fields: a typo
+    // here breaks every create in the area, so it must stay reportable.
+    const spec = CONFIG_WRITE_AREAS.holiday
+    const original = spec.parentIdField
+    spec.parentIdField = 'holidaySetTypo'
+    try {
+      const report = await buildAutotaskDriftReport({ entities: ['Holidays'] })
+      const suspects = report.gaps.flatMap((g) => g.suspectAllowlistedFields)
+      expect(suspects).toContainEqual({ field: 'holidaySetTypo', area: 'holiday', problem: 'unknown to the API' })
+    } finally {
+      spec.parentIdField = original
+    }
+  })
+
+  it('naming a parent-id field in changes is a misplaced argument, not a connector gap', async () => {
+    const failure = await failureFrom(() =>
+      classifyRejectedFields(
+        new FieldsNotAllowlistedError('holiday', 'Holidays', ['holidaySetID'], CONFIG_WRITE_AREAS.holiday.allowedFields),
+      ),
+    )
+    expect(failure.reasonCode).toBe<ConnectorReasonCode>('INVALID_INPUT')
+    expect(failure.fixableBy).toBe(FIXABLE_BY.INVALID_INPUT)
+    expect(failure.remediation).toMatch(/parentId/)
+    expect(failure.remediation).toMatch(/do NOT report it as a connector gap/i)
+    // The claim that was wrong: this is not something Claude Code has to build.
+    expect(failure.reasonCode).not.toBe('NOT_IMPLEMENTED')
+  })
+
+  it('an allowlist entry spelled differently from the API is not reported as a missing field', () => {
+    // The two halves of the drift report disagreed on case: missingWritableFields
+    // matched exactly while suspectAllowlistedFields matched case-insensitively,
+    // so ticket_category's 'displayColorRGB' vs Autotask's 'displayColorRgb' was
+    // reported as an unbuilt gap by one half and passed over by the other.
+    // Asserted through the shared helper both halves now use.
+    expect(fieldSupplyRoutes(CONFIG_WRITE_AREAS.ticket_category, 'displayColorRgb')).toContain('changes')
+    expect(fieldSupplyRoutes(CONFIG_WRITE_AREAS.ticket_category, 'displayColorRGB')).toContain('changes')
+  })
+
+  it('every parent-id field is discoverable in the stage tool description', () => {
+    // A settable field the description never mentions is a field callers guess
+    // at — and guessing `changes` is rejected.
+    for (const spec of Object.values(CONFIG_WRITE_AREAS)) {
+      if (!spec.parentIdField) continue
+      expect(
+        fieldSupplyRoutes(spec, spec.parentIdField),
+        `${spec.area} parentIdField must resolve as a parent_id route`,
+      ).toContain('parent_id')
+    }
+  })
+
   it('the retired service_pricing area still resolves to the one implementation', () => {
     expect(resolveConfigArea('service_pricing')).toBe('service')
     const spec = validateStagedChange({
@@ -492,5 +695,83 @@ describe('connector gaps are distinguished from vendor limits', () => {
       changes: { unitPrice: 10 },
     })
     expect(spec.area).toBe('service')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Schema violations are permanent, whatever status the vendor answers with
+// ---------------------------------------------------------------------------
+//
+// Reproduced live on 2026-07-29: Autotask answers a broken schema rule with
+// HTTP 500 and a "Data violation" body. classifyError() saw the 500, called it
+// server_error, and the envelope came back TRANSIENT / fixableBy "retry" /
+// "Wait briefly and retry the same call" — advice that can never succeed, on a
+// failure the caller then retried in a loop. The body decides now, not the
+// status.
+
+describe('a data violation is never TRANSIENT', () => {
+  // The exact string the connector saw, wrapped the way autotask-write.ts wraps it.
+  const AUTOTASK_DATA_VIOLATION =
+    'Autotask PATCH Tickets failed (500): {"errors":["Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID."]}'
+
+  it('classifyError does not call it a retryable server error', () => {
+    const classified = classifyError(new Error(AUTOTASK_DATA_VIOLATION))
+    expect(classified.category).toBe('data_violation')
+    expect(classified.isTransient).toBe(false)
+  })
+
+  it('the envelope is PRECONDITION_FAILED, and never advises a retry', () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask', tool: 'autotask_assign_ticket' })
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.fixableBy).not.toBe('retry')
+    expect(failure.remediation).not.toMatch(/wait briefly and retry/i)
+    expect(failure.details).toMatchObject({ retryable: false })
+  })
+
+  it("puts the VENDOR'S OWN message in remediation, field names intact", () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask' })
+    expect(failure.remediation).toContain('you must assign both a assignedResourceID and assignedResourceRoleID')
+    expect(failure.details).toMatchObject({
+      vendorRule: 'Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID.',
+    })
+  })
+
+  it('routes the caller to a schema fix, not to a permissions or outage story', () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask' })
+    expect(failure.message).toMatch(/NOT transient/)
+    expect(failure.remediation).toMatch(/connector gap for Claude Code/)
+  })
+
+  it('handles the create-time variant too (Missing Required Field: periodType)', () => {
+    // The 2026-07-28b case, which cost a spent human approval. Same shape.
+    const failure = classifyThrown(
+      new Error('Autotask POST Services failed (500): Missing Required Field: periodType'),
+      { surface: 'autotask' },
+    )
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.remediation).toContain('Missing Required Field: periodType')
+  })
+
+  it('extractVendorRule reads both a JSON errors array and bare text', () => {
+    expect(extractVendorRule('POST failed (500): {"errors":["Data violation: field X is required."]}'))
+      .toBe('Data violation: field X is required.')
+    expect(extractVendorRule('500: Data violation: field X is required.'))
+      .toBe('Data violation: field X is required.')
+    expect(extractVendorRule('503 Service Unavailable')).toBeUndefined()
+  })
+
+  it('leaves a GENUINE 5xx outage classified as TRANSIENT', () => {
+    // The fix must not blunt the retry advice that is correct for real outages.
+    const failure = classifyThrown(new Error('Autotask API query failed (503): Service Unavailable'), { surface: 'autotask' })
+    expect(failure.reasonCode).toBe('TRANSIENT')
+    expect(failure.fixableBy).toBe('retry')
+  })
+
+  it('leaves an ordinary 400 as INVALID_INPUT for the caller to fix', () => {
+    // A plain bad argument is still the caller's to correct — this change is
+    // about 5xx bodies that lie about being transient, nothing wider.
+    const failure = classifyThrown(new Error('Autotask API error 400: dueDateTime is required'), { surface: 'autotask' })
+    expect(failure.reasonCode).toBe('INVALID_INPUT')
+    expect(failure.fixableBy).toBe('caller')
   })
 })

@@ -193,6 +193,27 @@ export interface ItGlueDocument {
   }
 }
 
+/**
+ * WHY A DOCUMENT CANNOT BE MOVED BETWEEN FOLDERS THROUGH THE API.
+ *
+ * `document_folder_id` is a CREATE-ONLY attribute. The IT Glue developer
+ * reference marks it, on both PATCH /documents/:id and the bulk PATCH
+ * /documents, as "Not permitted in PUT/PATCH, optional in POST" — while the
+ * same attribute is documented and honoured on POST /documents.
+ *
+ * IT Glue does not error on the rejected attribute: it drops it and returns
+ * 200 with the document unchanged. That is why `itglue_move_document` reported
+ * moved:false with no error for twelve days (doc 24262329 → folder 5301326 on
+ * 2026-07-17; doc 24227609 → folder 6255494 on 2026-07-29), and why nothing in
+ * this codebase may send the attribute on an update: a silent no-op is worse
+ * than a refusal, because the caller cannot tell it happened.
+ *
+ * Shared by the client guard, the connector tools and known-limits.ts so one
+ * verified sentence is cited everywhere.
+ */
+export const DOCUMENT_FOLDER_MOVE_UNSUPPORTED =
+  'IT Glue\'s API cannot move an existing document between folders. Its developer reference marks data[attributes][document_folder_id] as "Not permitted in PUT/PATCH, optional in POST" on PATCH /documents/:id AND on the bulk PATCH /documents — folder placement is settable only at create time. IT Glue silently drops the attribute on PATCH and returns 200 with the document unchanged (verified live against org 6942365 on 2026-07-17 and 2026-07-29).'
+
 /** A content block within a document (Text/Heading/Step/Gallery). */
 export interface ItGlueDocumentSection {
   id: string
@@ -698,12 +719,22 @@ export class ItGlueClient {
     return data.data
   }
 
-  /** Update a document's metadata (name / public / folder). */
-  async updateDocument(id: string, input: { name?: string; public?: boolean; documentFolderId?: string | number | null }): Promise<ItGlueDocument> {
+  /**
+   * Update a document's metadata (name / public).
+   *
+   * FOLDER PLACEMENT IS NOT UPDATABLE — see DOCUMENT_FOLDER_MOVE_UNSUPPORTED.
+   * `documentFolderId` is typed `never` so no call site can pass it, and it
+   * throws if one reaches here through JS or a cast: IT Glue silently DROPS the
+   * attribute on PATCH and answers 200, so sending it produced a write that
+   * looked successful and changed nothing for twelve days.
+   */
+  async updateDocument(id: string, input: { name?: string; public?: boolean; documentFolderId?: never }): Promise<ItGlueDocument> {
+    if ('documentFolderId' in input) {
+      throw new Error(`Cannot move a document with PATCH /documents/${id}: ${DOCUMENT_FOLDER_MOVE_UNSUPPORTED}`)
+    }
     const attributes: Record<string, unknown> = {}
     if (input.name !== undefined) attributes.name = input.name
     if (input.public !== undefined) attributes.public = input.public
-    if (input.documentFolderId !== undefined) attributes.document_folder_id = input.documentFolderId == null ? null : Number(input.documentFolderId)
     const data = await this.send<{ data: ItGlueDocument }>('PATCH', `/documents/${id}`, { data: { type: 'documents', attributes } })
     return data.data
   }

@@ -198,6 +198,10 @@ export function toErrorClass(message: string): ErrorClass {
     case 'server_error':
       return 'vendor_unavailable'
     case 'validation':
+    // A schema violation IS bad input, even though the vendor answered 5xx —
+    // bucketing it as vendor_unavailable would blame an outage for our own
+    // malformed request and hide the tool gap behind it.
+    case 'data_violation':
       return 'bad_input'
     default:
       return 'other'

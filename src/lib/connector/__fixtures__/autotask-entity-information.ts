@@ -140,6 +140,34 @@ export const SERVICE_BUNDLE_SERVICES = {
 }
 
 /**
+ * Holidays: the WRITABLE-upstream parent-id case.
+ *
+ * holidaySetID reports isReadOnly false, and the `holiday` area supplies it as
+ * parentId rather than in allowedFields. The drift report listed it as a
+ * missing writable field, and a capability check answered "no connector write
+ * area exposes it yet" — for a field every holiday create has always set.
+ * Captured 2026-07-29 from the live drift sweep.
+ */
+export const HOLIDAYS = {
+  entity: 'Holidays',
+  capabilities: {
+    canQuery: true,
+    canCreate: true,
+    canUpdate: true,
+    canDelete: true,
+    hasUserDefinedFields: false,
+    supportsWebhookCallouts: false,
+  },
+  fields: [
+    f('id', 'long', true, true),
+    f('holidayDate', 'datetime', true, false),
+    f('holidayName', 'string', true, false),
+    f('holidaySetID', 'integer', true, false, { isReference: true, referenceEntityType: 'HolidaySet' }),
+  ],
+  userDefinedFields: [],
+}
+
+/**
  * BillingCodes: read-only at the ENTITY level (canCreate/canUpdate/canDelete
  * all false) even though most of its FIELDS report isReadOnly false. Entity
  * capability wins — this fixture exists to lock that precedence in.
@@ -224,6 +252,7 @@ export const FIXTURES: Record<string, Record<string, unknown>> = {
   servicebundleservices: SERVICE_BUNDLE_SERVICES,
   billingcodes: BILLING_CODES,
   products: PRODUCTS,
+  holidays: HOLIDAYS,
 }
 
 /** A fetcher over the fixtures above, for __setCapabilityFetcher(). */

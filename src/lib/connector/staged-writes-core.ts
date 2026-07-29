@@ -62,6 +62,73 @@ export function resolveConfigArea(area: string): string {
 }
 
 /**
+ * How a caller supplies a given field to an area — the ONE place that answers
+ * "can this field be set through the connector at all".
+ *
+ * There are three routes, and only two of them are `changes`:
+ *   - `changes`     → allowedFields
+ *   - `changes` on create only → createOnlyFields
+ *   - `parentId`    → parentIdField / parentIdFromField, which executeStagedWrite
+ *                     writes into the create payload and uses to build the child
+ *                     REST path
+ *
+ * The third route existed but nothing consulted it, so the capability layer
+ * reported a mandatory, working field as unwritable. ServiceBundleServices
+ * .serviceBundleID is the case that proves it: isReadOnly true upstream, required
+ * for every bundle-membership create, written by the connector on every one —
+ * and answered as "cannot be written by anyone" until this existed. Anything that
+ * decides whether a field is settable MUST go through here rather than reading
+ * allowedFields directly, or that bug comes back on the next area with a parent.
+ */
+export type FieldSupplyRoute = 'changes' | 'create_only' | 'parent_id'
+
+export interface FieldSupply {
+  area: string
+  route: FieldSupplyRoute
+}
+
+const eq = (a: string | undefined, b: string): boolean => a?.toLowerCase() === b.toLowerCase()
+
+/** Every route by which `area` accepts `field`, or [] if it does not. */
+export function fieldSupplyRoutes(spec: ConfigWriteAreaSpec, field: string): FieldSupplyRoute[] {
+  const routes: FieldSupplyRoute[] = []
+  if (spec.allowedFields.some((f) => eq(f, field))) routes.push('changes')
+  if ((spec.createOnlyFields ?? []).some((f) => eq(f, field))) routes.push('create_only')
+  if (eq(spec.parentIdField, field) || eq(spec.parentIdFromField, field)) routes.push('parent_id')
+  return routes
+}
+
+/**
+ * Map of field name → how it is supplied, across every given area.
+ *
+ * First area to claim a field wins, matching the previous behaviour of the
+ * allowlist maps this replaces.
+ */
+export function settableFields(specs: ConfigWriteAreaSpec[]): Map<string, FieldSupply> {
+  const out = new Map<string, FieldSupply>()
+  for (const spec of specs) {
+    const claim = (field: string, route: FieldSupplyRoute) => {
+      if (!out.has(field)) out.set(field, { area: spec.area, route })
+    }
+    for (const f of spec.allowedFields) claim(f, 'changes')
+    for (const f of spec.createOnlyFields ?? []) claim(f, 'create_only')
+    for (const f of [spec.parentIdField, spec.parentIdFromField]) if (f) claim(f, 'parent_id')
+  }
+  return out
+}
+
+/**
+ * True when being flagged isReadOnly upstream says nothing about whether the
+ * connector can set the field.
+ *
+ * Autotask sets isReadOnly on fields that are settable at CREATE and immutable
+ * afterwards, so for these two routes the flag is a question, not a verdict —
+ * the same asymmetry the drift report's suspect check already applies.
+ */
+export const routeExemptFromReadOnly = (route: FieldSupplyRoute): boolean =>
+  route === 'create_only' || route === 'parent_id'
+
+/**
  * Thrown when a caller names fields the area does not allowlist.
  *
  * Carries the field names as DATA rather than only in a message string, so the
@@ -235,12 +302,16 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
       'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
       'manufacturerServiceProviderProductNumber',
     ],
-    requiredOnCreate: ['name', 'billingCodeID', 'unitPrice'],
-    // periodType is flagged isRequired AND isReadOnly at once. That combination
-    // is contradictory, and the flags alone cannot say whether it is settable
-    // at create and merely immutable after. It is allowed on CREATE ONLY so the
-    // question can be settled empirically by a real approved create, and
-    // rejected on update where isReadOnly is unambiguous.
+    // periodType is required here even though Autotask flags it isReadOnly.
+    // SETTLED EMPIRICALLY 2026-07-28: service ids 131-136 were created through
+    // this connector with periodType 2 and read back as Monthly, so it is
+    // genuinely settable at create; and the one staged create that omitted it
+    // failed on Autotask's own "Missing Required Field: periodType" AFTER
+    // burning a human approval. Listing it here turns that into a stage-time
+    // rejection with a precise message instead of a wasted approval round trip.
+    requiredOnCreate: ['name', 'billingCodeID', 'unitPrice', 'periodType'],
+    // Settable at create, immutable after — so it widens the accepted set on
+    // create only and is rejected on update, where isReadOnly is unambiguous.
     createOnlyFields: ['periodType'],
     labelFields: ['name'],
     risk: 'billing',
@@ -261,7 +332,13 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
       'url', 'externalID', 'internalID', 'manufacturerServiceProvider',
       'manufacturerServiceProviderProductNumber',
     ],
-    requiredOnCreate: ['name', 'billingCodeID'],
+    // periodType included on the same reasoning as the service area, but note
+    // the weaker provenance: live entityInformation reports ServiceBundles
+    // .periodType isRequired AND isReadOnly exactly as it does for Services, and
+    // that flag proved accurate there — no bundle create has actually exercised
+    // it yet. Requiring it costs a caller nothing (periodType is a legitimate
+    // create value) and saves an approval round trip if the flag is right again.
+    requiredOnCreate: ['name', 'billingCodeID', 'periodType'],
     createOnlyFields: ['periodType'],
     labelFields: ['name'],
     risk: 'billing',

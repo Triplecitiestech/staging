@@ -19,7 +19,13 @@
 // loud about the two things it can prove: an operation the API permits that no
 // area offers, and a writable field no allowlist includes.
 
-import { CONFIG_WRITE_AREAS, type ConfigWriteOperation } from './staged-writes-core'
+import {
+  CONFIG_WRITE_AREAS,
+  fieldSupplyRoutes,
+  routeExemptFromReadOnly,
+  settableFields,
+  type ConfigWriteOperation,
+} from './staged-writes-core'
 import { CONFIG_QUERY_ENTITIES } from '@/lib/mcp-config-read-tools'
 import {
   getEntityCapabilitySnapshot,
@@ -96,12 +102,10 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
     (s) => s.targetSystem === 'autotask' && s.entity.toLowerCase() === entity.toLowerCase(),
   )
   const offered = new Set<ConfigWriteOperation>(areas.flatMap((a) => a.operations))
-  const allowlisted = new Map<string, string>()
-  for (const a of areas) {
-    for (const f of [...a.allowedFields, ...(a.createOnlyFields ?? [])]) {
-      if (!allowlisted.has(f)) allowlisted.set(f, a.area)
-    }
-  }
+  // Includes parent-id fields, which are settable via `parentId` rather than
+  // `changes`. Reading allowedFields directly here reported four such fields as
+  // gaps the connector had supported all along.
+  const allowlisted = settableFields(areas)
 
   const caps = snapshot.capabilities
   const permits: Record<ConfigWriteOperation, boolean | null> = {
@@ -113,24 +117,44 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
 
   // Only worth reporting writable-field gaps where we can actually write at
   // all; listing 20 fields on a read-only entity is noise.
+  //
+  // Compared case-INSENSITIVELY, matching the suspect check below and
+  // fieldSupplyRoutes(). The two halves of this report disagreed on case, so an
+  // allowlist entry spelled differently from the API (ticket_category allows
+  // 'displayColorRGB'; Autotask reports 'displayColorRgb') was reported as a
+  // missing writable field by one half while the other stayed silent about it.
   const canWriteSomething = caps.canCreate === true || caps.canUpdate === true
+  const settableLower = new Set([...allowlisted.keys()].map((k) => k.toLowerCase()))
   const missingWritableFields = canWriteSomething
     ? snapshot.fields
-        .filter((f) => !f.isReadOnly && !UNINTERESTING_FIELDS.has(f.name) && !allowlisted.has(f.name))
+        .filter(
+          (f) =>
+            !f.isReadOnly && !UNINTERESTING_FIELDS.has(f.name) && !settableLower.has(f.name.toLowerCase()),
+        )
         .map((f) => f.name)
     : []
 
   // The inverse check, which is what caught the markupRate bug: a field we
   // claim to accept that the API will not take.
   const suspectAllowlistedFields: EntityDrift['suspectAllowlistedFields'] = []
-  for (const [field, area] of allowlisted) {
+  for (const [field, { area, route }] of allowlisted) {
     const meta = snapshot.fields.find((f) => f.name.toLowerCase() === field.toLowerCase())
-    const spec = CONFIG_WRITE_AREAS[area]
-    // createOnlyFields are knowingly read-only upstream — that is the whole
-    // reason they are segregated — so they are not flagged here.
-    if (spec?.createOnlyFields?.includes(field)) continue
-    if (!meta) suspectAllowlistedFields.push({ field, area, problem: 'unknown to the API' })
-    else if (meta.isReadOnly) suspectAllowlistedFields.push({ field, area, problem: 'read-only upstream' })
+    // A field the API has never heard of is a latent bug whatever the route:
+    // sending it, or building a child path from it, fails just the same. This
+    // check used to sit behind an early `continue` for createOnlyFields, which
+    // meant a typo in a createOnlyFields entry could never be caught by this
+    // report — and it still has to cover parent-id fields, where a typo breaks
+    // every create in the area.
+    if (!meta) {
+      suspectAllowlistedFields.push({ field, area, problem: 'unknown to the API' })
+      continue
+    }
+    // The read-only check, by contrast, is genuinely inapplicable to create-only
+    // and parent-id fields — being read-only upstream is the whole reason they
+    // are segregated, so flagging them here would report the design as a defect.
+    if (meta.isReadOnly && !routeExemptFromReadOnly(route)) {
+      suspectAllowlistedFields.push({ field, area, problem: 'read-only upstream' })
+    }
   }
 
   return {
@@ -238,9 +262,16 @@ export async function checkAutotaskCapability(input: {
   // ---- Field question -----------------------------------------------------
   if (field) {
     const meta = snapshot.fields.find((f) => f.name.toLowerCase() === field.toLowerCase())
-    const allowlistedIn = areas.filter(
-      (a) => a.allowedFields.includes(meta?.name ?? field) || (a.createOnlyFields ?? []).includes(meta?.name ?? field),
-    )
+    const named = meta?.name ?? field
+    const routesByArea = areas.map((a) => ({ area: a, routes: fieldSupplyRoutes(a, named) }))
+    // Settable by ANY route, including `parentId`. Deciding this from
+    // allowedFields alone answered "no connector area exposes it" for four
+    // fields the connector has always supplied.
+    const settableIn = routesByArea.filter((r) => r.routes.length > 0).map((r) => r.area)
+    const allowlistedIn = routesByArea
+      .filter((r) => r.routes.some((x) => x === 'changes' || x === 'create_only'))
+      .map((r) => r.area)
+    const parentIdIn = routesByArea.filter((r) => r.routes.includes('parent_id')).map((r) => r.area)
     const base = {
       entity: snapshot.entity,
       field: meta?.name ?? field,
@@ -255,9 +286,9 @@ export async function checkAutotaskCapability(input: {
         ...(staleWarning ? { staleWarning } : {}),
       },
       connector: {
-        implemented: allowlistedIn.length > 0,
-        areas: allowlistedIn.map((a) => a.area),
-        requiresStagedApproval: allowlistedIn.length > 0,
+        implemented: settableIn.length > 0,
+        areas: settableIn.map((a) => a.area),
+        requiresStagedApproval: settableIn.length > 0,
         killSwitch,
       },
     }
@@ -273,6 +304,89 @@ export async function checkAutotaskCapability(input: {
       }
     }
     if (meta.isReadOnly) {
+      // isReadOnly does NOT imply "unwritable by anyone". Autotask also sets it
+      // on fields that are settable at CREATE and immutable afterwards, and the
+      // connector already segregates those in each area's createOnlyFields. So
+      // consult that BEFORE declaring a vendor limitation.
+      //
+      // Getting this wrong was not academic: Services.periodType is create-only
+      // AND required on create, and this branch used to answer "read-only, so it
+      // cannot be written by anyone / do not offer to change this field". A
+      // caller who believed it would omit periodType and every Service create
+      // would fail. Settled empirically on 2026-07-28 — service ids 131-136 were
+      // created through this connector with periodType 2 and read back as
+      // Monthly, while the one create that omitted it died on Autotask's own
+      // "Missing Required Field: periodType". Reporting a working write as an
+      // upstream limitation is the exact failure this whole layer exists to end.
+      // The same reasoning applies, unchanged, to a field supplied as the area's
+      // parentId: ServiceBundleServices.serviceBundleID is isReadOnly true here
+      // AND required for every bundle-membership create AND written by the
+      // connector on every one. This branch answered "cannot be written by
+      // anyone / do not offer to change this field" for it — the periodType bug
+      // a second time, on a field a caller cannot legally omit. Consult both
+      // segregated routes before concluding anything about the vendor.
+      const parentOnlyIn = parentIdIn.filter((a) => !(a.createOnlyFields ?? []).includes(meta.name))
+      if (parentOnlyIn.length && !allowlistedIn.length) {
+        const immutable = operation === 'update' || operation === 'delete'
+        const viaAreas = parentOnlyIn.map((a) => a.area).join(' / ')
+        return {
+          ...base,
+          api: {
+            ...base.api,
+            permits: operation === 'create' ? true : immutable ? false : null,
+            evidence:
+              `entityInformation reports ${snapshot.entity}.${meta.name} isReadOnly ${meta.isReadOnly}, ` +
+              `isRequired ${meta.isRequired} (read ${snapshot.fetchedAt}) — which for this field means set when ` +
+              `the record is created and immutable afterwards, not unwritable. The connector supplies it as the ` +
+              `${viaAreas} area's parentId, which executeStagedWrite writes into the create payload.`,
+          },
+          verdict: immutable ? 'UPSTREAM_UNSUPPORTED' : 'POLICY_GATED',
+          reasonCodeIfAttempted: immutable ? 'INVALID_INPUT' : 'POLICY_BLOCKED',
+          fixableBy: immutable ? 'caller' : 'tct_human',
+          message: immutable
+            ? `${snapshot.entity}.${meta.name} identifies which parent the record belongs to and is fixed once created. It is not unwritable — a create sets it.`
+            : `${snapshot.entity}.${meta.name} IS set when creating a ${snapshot.entity}, via the ${viaAreas} area, and is fixed once set.${
+                meta.isRequired ? ` Autotask reports it REQUIRED, so a create cannot omit it.` : ''
+              }`,
+          remediation: immutable
+            ? `Drop ${meta.name} from the update — moving the record to a different parent is not exposed. Create the record under the parent you want and remove the old one.`
+            : `Pass it as parentId when staging a create in ${viaAreas} — NOT inside changes, which will refuse it as not allowlisted. It still needs staged human approval. Do not report it as an Autotask limitation.`,
+        }
+      }
+
+      const createOnlyIn = areas.filter((a) => (a.createOnlyFields ?? []).includes(meta.name))
+      if (createOnlyIn.length) {
+        const immutable = operation === 'update' || operation === 'delete'
+        const split =
+          `entityInformation reports ${snapshot.entity}.${meta.name} isReadOnly ${meta.isReadOnly}, ` +
+          `isRequired ${meta.isRequired} (read ${snapshot.fetchedAt}) — which for this field means ` +
+          `settable on CREATE and immutable on UPDATE, not unwritable.`
+        return {
+          ...base,
+          api: {
+            ...base.api,
+            // Flat false would be a lie on create, flat true a lie on update.
+            permits: operation === 'create' ? true : immutable ? false : null,
+            evidence: split,
+          },
+          verdict: immutable ? 'UPSTREAM_UNSUPPORTED' : 'POLICY_GATED',
+          reasonCodeIfAttempted: immutable ? 'INVALID_INPUT' : 'POLICY_BLOCKED',
+          fixableBy: immutable ? 'caller' : 'tct_human',
+          message: immutable
+            ? `${snapshot.entity}.${meta.name} is set when the record is created and cannot be changed afterwards. It is not unwritable — a create can set it.`
+            : `${snapshot.entity}.${meta.name} IS settable when creating a ${snapshot.entity}, via the ${createOnlyIn
+                .map((a) => a.area)
+                .join(' / ')} area, and is immutable once set.${
+                meta.isRequired ? ` Autotask also reports it REQUIRED on create, so a create that omits it is rejected.` : ''
+              }`,
+          remediation: immutable
+            ? `Drop ${meta.name} from the update. To change it, create a replacement ${snapshot.entity} with the value you want and deactivate the old one.`
+            : `Include ${meta.name} in the changes when staging a create in ${createOnlyIn
+                .map((a) => a.area)
+                .join(' / ')}. It still needs staged human approval like any config write. Do not report it as an Autotask limitation.`,
+        }
+      }
+
       const contradiction = meta.isRequired
         ? ` NOTE: it is flagged isRequired AND isReadOnly at once, which Autotask uses both for create-time-only fields and for computed fields — the flags alone cannot tell you which, so treat it as not updatable.`
         : ''
@@ -285,7 +399,7 @@ export async function checkAutotaskCapability(input: {
         remediation: `Do not offer to change this field. Attempting it returns INVALID_INPUT with this metadata as evidence.${meta.name === 'markupRate' ? ' markupRate is computed from unitPrice and unitCost — change those instead.' : ''}`,
       }
     }
-    if (!allowlistedIn.length) {
+    if (!settableIn.length) {
       return {
         ...base,
         verdict: 'SUPPORTED_NOT_IMPLEMENTED',
@@ -293,6 +407,26 @@ export async function checkAutotaskCapability(input: {
         fixableBy: 'claude_code',
         message: `The API allows writing ${snapshot.entity}.${meta.name}, but no connector write area exposes it yet.`,
         remediation: `Add '${meta.name}' to the allowedFields of an area targeting ${snapshot.entity} in src/lib/connector/staged-writes-core.ts. Report it to Kurtis as a build task, not as an Autotask limitation.`,
+      }
+    }
+    // Writable upstream and supplied only as a parentId — Holidays.holidaySetID
+    // and UserDefinedFieldListItems.udfFieldId. Falling through to the generic
+    // POLICY_GATED answer below would tell the caller to put it in `changes`,
+    // where validateStagedChange refuses it as not allowlisted.
+    if (parentIdIn.length && !allowlistedIn.length) {
+      const immutable = operation === 'update' || operation === 'delete'
+      const viaAreas = parentIdIn.map((a) => a.area).join(' / ')
+      return {
+        ...base,
+        verdict: immutable ? 'SUPPORTED_NOT_IMPLEMENTED' : 'POLICY_GATED',
+        reasonCodeIfAttempted: immutable ? 'NOT_IMPLEMENTED' : 'POLICY_BLOCKED',
+        fixableBy: immutable ? 'claude_code' : 'tct_human',
+        message: immutable
+          ? `${snapshot.entity}.${meta.name} is writable in the API, but the ${viaAreas} area resolves it from the record to address the row, so moving an existing ${snapshot.entity} to a different parent is not exposed.`
+          : `${snapshot.entity}.${meta.name} is set when creating a ${snapshot.entity}, supplied as the ${viaAreas} area's parentId rather than in changes.`,
+        remediation: immutable
+          ? `Re-parenting would need a new area (or an allowedFields entry) for ${snapshot.entity} in src/lib/connector/staged-writes-core.ts. Report it as a build task. Creating the record under the intended parent works today.`
+          : `Pass it as parentId when staging a create in ${viaAreas} — NOT inside changes, which will refuse it as not allowlisted. Staged human approval still applies.`,
       }
     }
     return {

@@ -75,7 +75,7 @@ export const REASON_CODE_MEANING: Record<ConnectorReasonCode, string> = {
   PERMISSION_DENIED:
     'Supported and implemented, but the credential lacks the required rights.',
   PRECONDITION_FAILED:
-    'Supported, implemented and permitted, but current state blocks it (record drifted since staging, required parent missing, dependency unmet).',
+    'Supported, implemented and permitted, but current state or the shape of the request blocks it (record drifted since staging, required parent missing, dependency unmet, a required field pair sent half-empty). Never retry unchanged.',
   INVALID_INPUT: 'Caller error — a bad or missing argument.',
   TRANSIENT: 'Rate limit, timeout, or upstream 5xx. Retrying may succeed.',
 }
@@ -177,6 +177,49 @@ export function condenseVendorError(text: string): string {
 function clean(text: string): string {
   const scrubbed = scrubSecrets(text)
   return scrubbed.length > MAX_TEXT || /<[a-z!/]/i.test(scrubbed) ? condenseVendorError(scrubbed) : scrubbed
+}
+
+// ---------------------------------------------------------------------------
+// Vendor rule extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull the vendor's OWN sentence out of a schema-violation error.
+ *
+ * When an upstream API says exactly what is wrong — "you must assign both a
+ * assignedResourceID and assignedResourceRoleID" — that sentence is the
+ * remediation. Paraphrasing it loses the field names, which are the only part
+ * the caller can act on.
+ *
+ * Handles the two shapes these arrive in: our own client wrapper
+ * (`Autotask POST Tickets failed (500): {"errors":["Data violation: …"]}`) and
+ * bare text. Returns undefined rather than guessing when neither matches.
+ */
+export function extractVendorRule(raw: string): string | undefined {
+  if (!raw) return undefined
+
+  // JSON error arrays: Autotask, and most JSON:API-ish vendors.
+  const jsonStart = raw.search(/[[{]/)
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart)) as unknown
+      const errors = Array.isArray(parsed)
+        ? parsed
+        : (parsed as { errors?: unknown })?.errors
+      if (Array.isArray(errors)) {
+        const messages = errors
+          .map((e) => (typeof e === 'string' ? e : (e as { message?: unknown })?.message))
+          .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+        if (messages.length) return clean(messages.join(' '))
+      }
+    } catch {
+      // Truncated or non-JSON body — fall through to the text scan.
+    }
+  }
+
+  // Text fallback: the violation sentence, wherever it sits in the string.
+  const sentence = raw.match(/(?:Data violation|Missing Required Field)[^"}\]\n]*/i)
+  return sentence ? clean(sentence[0].trim()) : undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +450,25 @@ export function classifyThrown(err: unknown, ctx: ClassifyContext): ConnectorFai
         message: `Upstream API error — this is an availability problem, not a capability one. ${raw}`,
         evidence: `Classified as ${classified.category} by classifyError().`,
       })
+    case 'data_violation': {
+      // The upstream rejected the request's SHAPE: a required field was missing,
+      // or a pair that must travel together did not. Autotask returns HTTP 500
+      // for this, which used to classify as server_error → TRANSIENT → "wait
+      // briefly and retry" — advice that can never work and cost the owner a
+      // retry loop on 2026-07-29. The status is ignored here; the body decides.
+      const rule = extractVendorRule(raw)
+      return connectorFailure({
+        ...base,
+        reasonCode: 'PRECONDITION_FAILED',
+        message:
+          `The upstream API rejected this write as a DATA VIOLATION — a required field, or a field pair that must be sent together, was missing. This is NOT transient: retrying the identical call can never succeed. ${raw}`,
+        evidence:
+          'Upstream body names a schema rule (classified as data_violation by classifyError()). The HTTP status may be 5xx — Autotask answers schema violations with 500 — but a status is not what makes this permanent; the rule in the body is.',
+        remediation:
+          `${rule ? `The vendor's own message: "${rule}" — ` : ''}fix the SHAPE of the request, then call again: supply the named field, or send the missing half of the pair. If no tool parameter exposes it, that is a connector gap for Claude Code to close (a tool schema change), NOT a retry and NOT a permissions problem.`,
+        details: { ...ctx.details, retryable: false, ...(rule ? { vendorRule: rule } : {}) },
+      })
+    }
     case 'auth':
       return connectorFailure({
         ...base,
@@ -472,6 +534,6 @@ export function toolFailure(err: unknown, ctx: ClassifyContext): McpToolResult {
 export const FAILURE_ENVELOPE_TOOL_NOTE =
   'ON FAILURE this tool returns a structured envelope: {failure:{reasonCode, message, evidence, remediation, fixableBy}}. ' +
   'reasonCode is one of NOT_IMPLEMENTED (connector gap — Claude Code can build it), UPSTREAM_UNSUPPORTED (vendor API cannot do it — do not look for a workaround), ' +
-  'POLICY_BLOCKED (a TCT guardrail held — never route around it), PERMISSION_DENIED (credential lacks the right), PRECONDITION_FAILED (state changed — re-read and retry), ' +
+  'POLICY_BLOCKED (a TCT guardrail held — never route around it), PERMISSION_DENIED (credential lacks the right), PRECONDITION_FAILED (state or request shape blocks it — re-read state or fix the shape; never retry unchanged), ' +
   'INVALID_INPUT (fix the argument), TRANSIENT (retry). ' +
   'SURFACE reasonCode, remediation and fixableBy to the user — do not flatten a failure to "that did not work", because who fixes it differs completely per code.'
