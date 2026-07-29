@@ -18,10 +18,12 @@ import {
   classifyThrown,
   condenseVendorError,
   connectorFailure,
+  extractVendorRule,
   scrubSecrets,
   toolFailure,
   type ConnectorReasonCode,
 } from './failure-envelope'
+import { classifyError } from '@/lib/resilience'
 import {
   __setCapabilityFetcher,
   capabilityCacheStats,
@@ -693,5 +695,83 @@ describe('connector gaps are distinguished from vendor limits', () => {
       changes: { unitPrice: 10 },
     })
     expect(spec.area).toBe('service')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Schema violations are permanent, whatever status the vendor answers with
+// ---------------------------------------------------------------------------
+//
+// Reproduced live on 2026-07-29: Autotask answers a broken schema rule with
+// HTTP 500 and a "Data violation" body. classifyError() saw the 500, called it
+// server_error, and the envelope came back TRANSIENT / fixableBy "retry" /
+// "Wait briefly and retry the same call" — advice that can never succeed, on a
+// failure the caller then retried in a loop. The body decides now, not the
+// status.
+
+describe('a data violation is never TRANSIENT', () => {
+  // The exact string the connector saw, wrapped the way autotask-write.ts wraps it.
+  const AUTOTASK_DATA_VIOLATION =
+    'Autotask PATCH Tickets failed (500): {"errors":["Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID."]}'
+
+  it('classifyError does not call it a retryable server error', () => {
+    const classified = classifyError(new Error(AUTOTASK_DATA_VIOLATION))
+    expect(classified.category).toBe('data_violation')
+    expect(classified.isTransient).toBe(false)
+  })
+
+  it('the envelope is PRECONDITION_FAILED, and never advises a retry', () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask', tool: 'autotask_assign_ticket' })
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.fixableBy).not.toBe('retry')
+    expect(failure.remediation).not.toMatch(/wait briefly and retry/i)
+    expect(failure.details).toMatchObject({ retryable: false })
+  })
+
+  it("puts the VENDOR'S OWN message in remediation, field names intact", () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask' })
+    expect(failure.remediation).toContain('you must assign both a assignedResourceID and assignedResourceRoleID')
+    expect(failure.details).toMatchObject({
+      vendorRule: 'Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID.',
+    })
+  })
+
+  it('routes the caller to a schema fix, not to a permissions or outage story', () => {
+    const failure = classifyThrown(new Error(AUTOTASK_DATA_VIOLATION), { surface: 'autotask' })
+    expect(failure.message).toMatch(/NOT transient/)
+    expect(failure.remediation).toMatch(/connector gap for Claude Code/)
+  })
+
+  it('handles the create-time variant too (Missing Required Field: periodType)', () => {
+    // The 2026-07-28b case, which cost a spent human approval. Same shape.
+    const failure = classifyThrown(
+      new Error('Autotask POST Services failed (500): Missing Required Field: periodType'),
+      { surface: 'autotask' },
+    )
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.remediation).toContain('Missing Required Field: periodType')
+  })
+
+  it('extractVendorRule reads both a JSON errors array and bare text', () => {
+    expect(extractVendorRule('POST failed (500): {"errors":["Data violation: field X is required."]}'))
+      .toBe('Data violation: field X is required.')
+    expect(extractVendorRule('500: Data violation: field X is required.'))
+      .toBe('Data violation: field X is required.')
+    expect(extractVendorRule('503 Service Unavailable')).toBeUndefined()
+  })
+
+  it('leaves a GENUINE 5xx outage classified as TRANSIENT', () => {
+    // The fix must not blunt the retry advice that is correct for real outages.
+    const failure = classifyThrown(new Error('Autotask API query failed (503): Service Unavailable'), { surface: 'autotask' })
+    expect(failure.reasonCode).toBe('TRANSIENT')
+    expect(failure.fixableBy).toBe('retry')
+  })
+
+  it('leaves an ordinary 400 as INVALID_INPUT for the caller to fix', () => {
+    // A plain bad argument is still the caller's to correct — this change is
+    // about 5xx bodies that lie about being transient, nothing wider.
+    const failure = classifyThrown(new Error('Autotask API error 400: dueDateTime is required'), { surface: 'autotask' })
+    expect(failure.reasonCode).toBe('INVALID_INPUT')
+    expect(failure.fixableBy).toBe('caller')
   })
 })

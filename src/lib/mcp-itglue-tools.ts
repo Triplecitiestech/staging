@@ -16,8 +16,9 @@
 // individual signed-in technician.
 
 import { z } from 'zod'
-import { ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder } from '@/lib/it-glue'
+import { DOCUMENT_FOLDER_MOVE_UNSUPPORTED, ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder } from '@/lib/it-glue'
 import { searchDocIndex, TCT_ORG_ID } from '@/lib/itglue-doc-index'
+import { failureResult } from '@/lib/connector/failure-envelope'
 
 function itglue(): ItGlueClient {
   return new ItGlueClient({ apiKey: process.env.IT_GLUE_CONNECTOR_API_KEY || process.env.IT_GLUE_API_KEY })
@@ -95,7 +96,7 @@ export function registerItGlueTools(server: any) {
     async ({ organizationId, parentId }: any) => { try {
       const c = itglue(); ensureConfigured(c)
       const folders = (await c.getDocumentFolders(organizationId, { parentId })).map(slimFolder)
-      return ok({ organizationId, parentId: parentId ?? null, folderCount: folders.length, folders, note: folders.length === 0 ? 'No folders match. If the target folder is missing, create it with itglue_create_document_folder (confirm name + location with the user first).' : 'Pass a folder id as documentFolderId in itglue_create_document / itglue_move_document.' })
+      return ok({ organizationId, parentId: parentId ?? null, folderCount: folders.length, folders, note: folders.length === 0 ? 'No folders match. If the target folder is missing, create it with itglue_create_document_folder (confirm name + location with the user first).' : 'Pass a folder id as documentFolderId in itglue_create_document. Placement is create-time only — IT Glue\'s API cannot move an existing document into a folder.' })
     } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_search_documents', { title: 'IT Glue: search documents', description: 'Find documents in ONE organization by keyword. When the org is indexed this is Postgres full-text over document NAME + CONTENT (ranked by relevance); it falls back to name-only search when the org has not been indexed yet. The response tags source: "index" | "live-name". ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag so you never edit a stale SOP unaware). Returns compact { id, name, documentFolderId, url, updatedAt, archived }.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), query: z.string().describe('Words to match against document names'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
@@ -137,7 +138,7 @@ export function registerItGlueTools(server: any) {
     async ({ documentId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getDocumentSections(documentId)) } catch (e) { return fail(e) } })
 
   // ── IT Glue writes (confirm exact content with the user before calling) ────
-  server.registerTool('itglue_create_document', { title: 'IT Glue: create document', description: 'WRITE. Create a new IT Glue document under an organization with a rich-text body (HTML), optionally publishing it (default: draft). RESOLVE THE DESTINATION FOLDER FIRST: call itglue_list_document_folders and pass the matching folder id as documentFolderId — omitting it drops the document at the org ROOT, which is almost never right for SOPs/runbooks. If no suitable folder exists, create one with itglue_create_document_folder or ask the user which folder to use before creating the document; only leave documentFolderId unset when the user explicitly wants a root-level document. NEVER put passwords/credentials in a document. Only call after the user has approved the exact title, content, and folder placement.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Document title'), html: z.string().describe('Document body as HTML'), publish: z.boolean().optional().describe('Publish immediately; default false (draft)'), documentFolderId: z.string().optional().describe('Destination folder id from itglue_list_document_folders / itglue_create_document_folder. Omit ONLY for an explicitly root-level document — never default to root for SOPs') } },
+  server.registerTool('itglue_create_document', { title: 'IT Glue: create document', description: 'WRITE. Create a new IT Glue document under an organization with a rich-text body (HTML), optionally publishing it (default: draft). RESOLVE THE DESTINATION FOLDER FIRST — THIS IS THE ONLY CHANCE TO SET IT: IT Glue accepts document_folder_id on create and REJECTS it on every update, so a document that lands in the org root can only be moved by a human in the IT Glue UI (itglue_move_document cannot do it). Call itglue_list_document_folders and pass the matching folder id as documentFolderId; if no suitable folder exists, create one with itglue_create_document_folder or ask the user which folder to use BEFORE creating the document. Only leave documentFolderId unset when the user explicitly wants a root-level document. NEVER put passwords/credentials in a document. Only call after the user has approved the exact title, content, and folder placement.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Document title'), html: z.string().describe('Document body as HTML'), publish: z.boolean().optional().describe('Publish immediately; default false (draft)'), documentFolderId: z.string().optional().describe('Destination folder id from itglue_list_document_folders / itglue_create_document_folder. Omit ONLY for an explicitly root-level document — never default to root for SOPs') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ organizationId, name, html, publish, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.createDocumentWithBody({ organizationId, name, html, publish: publish ?? false, documentFolderId })) } catch (e) { return fail(e) } })
 
@@ -146,22 +147,45 @@ export function registerItGlueTools(server: any) {
     async ({ organizationId, name, parentId }: any) => { try {
       const c = itglue(); ensureConfigured(c)
       const folder = await c.createDocumentFolder({ organizationId, name, parentId })
-      return ok({ folder: slimFolder(folder), note: 'Use folder.id as documentFolderId in itglue_create_document / itglue_move_document.' })
+      return ok({ folder: slimFolder(folder), note: 'Use folder.id as documentFolderId in itglue_create_document — that is the only way to file a document into it through the API. Existing documents cannot be moved into it programmatically; a human must do that in the IT Glue UI.' })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_move_document', { title: 'IT Glue: move a document into a folder', description: 'WRITE. Move an existing document into a document folder — or back to the org root by passing documentFolderId "root". Placement is metadata: it applies immediately, outside the draft/publish cycle, and ID-based inline links keep working. Resolve the target folder id with itglue_list_document_folders first (never guess). The result is read-back VERIFIED: moved:false means IT Glue did not apply the change — check the document in the UI, do not report success.', inputSchema: { documentId: z.string().describe('IT Glue document id'), documentFolderId: z.string().describe('Target folder id (from itglue_list_document_folders), or "root"/"null"/"0" to move the document to the org root') } },
+  server.registerTool('itglue_move_document', { title: 'IT Glue: move a document into a folder (NOT SUPPORTED BY THE API)', description: 'DOES NOT WORK — kept registered only so the reason is discoverable instead of guessable. IT Glue\'s API cannot move an existing document between folders: document_folder_id is marked "Not permitted in PUT/PATCH, optional in POST" in the developer reference, and IT Glue silently DROPS it on PATCH and answers 200 with the document unchanged. This tool therefore writes NOTHING and returns UPSTREAM_UNSUPPORTED (fixableBy: vendor) with the document\'s current folder. THE TWO THINGS THAT DO WORK: (1) pass documentFolderId when CREATING the document (itglue_create_document) — placement is create-time only; (2) for a document that already exists, a human moves it in the IT Glue UI (open the org\'s Documents list, tick the document, Move). Do not retry this tool, do not look for a connector workaround, and never report a move as done.', inputSchema: { documentId: z.string().describe('IT Glue document id'), documentFolderId: z.string().describe('Target folder id — recorded in the failure so the user can be told where to move it by hand') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ documentId, documentFolderId }: any) => { try {
-      const c = itglue(); ensureConfigured(c)
-      const toRoot = ['root', 'null', '0', ''].includes(String(documentFolderId).trim().toLowerCase())
-      const target = toRoot ? null : String(documentFolderId).trim()
-      let doc = await c.updateDocument(documentId, { documentFolderId: target })
-      // PATCH normally echoes the updated record; read back explicitly if not.
-      if (doc?.attributes?.['document-folder-id'] === undefined) doc = await c.getDocument(documentId)
-      const after = doc?.attributes?.['document-folder-id'] ?? null
-      const moved = target == null ? after == null : String(after) === target
-      return ok({ id: documentId, name: doc?.attributes?.name ?? null, documentFolderId: after, moved, note: moved ? 'Verified: the document is in the requested location (placement applies immediately; not part of draft/publish).' : 'The update call succeeded but the read-back does NOT show the requested folder — check the document in the IT Glue UI before trusting it.' })
-    } catch (e) { return fail(e) } })
+    async ({ documentId, documentFolderId }: any) => {
+      // Deliberately NO write attempt. The PATCH returns 200 and changes
+      // nothing, so issuing it would only re-manufacture the ambiguity.
+      let current: number | null | undefined
+      let name: string | null = null
+      try {
+        const c = itglue(); ensureConfigured(c)
+        const doc = await c.getDocument(String(documentId))
+        current = doc?.attributes?.['document-folder-id'] ?? null
+        name = doc?.attributes?.name ?? null
+      } catch {
+        // Best-effort context only — an unreadable document must not change the
+        // verdict, which is about the API's capability, not this document.
+      }
+      const target = String(documentFolderId).trim()
+      const alreadyThere = current != null && String(current) === target
+      return failureResult({
+        reasonCode: 'UPSTREAM_UNSUPPORTED',
+        message:
+          `IT Glue's API cannot move document ${documentId}${name ? ` ("${name}")` : ''} into folder ${target}. Nothing was written.` +
+          (alreadyThere
+            ? ' NOTE: the document is ALREADY in that folder, so no move is needed.'
+            : current !== undefined
+              ? ` It is currently in ${current == null ? 'the org root' : `folder ${current}`}.`
+              : ''),
+        evidence: DOCUMENT_FOLDER_MOVE_UNSUPPORTED,
+        remediation: alreadyThere
+          ? 'No action needed — the document is already in the requested folder. Confirm that to the user rather than reporting a move.'
+          : `Tell the user the API cannot do this and give them the manual step: in IT Glue, open the organization's Documents list, tick "${name ?? documentId}", choose Move, and select the target folder. For any NEW document, set the folder at creation instead (itglue_create_document documentFolderId) — that is the only API-supported placement.`,
+        surface: 'itglue',
+        tool: 'itglue_move_document',
+        details: { documentId, requestedDocumentFolderId: target, currentDocumentFolderId: current ?? null, alreadyInRequestedFolder: alreadyThere },
+      })
+    })
 
   server.registerTool('itglue_add_document_section', { title: 'IT Glue: add document section', description: 'WRITE. Append a content section to an existing document. resourceType is Document::Text (default), Document::Heading (needs level 1-6), or Document::Step (optional duration in minutes). Confirm the exact content with the user first. IMPORTANT: section changes land on the document\'s DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.', inputSchema: { documentId: z.string().describe('IT Glue document id'), content: z.string().describe('Section content: HTML for Text/Step, plain text for Heading'), resourceType: z.enum(['Document::Text', 'Document::Heading', 'Document::Step']).optional().describe('Section type (default Document::Text)'), level: z.number().int().min(1).max(6).optional().describe('Heading level, Document::Heading only'), duration: z.number().int().positive().optional().describe('Duration in minutes, Document::Step only') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -179,9 +203,43 @@ export function registerItGlueTools(server: any) {
       return ok({ documentId, ...result, note: result.published ? 'Verified: the current draft is now the published version.' : 'The publish call succeeded but the read-back does NOT show the document as published — check it in the IT Glue UI before trusting it.' })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_rename_document', { title: 'IT Glue: rename a document', description: 'WRITE. Change a document\'s title (and optionally move it to a folder in the same call). For a pure move with no rename, use itglue_move_document instead. Inline links built on ID-based URLs survive renames, but confirm the exact new title with the user first — titles drive the TCT naming convention (System - Topic).', inputSchema: { documentId: z.string().describe('IT Glue document id'), name: z.string().describe('New document title'), documentFolderId: z.string().optional().describe('Optional folder id (from itglue_list_document_folders) to move the document into') } },
+  server.registerTool('itglue_rename_document', { title: 'IT Glue: rename a document', description: 'WRITE. Change a document\'s title. RENAME ONLY — it cannot also move the document: IT Glue rejects document_folder_id on PATCH (create-time placement only), so passing documentFolderId here used to be accepted and silently ignored. It now REFUSES the whole call with UPSTREAM_UNSUPPORTED before renaming anything, so you never get a half-applied write; call again without documentFolderId to rename, and have the folder change done in the IT Glue UI. The new title is VERIFIED by read-back. Inline links built on ID-based URLs survive renames, but confirm the exact new title with the user first — titles drive the TCT naming convention (System - Topic).', inputSchema: { documentId: z.string().describe('IT Glue document id'), name: z.string().describe('New document title'), documentFolderId: z.string().optional().describe('NOT SUPPORTED by IT Glue\'s API — supplying it fails the call instead of silently ignoring it. Omit it') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ documentId, name, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); const doc = await c.updateDocument(documentId, { name, ...(documentFolderId !== undefined ? { documentFolderId } : {}) }); return ok({ id: doc.id, name: doc.attributes?.name, note: 'Title metadata applies immediately (it is not part of the draft/publish cycle).' }) } catch (e) { return fail(e) } })
+    async ({ documentId, name, documentFolderId }: any) => {
+      // Refuse BEFORE writing: renaming and reporting the ignored folder would
+      // leave the caller with a partial result they cannot distinguish.
+      if (documentFolderId !== undefined) {
+        return failureResult({
+          reasonCode: 'UPSTREAM_UNSUPPORTED',
+          message: `Refused before writing anything: this call asked to rename document ${documentId} AND move it to folder ${documentFolderId}, but IT Glue's API cannot move a document. The rename was NOT applied, so nothing is half-done.`,
+          evidence: DOCUMENT_FOLDER_MOVE_UNSUPPORTED,
+          remediation: `Call itglue_rename_document again with documentId and name ONLY — that part works. Then tell the user the folder change must be done by hand in IT Glue (Documents list → tick the document → Move), because no API supports it.`,
+          surface: 'itglue',
+          tool: 'itglue_rename_document',
+          details: { documentId, requestedName: name, rejectedDocumentFolderId: String(documentFolderId), renameApplied: false },
+        })
+      }
+      try {
+        const c = itglue(); ensureConfigured(c)
+        await c.updateDocument(String(documentId), { name })
+        // Read back rather than trusting the PATCH echo — the folder defect was
+        // invisible for twelve days precisely because a 200 was taken as proof.
+        const after = await c.getDocument(String(documentId))
+        const actual = after?.attributes?.name ?? null
+        if (actual !== name) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `IT Glue accepted the rename of document ${documentId} but the read-back still shows "${actual ?? 'unknown'}", not "${name}". Do not report the rename as done.`,
+            evidence: 'Verified by re-reading the document after the PATCH instead of trusting its status code.',
+            remediation: 'Check the document in the IT Glue UI — it may be restricted, archived, or locked by another edit.',
+            surface: 'itglue',
+            tool: 'itglue_rename_document',
+            details: { documentId, requestedName: name, actualName: actual },
+          })
+        }
+        return ok({ id: after.id, name: actual, renamed: true, note: 'Verified by read-back: the document now carries this title. Title metadata applies immediately (it is not part of the draft/publish cycle).' })
+      } catch (e) { return fail(e) }
+    })
 
   // Related Items / attachments: the /passwords resource stays out of bounds
   // on BOTH ends, same policy as every other tool in this module.
