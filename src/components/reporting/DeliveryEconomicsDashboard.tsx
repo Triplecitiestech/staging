@@ -45,6 +45,52 @@ interface CaptureRow {
 interface NonBillableRow { nature: string; hours: number; entries: number; projectSizedHours: number }
 interface SizeBand { band: string; entries: number; hours: number }
 
+interface UnitEconomicsRow {
+  unitType: string
+  unitsBilled: number
+  companies: number
+  monthlyRevenue: number
+  monthlyToolingCost: number
+  monthlyLaborCost: number | null
+  laborHoursPerUnit: number | null
+  revenuePerUnit: number | null
+  toolingCostPerUnit: number | null
+  laborCostPerUnit: number | null
+  contributionPerUnit: number | null
+  monthlyContribution: number | null
+  contributionMarginPct: number | null
+}
+interface TierUnitMixRow {
+  tier: string
+  companies: number
+  units: Record<string, number>
+  revenue: Record<string, number>
+  managedRevenue: number
+  passthroughRevenue: number
+}
+interface LaborFitInfo {
+  method: 'regression' | 'unit-share'
+  perUserHours: number | null
+  perDeviceHours: number | null
+  perServerHours: number | null
+  fixedHoursPerCompany: number | null
+  r2: number | null
+  adjustedR2: number | null
+  observations: number
+  warnings: string[]
+}
+interface RateVarianceRow {
+  companyId: number
+  tier: string
+  serviceName: string
+  unitType: string
+  units: number
+  contractedUnitPrice: number
+  catalogUnitPrice: number
+  gapPct: number
+  monthlyGap: number
+}
+
 interface Report {
   generatedAt: string
   window: { from: string; to: string; months: number }
@@ -64,6 +110,15 @@ interface Report {
   billingCapture: CaptureRow[]
   nonBillable: NonBillableRow[]
   nonBillableSizeBands: SizeBand[]
+  // Optional: snapshots captured before the billed-unit model shipped do not
+  // carry these, and the picker can reopen any of them.
+  unitEconomics?: UnitEconomicsRow[]
+  tierUnitMix?: TierUnitMixRow[]
+  laborFit?: LaborFitInfo | null
+  rateVariance?: RateVarianceRow[]
+  unclassifiedServices?: string[]
+  managedRevenuePerMonth?: number
+  passthroughRevenuePerMonth?: number
   hoursWithNoTicket: number
   suspectedMisfiledCustomerHours: number
   notes: string[]
@@ -76,6 +131,7 @@ interface SnapshotRow {
   internalSharePct: number | null
   idleHoursPerMonth: number | null
   timeEntries: number | null
+  managedRevenuePerMonth: number | null
 }
 
 const TIER_LABEL: Record<string, string> = {
@@ -100,10 +156,26 @@ const BAND_LABEL: Record<string, string> = {
   'over-2-h': '2 h or more (project-sized)',
 }
 
+const UNIT_LABEL: Record<string, string> = {
+  user: 'Per user',
+  device: 'Per device',
+  server: 'Per server',
+  site: 'Per site / network',
+  business: 'Per company (business line)',
+  license: 'Resold licences',
+  backup: 'Backups',
+  addon: 'Add-ons',
+  labor: 'Labour lines',
+  other: 'Other',
+}
 const HOURLY_RATE = 150
 
 const n1 = (v: number | null | undefined) => (v === null || v === undefined ? '—' : v.toFixed(1))
 const n3 = (v: number | null | undefined) => (v === null || v === undefined ? '—' : v.toFixed(3))
+const money = (v: number | null | undefined, dp = 0) =>
+  v === null || v === undefined
+    ? '—'
+    : `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}`
 
 function Card({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' | 'warn' }) {
   const colour = tone === 'good' ? 'text-emerald-400' : tone === 'warn' ? 'text-rose-400' : 'text-white'
@@ -196,6 +268,12 @@ export default function DeliveryEconomicsDashboard() {
   const cap = report?.capacity
   const maxMonthHours = Math.max(1, ...(report?.monthly ?? []).map((m) => m.customerHours + m.internalHours))
   const projectSized = report?.nonBillableSizeBands.find((b) => b.band === 'over-2-h')
+  const unitRows = report?.unitEconomics ?? []
+  // Null when labour could not be attributed at all — summing the measured rows
+  // would present a partial total as a complete one.
+  const totalContribution = unitRows.some((u) => u.monthlyContribution !== null)
+    ? unitRows.reduce((s, u) => s + (u.monthlyContribution ?? 0), 0)
+    : null
 
   return (
     <div>
@@ -217,7 +295,9 @@ export default function DeliveryEconomicsDashboard() {
             <option value="">Most recent snapshot</option>
             {history.map((h) => (
               <option key={h.id} value={h.id}>
-                {new Date(h.capturedAt).toLocaleDateString()} — internal {n1(h.internalSharePct)}%, idle {n1(h.idleHoursPerMonth)}h
+                {new Date(h.capturedAt).toLocaleDateString()} — internal {n1(h.internalSharePct)}%, idle{' '}
+                {n1(h.idleHoursPerMonth)}h
+                {h.managedRevenuePerMonth !== null ? `, managed ${money(h.managedRevenuePerMonth)}/mo` : ''}
               </option>
             ))}
           </select>
@@ -255,6 +335,219 @@ export default function DeliveryEconomicsDashboard() {
             />
           </div>
 
+          {unitRows.length > 0 && (
+            <Section
+              title="Cost to serve, by billed unit"
+              hint={
+                'Measured on the units we actually bill — a Complete Care invoice carries separate per-user, per-device and ' +
+                'per-company lines, each with its own quantity. Revenue and tooling cost come from the contracts themselves, ' +
+                'at the rate each customer is really charged. Contribution is revenue less tooling less delivery labour; the ' +
+                'fixed overhead pool is deliberately NOT spread across units.'
+              }
+            >
+              <table className="min-w-full divide-y divide-slate-800">
+                <thead>
+                  <tr>
+                    <th className={TH}>Billed unit</th>
+                    <th className={TH}>Units</th>
+                    <th className={TH}>Revenue / mo</th>
+                    <th className={TH}>Revenue / unit</th>
+                    <th className={TH}>Tooling / unit</th>
+                    <th className={TH}>Labour h / unit</th>
+                    <th className={TH}>Labour $ / unit</th>
+                    <th className={TH}>Contribution / unit</th>
+                    <th className={TH}>Margin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {unitRows.map((u) => (
+                    <tr key={u.unitType}>
+                      <td className={TD}>{UNIT_LABEL[u.unitType] ?? u.unitType}</td>
+                      <td className={TD}>{u.unitsBilled.toLocaleString()}</td>
+                      <td className={TD}>{money(u.monthlyRevenue)}</td>
+                      <td className={TD}>{money(u.revenuePerUnit, 2)}</td>
+                      <td className={TD}>{money(u.toolingCostPerUnit, 2)}</td>
+                      <td className={TD}>{n3(u.laborHoursPerUnit)}</td>
+                      <td className={TD}>{money(u.laborCostPerUnit, 2)}</td>
+                      <td
+                        className={`${TD} ${
+                          u.contributionPerUnit === null
+                            ? ''
+                            : u.contributionPerUnit < 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                        }`}
+                      >
+                        {money(u.contributionPerUnit, 2)}
+                      </td>
+                      <td
+                        className={`${TD} ${
+                          u.contributionMarginPct === null
+                            ? ''
+                            : u.contributionMarginPct < 0
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                        }`}
+                      >
+                        {u.contributionMarginPct === null ? '—' : `${u.contributionMarginPct}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Card
+                  label="Managed recurring revenue"
+                  value={`${money(report.managedRevenuePerMonth)} /mo`}
+                  sub="Per user / device / server / site / company"
+                />
+                <Card
+                  label="Billed through, not delivered"
+                  value={`${money(report.passthroughRevenuePerMonth)} /mo`}
+                  sub="Resold licences, backups, add-ons"
+                />
+                <Card
+                  label="Total contribution"
+                  value={`${money(totalContribution)} /mo`}
+                  tone={totalContribution !== null && totalContribution < 0 ? 'warn' : 'good'}
+                  sub="Before the fixed overhead pool"
+                />
+              </div>
+              {report.laborFit?.method === 'unit-share' && (
+                <p className="text-xs text-rose-300 mt-3 max-w-3xl">
+                  Labour per unit here is an <span className="font-semibold">allocation, not a measurement</span> — see the
+                  labour-attribution section below. Revenue and tooling cost per unit are measured from the contracts either way.
+                </p>
+              )}
+            </Section>
+          )}
+
+          {(report.tierUnitMix?.length ?? 0) > 0 && (
+            <Section
+              title="What we sell, by tier"
+              hint="Billed unit counts and where the money comes from. The per-user and per-device lines together are the bulk of managed recurring revenue — which is why cost has to be attributed to both."
+            >
+              <table className="min-w-full divide-y divide-slate-800">
+                <thead>
+                  <tr>
+                    <th className={TH}>Tier</th>
+                    <th className={TH}>Companies</th>
+                    <th className={TH}>Users</th>
+                    <th className={TH}>Devices</th>
+                    <th className={TH}>Servers</th>
+                    <th className={TH}>Sites</th>
+                    <th className={TH}>Managed MRR</th>
+                    <th className={TH}>User + device share</th>
+                    <th className={TH}>Pass-through</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {report.tierUnitMix!.map((t) => {
+                    const perUnit = (t.revenue.user ?? 0) + (t.revenue.device ?? 0)
+                    const share = t.managedRevenue > 0 ? Math.round((perUnit / t.managedRevenue) * 100) : null
+                    return (
+                      <tr key={t.tier}>
+                        <td className={TD}>{TIER_LABEL[t.tier] ?? t.tier}</td>
+                        <td className={TD}>{t.companies}</td>
+                        <td className={TD}>{(t.units.user ?? 0).toLocaleString()}</td>
+                        <td className={TD}>{(t.units.device ?? 0).toLocaleString()}</td>
+                        <td className={TD}>{(t.units.server ?? 0).toLocaleString()}</td>
+                        <td className={TD}>{(t.units.site ?? 0).toLocaleString()}</td>
+                        <td className={TD}>{money(t.managedRevenue)}</td>
+                        <td className={TD}>{share === null ? '—' : `${share}%`}</td>
+                        <td className={`${TD} text-slate-400`}>{money(t.passthroughRevenue)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </Section>
+          )}
+
+          {report.laborFit && (
+            <Section
+              title="How delivery labour was attributed"
+              hint="Hours are logged against a customer, not against a unit type, so the split between per-user and per-device work has to be derived. This states which way it was derived and how much to trust it."
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card
+                  label="Method"
+                  value={report.laborFit.method === 'regression' ? 'Measured' : 'Allocated'}
+                  tone={report.laborFit.method === 'regression' ? 'good' : 'warn'}
+                  sub={
+                    report.laborFit.method === 'regression'
+                      ? `Fitted across ${report.laborFit.observations} customers`
+                      : `Even split across billed units (n=${report.laborFit.observations})`
+                  }
+                />
+                <Card label="Hours / user / mo" value={n3(report.laborFit.perUserHours)} />
+                <Card label="Hours / device / mo" value={n3(report.laborFit.perDeviceHours)} />
+                <Card
+                  label="Fixed hours / company / mo"
+                  value={n3(report.laborFit.fixedHoursPerCompany)}
+                  sub="Charged to the business line"
+                />
+              </div>
+              {report.laborFit.method === 'regression' && (
+                <p className="text-xs text-slate-400 mt-3 max-w-3xl">
+                  Explanatory power: <span className="text-slate-200 tabular-nums">{n1((report.laborFit.adjustedR2 ?? 0) * 100)}%</span>{' '}
+                  adjusted for the fitted parameters ({n1((report.laborFit.r2 ?? 0) * 100)}% unadjusted). The adjusted figure is
+                  the one that matters at this sample size — with this few customers, raw fit flatters coincidence.
+                </p>
+              )}
+              {report.laborFit.warnings.length > 0 && (
+                <ul className="mt-3 space-y-2 text-xs text-slate-400 list-disc pl-5 max-w-3xl">
+                  {report.laborFit.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+          )}
+
+          {(report.rateVariance?.length ?? 0) > 0 && (
+            <Section
+              title="Contracted rates vs the current catalogue"
+              hint="A discount ledger, not a defect list. Older contracts were signed against older list prices, so a gap is expected — the point is seeing its size, which no single invoice shows. Nothing here changes what is billed."
+            >
+              <table className="min-w-full divide-y divide-slate-800">
+                <thead>
+                  <tr>
+                    <th className={TH}>Company</th>
+                    <th className={TH}>Tier</th>
+                    <th className={TH}>Service</th>
+                    <th className={TH}>Units</th>
+                    <th className={TH}>Contracted</th>
+                    <th className={TH}>Catalogue</th>
+                    <th className={TH}>Gap</th>
+                    <th className={TH}>Per month</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {report.rateVariance!.slice(0, 25).map((r, i) => (
+                    <tr key={`${r.companyId}-${r.serviceName}-${i}`}>
+                      <td className={TD}>#{r.companyId}</td>
+                      <td className={`${TD} text-slate-400`}>{TIER_LABEL[r.tier] ?? r.tier}</td>
+                      <td className={`${TD} whitespace-normal`}>{r.serviceName}</td>
+                      <td className={TD}>{r.units}</td>
+                      <td className={TD}>{money(r.contractedUnitPrice, 2)}</td>
+                      <td className={`${TD} text-slate-400`}>{money(r.catalogUnitPrice, 2)}</td>
+                      <td className={`${TD} ${r.gapPct < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{r.gapPct}%</td>
+                      <td className={`${TD} ${r.monthlyGap < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {money(r.monthlyGap)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {report.rateVariance!.length > 25 && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Showing the 25 largest gaps of {report.rateVariance!.length}. Sorted most-below-list first.
+                </p>
+              )}
+            </Section>
+          )}
+
           <Section
             title="Internal vs customer work, by month"
             hint="The trend is the point. Internal hours are real capacity — watch the direction, not any single month."
@@ -283,8 +576,8 @@ export default function DeliveryEconomicsDashboard() {
           </Section>
 
           <Section
-            title="Hours per endpoint, by tier"
-            hint="Measured: hours logged against each customer divided by their Datto endpoint count. A tier with no customers shows — rather than a fabricated zero."
+            title="Hours per RMM endpoint, by tier"
+            hint="A coverage measure, not cost to serve: hours logged against each customer divided by their Datto RMM device count. Endpoints under management are not the same population as billed device units, so use the billed-unit table above for economics. Kept because it is the figure the sales calculator's tier proxies were derived from. A tier with no customers shows — rather than a fabricated zero."
           >
             <table className="min-w-full divide-y divide-slate-800">
               <thead><tr><th className={TH}>Tier</th><th className={TH}>Companies</th><th className={TH}>Endpoints</th><th className={TH}>Hours / mo</th><th className={TH}>Hours / endpoint</th></tr></thead>

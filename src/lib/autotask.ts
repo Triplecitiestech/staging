@@ -356,6 +356,35 @@ export interface ResourceListItem {
   resourceType: string | null;
 }
 
+/**
+ * A recurring service line on a contract — the "Rate/Cost" column of an
+ * invoice. Carries the rate but NOT the quantity: Autotask keeps quantity in
+ * ContractServiceUnits, one row per billing period. Both are needed to
+ * reconstruct an invoice line.
+ */
+export interface AutotaskContractService {
+  id: number;
+  contractID: number;
+  serviceID: number;
+  unitPrice?: number | null;
+  unitCost?: number | null;
+  invoiceDescription?: string | null;
+  internalDescription?: string | null;
+}
+
+/** Quantity (and period-effective rate) for one contract service, per period. */
+export interface AutotaskContractServiceUnit {
+  id: number;
+  contractID: number;
+  contractServiceID?: number | null;
+  serviceID: number;
+  units: number;
+  price?: number | null;
+  cost?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
 /** Autotask ServiceLevelAgreementResults — per-ticket SLA met/elapsed detail. */
 export interface AutotaskSlaResult {
   id: number;
@@ -1718,6 +1747,58 @@ export class AutotaskClient {
       list = list.filter((c) => !c.endDate || new Date(c.endDate) >= now);
     }
     return list;
+  }
+
+  /**
+   * Recurring service lines across contracts — the per-unit RATES.
+   *
+   * Read-only here by intent: ContractServices is creatable/updatable in the
+   * API, but pricing changes belong in the gated staged-write flow, never in a
+   * reporting path.
+   */
+  async listContractServices(opts: { contractId?: number } = {}): Promise<AutotaskContractService[]> {
+    const filter = opts.contractId != null
+      ? { op: 'eq', field: 'contractID', value: opts.contractId }
+      : { op: 'exist', field: 'id' };
+    const rows = await this.queryAll<AutotaskContractService>('ContractServices', filter,
+      ['id', 'contractID', 'serviceID', 'unitPrice', 'unitCost', 'invoiceDescription', 'internalDescription']);
+    return rows.map((r) => ({
+      id: Number(r.id),
+      contractID: Number(r.contractID),
+      serviceID: Number(r.serviceID),
+      unitPrice: r.unitPrice ?? null,
+      unitCost: r.unitCost ?? null,
+      invoiceDescription: r.invoiceDescription ?? null,
+      internalDescription: r.internalDescription ?? null,
+    }));
+  }
+
+  /**
+   * Per-period QUANTITIES for contract service lines. One row per service per
+   * billing period, so a multi-year contract carries dozens of rows per
+   * service — callers must pick the period they mean rather than summing.
+   */
+  async listContractServiceUnits(opts: { contractId?: number; from?: Date; to?: Date } = {}): Promise<AutotaskContractServiceUnit[]> {
+    const items: object[] = [];
+    if (opts.contractId != null) items.push({ op: 'eq', field: 'contractID', value: opts.contractId });
+    if (opts.from) items.push({ op: 'gte', field: 'endDate', value: opts.from.toISOString() });
+    if (opts.to) items.push({ op: 'lte', field: 'startDate', value: opts.to.toISOString() });
+    const filter = items.length === 0
+      ? { op: 'exist', field: 'id' }
+      : items.length === 1 ? items[0] : { op: 'and', items };
+    const rows = await this.queryAll<AutotaskContractServiceUnit>('ContractServiceUnits', filter,
+      ['id', 'contractID', 'contractServiceID', 'serviceID', 'units', 'price', 'cost', 'startDate', 'endDate']);
+    return rows.map((r) => ({
+      id: Number(r.id),
+      contractID: Number(r.contractID),
+      contractServiceID: r.contractServiceID ?? null,
+      serviceID: Number(r.serviceID),
+      units: Number(r.units ?? 0),
+      price: r.price ?? null,
+      cost: r.cost ?? null,
+      startDate: r.startDate ?? null,
+      endDate: r.endDate ?? null,
+    }));
   }
 
   /** Active resources (technicians) with resourceType, for team reporting. */

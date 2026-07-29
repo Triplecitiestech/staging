@@ -670,9 +670,15 @@ export async function POST(request: Request) {
           internal_share_pct NUMERIC(6,2),
           time_entries INTEGER,
           captured_by TEXT,
+          managed_revenue_per_month NUMERIC(12,2),
           report JSONB NOT NULL
         )
       `)
+      // Additive for anyone who already created the table before the
+      // billed-unit model landed. Harmless on a fresh create.
+      await client.query(
+        'ALTER TABLE delivery_economics_snapshots ADD COLUMN IF NOT EXISTS managed_revenue_per_month NUMERIC(12,2)'
+      )
       await client.query(
         'CREATE INDEX IF NOT EXISTS delivery_economics_snapshots_captured_idx ON delivery_economics_snapshots (captured_at DESC)'
       )

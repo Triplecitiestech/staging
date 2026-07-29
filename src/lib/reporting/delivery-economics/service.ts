@@ -20,13 +20,17 @@
 import { AutotaskClient } from '@/lib/autotask'
 import { DattoRmmClient } from '@/lib/datto-rmm'
 import { withRetry, withTimeout } from '@/lib/resilience'
+import laborModel from '@/config/sales-calculator/labor.json'
 import { buildDeliveryEconomicsReport, resolveCompanyTiers } from './analyzer'
+import { buildCompanyBilling } from './billing-units'
 import type {
   CapacityMember,
+  CompanyBilling,
   CompanyTier,
   DeliveryEconomicsReport,
   DeliveryTimeEntry,
   EndpointCount,
+  ServiceCatalogEntry,
 } from './types'
 
 /**
@@ -67,7 +71,57 @@ export interface DeliveryEconomicsTelemetry {
   entries: DeliveryTimeEntry[]
   tiers: CompanyTier[]
   endpoints: EndpointCount[]
+  billing: CompanyBilling[]
+  unclassifiedServices: string[]
   warnings: string[]
+}
+
+/**
+ * Contract service lines -> per-company billed unit mix.
+ *
+ * Three separate reads because Autotask splits an invoice line across three
+ * entities: Services holds the name, ContractServices the rate, and
+ * ContractServiceUnits the quantity for a given billing period. There is no
+ * single endpoint that returns a recurring invoice line whole.
+ *
+ * A failure here degrades the billed-unit sections only — the capacity and
+ * billing-capture sections do not depend on contracts.
+ */
+async function fetchCompanyBilling(
+  autotask: AutotaskClient,
+  contracts: { id: number; companyID: number; contractName: string | null }[],
+  tiers: CompanyTier[],
+  anchorDate: string,
+  warnings: string[]
+): Promise<{ billing: CompanyBilling[]; unclassifiedServices: string[] }> {
+  try {
+    const [catalog, contractServices, contractServiceUnits] = await Promise.all([
+      withRetry(() => autotask.getServicesList({ activeOnly: false }), { maxRetries: 2 }),
+      withRetry(() => autotask.listContractServices(), { maxRetries: 2 }),
+      withRetry(() => autotask.listContractServiceUnits(), { maxRetries: 2 }),
+    ])
+    const services: ServiceCatalogEntry[] = catalog.services.map((s) => ({
+      id: Number(s.id),
+      name: String(s.name ?? ''),
+      unitPrice: s.unitPrice == null ? null : Number(s.unitPrice),
+      unitCost: s.unitCost == null ? null : Number(s.unitCost),
+    }))
+    const { companies, unclassifiedServices } = buildCompanyBilling({
+      contracts,
+      services,
+      contractServices,
+      contractServiceUnits,
+      tiers,
+      anchorDate,
+    })
+    return { billing: companies, unclassifiedServices }
+  } catch (err) {
+    warnings.push(
+      `Contract service lines unavailable (${err instanceof Error ? err.message : String(err)}). ` +
+        'Per-billed-unit economics are omitted for this run rather than estimated.'
+    )
+    return { billing: [], unclassifiedServices: [] }
+  }
 }
 
 interface RawDattoSite {
@@ -147,6 +201,8 @@ export async function fetchDeliveryTelemetry(opts: {
   }
 
   let tiers: CompanyTier[] = []
+  let billing: CompanyBilling[] = []
+  let unclassifiedServices: string[] = []
   try {
     const contracts = await withRetry(() => autotask.listContracts({ activeOnly: true }), { maxRetries: 2 })
     tiers = resolveCompanyTiers(
@@ -156,6 +212,18 @@ export async function fetchDeliveryTelemetry(opts: {
         statusName: c.statusName ?? null,
       }))
     )
+    // Anchor on the window end: the billed unit mix reported is the one in
+    // force at the end of the measured period, so revenue and hours describe
+    // the same customer base.
+    const result = await fetchCompanyBilling(
+      autotask,
+      contracts.map((c) => ({ id: c.id, companyID: c.companyID, contractName: c.contractName ?? null })),
+      tiers,
+      opts.to.toISOString().slice(0, 10),
+      warnings
+    )
+    billing = result.billing
+    unclassifiedServices = result.unclassifiedServices
   } catch (err) {
     warnings.push(
       `Autotask contracts unavailable (${err instanceof Error ? err.message : String(err)}). ` +
@@ -163,7 +231,14 @@ export async function fetchDeliveryTelemetry(opts: {
     )
   }
 
-  return { entries: [...byId.values()], tiers, endpoints: await fetchEndpointCounts(datto, warnings), warnings }
+  return {
+    entries: [...byId.values()],
+    tiers,
+    endpoints: await fetchEndpointCounts(datto, warnings),
+    billing,
+    unclassifiedServices,
+    warnings,
+  }
 }
 
 /** Months in the window, to one decimal — the divisor for every /month figure. */
@@ -184,8 +259,13 @@ export async function generateDeliveryEconomicsReport(opts: {
     entries: telemetry.entries,
     tiers: telemetry.tiers,
     endpoints: telemetry.endpoints,
+    billing: telemetry.billing,
+    unclassifiedServices: telemetry.unclassifiedServices,
     capacity: DELIVERY_ROSTER,
     excludedResources: EXCLUDED_RESOURCES,
+    // Same blended loaded rate the sales calculator quotes against, so a deal
+    // priced in the calculator and a customer measured here use one cost basis.
+    deliveryCostPerHour: laborModel.deliveryCostPerHour,
     window: {
       from: opts.from.toISOString().slice(0, 10),
       to: opts.to.toISOString().slice(0, 10),

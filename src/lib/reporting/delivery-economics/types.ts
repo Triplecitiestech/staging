@@ -86,6 +86,132 @@ export interface TierEconomics {
   measured: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Billed units — the real cost denominators
+// ---------------------------------------------------------------------------
+
+/**
+ * The unit a recurring service is billed against.
+ *
+ * TCT does not bill per endpoint. An invoice carries independent per-user,
+ * per-device, per-server, per-site and per-company lines, plus resold licences
+ * and backups that are billed separately. The first five carry delivery labour;
+ * the rest are pass-through and must not be mixed into a cost-to-serve figure.
+ */
+export type BilledUnitType =
+  | 'user'
+  | 'device'
+  | 'server'
+  | 'site'
+  | 'business'
+  | 'license'
+  | 'backup'
+  | 'addon'
+  | 'labor'
+  | 'other'
+
+/** One reconstructed recurring invoice line. */
+export interface BillingUnitLine {
+  serviceId: number
+  serviceName: string
+  unitType: BilledUnitType
+  units: number
+  unitPrice: number
+  unitCost: number
+  monthlyRevenue: number
+  monthlyToolingCost: number
+  /** The catalogue list rate, for discount comparison. Null if unknown. */
+  catalogUnitPrice: number | null
+  /** Where the rate came from. 'catalog' means the contract carried none. */
+  rateSource: 'contract' | 'period' | 'catalog'
+  contractName: string | null
+}
+
+export interface CompanyBilling {
+  companyId: number
+  tier: TierOrUnmanaged
+  lines: BillingUnitLine[]
+  units: Record<BilledUnitType, number>
+  revenue: Record<BilledUnitType, number>
+  toolingCost: Record<BilledUnitType, number>
+  /** Per user/device/server/site/business — the services TCT delivers. */
+  managedRevenue: number
+  /** Resold licences, backups, add-ons — billed through, not delivered. */
+  passthroughRevenue: number
+}
+
+/** A service catalogue entry, reduced to what the billing layer needs. */
+export interface ServiceCatalogEntry {
+  id: number
+  name: string
+  unitPrice: number | null
+  unitCost: number | null
+}
+
+/**
+ * How delivery hours were attributed across the billed unit types.
+ *
+ * `method` is part of the finding, not metadata: 'regression' means the split
+ * was measured from the relationship between unit counts and hours, while
+ * 'unit-share' means there was not enough signal and the hours were allocated
+ * evenly. Presenting the second as though it were the first would be the same
+ * class of error as the per-endpoint model this replaced.
+ */
+export interface LaborFit {
+  method: 'regression' | 'unit-share'
+  perUserHours: number | null
+  perDeviceHours: number | null
+  perServerHours: number | null
+  /** Hours per company that do not scale with unit counts. */
+  fixedHoursPerCompany: number | null
+  r2: number | null
+  /**
+   * R² adjusted for the number of fitted parameters — the figure the fit is
+   * accepted or rejected on. At this sample size raw R² flatters noise, so it
+   * is reported alongside but never gated on.
+   */
+  adjustedR2: number | null
+  observations: number
+  warnings: string[]
+}
+
+export interface UnitEconomics {
+  unitType: BilledUnitType
+  unitsBilled: number
+  companies: number
+  monthlyRevenue: number
+  monthlyToolingCost: number
+  monthlyLaborCost: number | null
+  laborHoursPerUnit: number | null
+  revenuePerUnit: number | null
+  toolingCostPerUnit: number | null
+  laborCostPerUnit: number | null
+  contributionPerUnit: number | null
+  monthlyContribution: number | null
+  contributionMarginPct: number | null
+}
+
+export interface TierUnitMix {
+  tier: TierOrUnmanaged
+  companies: number
+  units: Record<BilledUnitType, number>
+  revenue: Record<BilledUnitType, number>
+  managedRevenue: number
+  passthroughRevenue: number
+}
+
+export interface RateVariance {
+  companyId: number
+  tier: TierOrUnmanaged
+  serviceName: string
+  unitType: BilledUnitType
+  units: number
+  contractedUnitPrice: number
+  catalogUnitPrice: number
+  gapPct: number
+  monthlyGap: number
+}
+
 export interface CapacitySummary {
   scalableHoursPerMonth: number
   customerHoursPerMonth: number
@@ -141,6 +267,21 @@ export interface DeliveryEconomicsReport {
   billingCapture: BillingCapture[]
   nonBillable: NonBillableBreakdown[]
   nonBillableSizeBands: NonBillableSizeBand[]
+
+  /**
+   * Cost-to-serve on the denominators TCT actually bills against. Empty when
+   * contract service lines could not be read — the endpoint view above still
+   * works, but per-unit economics are unavailable rather than guessed.
+   */
+  unitEconomics: UnitEconomics[]
+  tierUnitMix: TierUnitMix[]
+  laborFit: LaborFit | null
+  rateVariance: RateVariance[]
+  /** Services whose billing unit could not be determined from the name. */
+  unclassifiedServices: string[]
+  /** Managed recurring revenue per month at contracted rates. */
+  managedRevenuePerMonth: number
+  passthroughRevenuePerMonth: number
 
   /** Entries with no ticket at all — invisible to ticket-based reporting. */
   hoursWithNoTicket: number
