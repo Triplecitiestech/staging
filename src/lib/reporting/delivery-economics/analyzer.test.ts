@@ -266,6 +266,7 @@ describe('buildDeliveryEconomicsReport', () => {
     capacity: CAP,
     window: { from: '2026-02-01', to: '2026-07-27', months: 5.9 },
     generatedAt: '2026-07-28T00:00:00.000Z',
+    deliveryCostPerHour: 13.6,
   }
 
   it('assembles every section and excludes departed staff from all of them', () => {

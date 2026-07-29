@@ -29,6 +29,8 @@ export interface SnapshotRow {
   idleHoursPerMonth: number | null
   internalSharePct: number | null
   timeEntries: number | null
+  /** Managed recurring revenue at contracted rates — null on pre-model rows. */
+  managedRevenuePerMonth: number | null
   capturedBy: string | null
 }
 
@@ -44,7 +46,7 @@ export interface SnapshotReadResult<T> {
 
 const LIST_COLUMNS = `id, captured_at, window_from, window_to,
   customer_hours_per_month, internal_hours_per_month, idle_hours_per_month,
-  internal_share_pct, time_entries, captured_by`
+  internal_share_pct, time_entries, managed_revenue_per_month, captured_by`
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function toRow(r: any): SnapshotRow {
@@ -59,6 +61,7 @@ function toRow(r: any): SnapshotRow {
     idleHoursPerMonth: num(r.idle_hours_per_month),
     internalSharePct: num(r.internal_share_pct),
     timeEntries: num(r.time_entries),
+    managedRevenuePerMonth: num(r.managed_revenue_per_month),
     capturedBy: r.captured_by ?? null,
   }
 }
@@ -80,8 +83,8 @@ export async function saveSnapshot(
       `INSERT INTO delivery_economics_snapshots
          (captured_at, window_from, window_to, customer_hours_per_month,
           internal_hours_per_month, idle_hours_per_month, internal_share_pct,
-          time_entries, captured_by, report)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+          time_entries, managed_revenue_per_month, captured_by, report)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
       [
         report.generatedAt,
         report.window.from,
@@ -91,6 +94,7 @@ export async function saveSnapshot(
         report.capacity.idleHoursPerMonth,
         latestInternalShare(report),
         report.timeEntriesAnalysed,
+        report.managedRevenuePerMonth ?? null,
         capturedBy,
         JSON.stringify(report),
       ]

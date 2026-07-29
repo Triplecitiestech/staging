@@ -15,10 +15,18 @@
 //     `measured: false`. Never a zero — a fabricated zero reads as "this tier
 //     is free to deliver", which is the opposite of unknown.
 
+import {
+  computeRateVariance,
+  computeTierUnitMix,
+  computeUnitEconomics,
+  fitLaborModel,
+  type LaborObservation,
+} from './billing-units'
 import type {
   BillingCapture,
   CapacityMember,
   CapacitySummary,
+  CompanyBilling,
   CompanyTier,
   DeliveryEconomicsReport,
   DeliveryTier,
@@ -225,6 +233,37 @@ export function computeTierEconomics(
   })
 }
 
+/**
+ * Per-company delivery hours per month, paired with billed unit counts — the
+ * observations the labour fit runs on.
+ *
+ * Only companies with billed units are included. A company with hours but no
+ * contract service lines cannot inform how hours split between users and
+ * devices, and feeding it in as zero-units would drag the fixed term upward.
+ */
+export function buildLaborObservations(
+  entries: DeliveryTimeEntry[],
+  months: number,
+  billing: CompanyBilling[]
+): LaborObservation[] {
+  const m = months > 0 ? months : 1
+  const hoursByCompany = new Map<number, number>()
+  for (const e of entries) {
+    if (isInternal(e)) continue
+    hoursByCompany.set(e.companyID, (hoursByCompany.get(e.companyID) ?? 0) + e.hoursWorked)
+  }
+  return billing
+    .filter((b) => b.tier !== 'unmanaged')
+    .map((b) => ({
+      companyId: b.companyId,
+      hoursPerMonth: round2((hoursByCompany.get(b.companyId) ?? 0) / m),
+      users: b.units.user ?? 0,
+      devices: b.units.device ?? 0,
+      servers: b.units.server ?? 0,
+      managedRevenue: b.managedRevenue,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Billing capture
 // ---------------------------------------------------------------------------
@@ -381,13 +420,63 @@ export function buildDeliveryEconomicsReport(input: {
   window: { from: string; to: string; months: number }
   excludedResources?: string[]
   generatedAt: string
+  /** Billed unit mix per company. Omit when contract lines are unavailable. */
+  billing?: CompanyBilling[]
+  unclassifiedServices?: string[]
+  /** Blended loaded cost of a delivery hour. */
+  deliveryCostPerHour: number
 }): DeliveryEconomicsReport {
-  const { entries, tiers, endpoints, capacity, window, generatedAt } = input
+  const { entries, tiers, endpoints, capacity, window, generatedAt, deliveryCostPerHour } = input
   const excluded = new Set(input.excludedResources ?? [])
   const kept = excluded.size ? entries.filter((e) => !excluded.has(e.resourceName)) : entries
 
   const monthly = computeMonthly(kept)
   const notes: string[] = []
+
+  // --- Billed-unit economics -------------------------------------------------
+  const billing = input.billing ?? []
+  let unitEconomics: DeliveryEconomicsReport['unitEconomics'] = []
+  let tierUnitMix: DeliveryEconomicsReport['tierUnitMix'] = []
+  let laborFit: DeliveryEconomicsReport['laborFit'] = null
+  let rateVariance: DeliveryEconomicsReport['rateVariance'] = []
+  let managedRevenue = 0
+  let passthroughRevenue = 0
+
+  if (billing.length) {
+    laborFit = fitLaborModel(buildLaborObservations(kept, window.months, billing))
+    unitEconomics = computeUnitEconomics(billing, laborFit, deliveryCostPerHour)
+    tierUnitMix = computeTierUnitMix(billing)
+    rateVariance = computeRateVariance(billing)
+    for (const b of billing) {
+      managedRevenue += b.managedRevenue
+      passthroughRevenue += b.passthroughRevenue
+    }
+    notes.push(
+      'Cost to serve is measured against the units TCT actually bills — users, devices, servers, sites and the ' +
+        'per-company line — not against endpoints. Users and devices move independently (one Complete customer bills ' +
+        '15 users against 20 devices, another 32 against 28), so a single endpoint denominator attributes cost to the ' +
+        'wrong line.'
+    )
+    if (laborFit.method === 'unit-share') {
+      notes.push(
+        'Per-unit labour here is an ALLOCATION, not a measurement — see the labour-model note for why the fit was ' +
+          'rejected. Unit revenue and tooling cost are still measured from the contracts.'
+      )
+    }
+    for (const w of laborFit.warnings) notes.push(w)
+    if (input.unclassifiedServices?.length) {
+      notes.push(
+        `${input.unclassifiedServices.length} billed service(s) could not be matched to a billing unit and are counted ` +
+          `as "other" rather than guessed at: ${input.unclassifiedServices.slice(0, 12).join(', ')}` +
+          `${input.unclassifiedServices.length > 12 ? ', …' : ''}.`
+      )
+    }
+  } else {
+    notes.push(
+      'Contract service lines were unavailable, so per-billed-unit economics are not shown. The endpoint figures below ' +
+        'are a coverage measure only — they are not cost to serve.'
+    )
+  }
 
   const unmeasured = computeTierEconomics(kept, window.months, tiers, endpoints).filter((t) => !t.measured)
   if (unmeasured.length) {
@@ -406,7 +495,8 @@ export function buildDeliveryEconomicsReport(input: {
     )
   }
   notes.push(
-    'Endpoints come from Datto RMM and include servers plus any stale devices; a cleaner denominator moves hours per endpoint.'
+    'Endpoints come from Datto RMM and include servers plus any stale devices. Endpoint counts measure RMM COVERAGE, ' +
+      'not the billing base — a device under management is not necessarily a billed device unit.'
   )
 
   return {
@@ -421,6 +511,13 @@ export function buildDeliveryEconomicsReport(input: {
     billingCapture: computeBillingCapture(kept, tiers),
     nonBillable: computeNonBillableBreakdown(kept),
     nonBillableSizeBands: computeNonBillableSizeBands(kept),
+    unitEconomics,
+    tierUnitMix,
+    laborFit,
+    rateVariance,
+    unclassifiedServices: input.unclassifiedServices ?? [],
+    managedRevenuePerMonth: round2(managedRevenue),
+    passthroughRevenuePerMonth: round2(passthroughRevenue),
     hoursWithNoTicket: computeHoursWithNoTicket(kept),
     suspectedMisfiledCustomerHours: computeSuspectedMisfiledHours(kept),
     notes,
