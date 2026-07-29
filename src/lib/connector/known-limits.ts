@@ -155,10 +155,18 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       priority: 'medium',
     },
     {
+      capability: 'Move an existing document into a different folder (or back to the org root)',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'IT Glue\'s developer reference (api.itglue.com/developer, Documents resource) marks data[attributes][document_folder_id] "Not permitted in PUT/PATCH, optional in POST" on BOTH PATCH /documents/:id and the bulk PATCH /documents. Confirmed live against org 6942365: PATCH returns 200, IT Glue drops the attribute, the folder is unchanged (doc 24262329 → folder 5301326 on 2026-07-17; doc 24227609 → folder 6255494 on 2026-07-29).',
+      notes:
+        'Folder placement is CREATE-ONLY: pass documentFolderId to itglue_create_document. itglue_move_document stays registered but writes nothing and returns UPSTREAM_UNSUPPORTED, because a silent no-op cost twelve days of believing the move had worked. Existing documents are moved by a human in the IT Glue UI (Documents list → tick → Move).',
+    },
+    {
       capability: 'Delete a document folder',
       reason: 'POLICY_GATED',
       verifiedBy: 'Deliberately omitted when folder create was added; folder deletion is left to the IT Glue UI.',
-      notes: 'Folder CREATE and document MOVE are both supported.',
+      notes: 'Folder CREATE is supported. Document MOVE is NOT — see the row above; that is a vendor limit, not this policy choice.',
     },
     {
       capability: 'Account-wide document search across all organizations at once',

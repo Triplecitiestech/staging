@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as write from '@/lib/autotask-write'
-import { toolFailure } from '@/lib/connector/failure-envelope'
+import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -57,6 +57,43 @@ function ok(data: unknown) { return { content: [{ type: 'text' as const, text: J
 function fail(err: unknown) { return toolFailure(err, { surface: 'autotask' }) }
 function okTicket(ticketId: number, data: unknown) { return ok({ result: data, ticketUrl: getAutotaskTicketUrl(String(ticketId)) }) }
 
+// ---------------------------------------------------------------------------
+// Assignment read-back
+// ---------------------------------------------------------------------------
+//
+// Autotask requires assignedResourceID and assignedResourceRoleID TOGETHER
+// (HTTP 500 "Data violation" otherwise), so both tools that assign now accept
+// the role and default it. An accepted write is still not a done write: this
+// re-reads the ticket and reports what Autotask actually stored. A silent
+// no-op is returned as a FAILURE, never as success-shaped output — the exact
+// pattern that let the IT Glue folder-move defect survive twelve days.
+const ROLE_GUIDANCE =
+  'Role ids in this instance: Engineer 29683355 (default), Help Desk 29683464, Network Engineer 29683460 — resolve others with autotask_list_roles. Do NOT use Low/High Voltage Technician (29683465) for ticket delivery.'
+
+async function verifyAssignment(
+  ticketId: number,
+  requested: { resourceId: number; roleId: number },
+): Promise<{ verified: true; assignment: { assignedResourceID: number | null; assignedResourceRoleID: number | null } } | { verified: false; result: McpToolResult }> {
+  const assignment = await new AutotaskClient().getTicketAssignment(ticketId)
+  if (assignment?.assignedResourceID === requested.resourceId && assignment?.assignedResourceRoleID === requested.roleId) {
+    return { verified: true, assignment }
+  }
+  return {
+    verified: false,
+    result: failureResult({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        `Autotask accepted the assignment write for ticket ${ticketId} but the read-back does not show it. Requested resource ${requested.resourceId} with role ${requested.roleId}; the ticket now reports resource ${assignment?.assignedResourceID ?? 'none'} with role ${assignment?.assignedResourceRoleID ?? 'none'}. Do NOT report this ticket as assigned.`,
+      evidence:
+        'Verified by re-reading assignedResourceID + assignedResourceRoleID off the ticket after the write (autotask_get_ticket-equivalent narrow query), not by trusting the write\'s HTTP status.',
+      remediation:
+        `Check the ticket in Autotask before doing anything else — the resource may not be a member of the queue, or the role may not be one the resource holds. ${ROLE_GUIDANCE}`,
+      surface: 'autotask',
+      details: { ticketId, requested, actual: assignment },
+    }),
+  }
+}
+
 // Append text to a ticket's Resolution field (GET current, concat, PATCH).
 // Resolution — not the time-entry summary — is what fills the customer
 // completion email, so this is used on close.
@@ -75,7 +112,7 @@ export function registerWriteTools(server: any) {
     'autotask_create_ticket',
     {
       title: 'Autotask: create ticket',
-      description: 'WRITE. Create a NEW Autotask ticket, attributed to the signed-in tech. Required: companyID, title, queueID, status, priority (status/priority/queueID are numeric picklist ids — use autotask_ticket_statuses for status and autotask_search_companies for companyID). Optional: description, dueDateTime, contactID, assignedResourceID, ticketType. Note: Autotask requires dueDateTime unless the ticket category supplies a default, so include it if the create is rejected for a missing due date. Nothing is defaulted server-side. Confirm the details with the user before calling. Returns the new ticket id and ticketNumber.',
+      description: 'WRITE. Create a NEW Autotask ticket, attributed to the signed-in tech. Required: companyID, title, queueID, status, priority (status/priority/queueID are numeric picklist ids — use autotask_ticket_statuses for status and autotask_search_companies for companyID). Optional: description, dueDateTime, contactID, assignedResourceID + assignedResourceRoleID, ticketType. ASSIGNMENT: Autotask rejects a resource without a role ("Data violation: you must assign both a assignedResourceID and assignedResourceRoleID"), so passing assignedResourceID alone DEFAULTS the role to Engineer (29683355). ' + ROLE_GUIDANCE + ' Note: Autotask requires dueDateTime unless the ticket category supplies a default, so include it if the create is rejected for a missing due date. Nothing else is defaulted server-side. The response reports the assignment READ BACK off the created ticket — if assignmentVerified is false the resource did not stick, so do not tell the user it is assigned. Confirm the details with the user before calling. Returns the new ticket id and ticketNumber.',
       inputSchema: {
         companyID: z.number().int().describe('Autotask company ID (required)'),
         title: z.string().describe('Ticket title (required)'),
@@ -86,18 +123,32 @@ export function registerWriteTools(server: any) {
         dueDateTime: z.string().optional().describe('Due date-time, ISO 8601 (e.g. 2026-07-05T17:00:00Z)'),
         contactID: z.number().int().optional().describe('Autotask contact id (from autotask_company_contacts)'),
         assignedResourceID: z.number().int().optional().describe('Resource id to assign (from autotask_find_resource)'),
+        assignedResourceRoleID: z.number().int().optional().describe('Role id for that resource — REQUIRED BY AUTOTASK whenever assignedResourceID is set; defaults to Engineer 29683355 if omitted. From autotask_list_roles'),
         ticketType: z.number().int().optional().describe('Ticket type picklist id; Autotask defaults to Service Request if omitted'),
       },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, ticketType }: any, extra: any) => {
+    async ({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, assignedResourceRoleID, ticketType }: any, extra: any) => {
       try {
         const rid = await resolveResourceId(emailOf(extra))
-        const res = await write.createTicket({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, ticketType }, rid)
+        const res = await write.createTicket({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, assignedResourceRoleID, ticketType }, rid)
         const newId = res?.itemId
         if (!newId) return ok({ result: res, note: 'Ticket create returned no itemId.' })
         const ticket = await new AutotaskClient().getTicket(newId)
-        return ok({ id: newId, ticketNumber: ticket?.ticketNumber ?? null, ticketUrl: getAutotaskTicketUrl(String(newId)), ticket })
+        const base = { id: newId, ticketNumber: ticket?.ticketNumber ?? null, ticketUrl: getAutotaskTicketUrl(String(newId)), ticket }
+        // Ticket exists, so this is never a hard failure — but an assignment
+        // that did not take must be reported as unverified, not omitted.
+        if (assignedResourceID == null) return ok(base)
+        const roleId = assignedResourceRoleID ?? write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
+        const check = await verifyAssignment(newId, { resourceId: assignedResourceID, roleId }).catch(() => null)
+        return ok({
+          ...base,
+          assignmentRequested: { assignedResourceID, assignedResourceRoleID: roleId, roleDefaulted: assignedResourceRoleID == null },
+          assignmentVerified: check?.verified === true,
+          ...(check?.verified === true
+            ? { assignment: check.assignment }
+            : { assignmentNote: `The ticket was created, but the read-back does NOT confirm resource ${assignedResourceID} with role ${roleId}. Tell the user the ticket exists and the assignment needs checking in Autotask — do not report it as assigned.` }),
+        })
       } catch (e) { return fail(e) }
     }
   )
@@ -150,10 +201,32 @@ export function registerWriteTools(server: any) {
 
   server.registerTool(
     'autotask_assign_ticket',
-    { title: 'Autotask: assign ticket', description: 'WRITE. Set a ticket\'s assigned resource. Use autotask_find_resource to resolve a name/email to a resourceId. Confirm with the user first.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), resourceId: z.number().int().describe('Autotask resource ID to assign the ticket to') } },
+    {
+      title: 'Autotask: assign ticket',
+      description: 'WRITE. Set a ticket\'s assigned resource AND that resource\'s role — Autotask requires the pair and rejects a resource on its own ("Data violation: you must assign both a assignedResourceID and assignedResourceRoleID"). Omitting assignedResourceRoleID defaults it to Engineer (29683355). ' + ROLE_GUIDANCE + ' Use autotask_find_resource to resolve a name/email to a resourceId. The write is VERIFIED by read-back: if Autotask accepts the PATCH but the ticket does not show the assignment, this returns a PRECONDITION_FAILED failure rather than success. Confirm with the user first.',
+      inputSchema: {
+        ticketId: z.number().int().describe('Autotask ticket ID'),
+        resourceId: z.number().int().describe('Autotask resource ID to assign the ticket to (Autotask field assignedResourceID)'),
+        assignedResourceRoleID: z.number().int().optional().describe('Role id for that resource — REQUIRED BY AUTOTASK alongside the resource; defaults to Engineer 29683355 if omitted. From autotask_list_roles'),
+      },
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ ticketId, resourceId }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.updateTicket(ticketId, { assignedResourceID: resourceId }, rid)) } catch (e) { return fail(e) }
+    async ({ ticketId, resourceId, assignedResourceRoleID }: any, extra: any) => {
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        const roleId = assignedResourceRoleID ?? write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
+        const result = await write.updateTicket(ticketId, { assignedResourceID: resourceId, assignedResourceRoleID: roleId }, rid)
+        const check = await verifyAssignment(ticketId, { resourceId, roleId })
+        if (!check.verified) return check.result
+        return ok({
+          result,
+          ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+          assignment: check.assignment,
+          assignmentVerified: true,
+          roleDefaulted: assignedResourceRoleID == null,
+          note: 'Verified by read-back: the ticket reports this resource and role.',
+        })
+      } catch (e) { return fail(e) }
     }
   )
 

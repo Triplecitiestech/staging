@@ -3,7 +3,7 @@ import { ItGlueClient } from './it-glue'
 
 // Focused tests for the newer IT Glue write paths: publish (verb fallback +
 // verification read-back), related items, the attachment size guard, and
-// document folders (list/create/move).
+// document folders (list/create — a MOVE is not possible, see the last block).
 
 function jsonResponse(status: number, body: unknown = {}) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/vnd.api+json' } })
@@ -134,21 +134,42 @@ describe('createDocumentFolder', () => {
   })
 })
 
-describe('updateDocument (move)', () => {
-  it('PATCHes document_folder_id as a number when moving into a folder', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: { id: '24323685', attributes: { name: 'AI Services - Intake', 'document-folder-id': 99 } } }))
-    await client().updateDocument('24323685', { documentFolderId: '99' })
+// ---------------------------------------------------------------------------
+// updateDocument: folder placement is CREATE-ONLY (regression, 2026-07-29)
+// ---------------------------------------------------------------------------
+//
+// These previously asserted the OPPOSITE — that a move PATCHes
+// document_folder_id — which is what the client did for twelve days while every
+// move silently failed. IT Glue marks the attribute "Not permitted in
+// PUT/PATCH, optional in POST", drops it, and answers 200. The vendor contract
+// changed nothing; our reading of it was wrong.
+
+describe('updateDocument does not attempt a folder move', () => {
+  it('renames without ever sending document_folder_id', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: { id: '24227609', attributes: { name: 'New Title' } } }))
+    await client().updateDocument('24227609', { name: 'New Title' })
     const [url, init] = vi.mocked(fetch).mock.calls[0]
-    expect(String(url)).toContain('/documents/24323685')
+    expect(String(url)).toContain('/documents/24227609')
     expect((init as RequestInit).method).toBe('PATCH')
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.data.attributes).toEqual({ document_folder_id: 99 })
+    expect(body.data.attributes).toEqual({ name: 'New Title' })
+    expect(Object.keys(body.data.attributes)).not.toContain('document_folder_id')
   })
 
-  it('PATCHes document_folder_id to null when moving to the org root', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: { id: '1', attributes: { 'document-folder-id': null } } }))
-    await client().updateDocument('1', { documentFolderId: null })
+  it('throws WITHOUT calling the API if a folder id reaches it through a cast', async () => {
+    // The type says `never`, so this can only happen via JS or `as any` — and
+    // it must fail loudly rather than issue a PATCH that no-ops with a 200.
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client().updateDocument('24227609', { documentFolderId: '6255494' } as any)
+    ).rejects.toThrow(/Not permitted in PUT\/PATCH/)
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+
+  it('still sends document_folder_id on CREATE, where IT Glue does honour it', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { data: { id: '5', attributes: { name: 'SOP', 'document-folder-id': 6255494 } } }))
+    await client().createDocument({ organizationId: '6942365', name: 'SOP', documentFolderId: '6255494' })
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string)
-    expect(body.data.attributes).toEqual({ document_folder_id: null })
+    expect(body.data.attributes.document_folder_id).toBe(6255494)
   })
 })

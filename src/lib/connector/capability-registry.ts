@@ -370,7 +370,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   ),
 
   // ── Autotask: ticket-scoped writes (impersonated) ────────────────────────
-  autotask_create_ticket: atWrite('Nothing is defaulted server-side', 'Autotask requires dueDateTime unless the category supplies a default'),
+  autotask_create_ticket: atWrite('Autotask requires dueDateTime unless the category supplies a default', 'assignedResourceID REQUIRES assignedResourceRoleID — the role defaults to Engineer (29683355) rather than failing the create', 'Assignment is read-back VERIFIED: assignmentVerified false means the resource did not stick'),
   autotask_add_internal_note: atWrite('Internal-only (publish=2)'),
   autotask_add_customer_note: {
     ...atWrite('CUSTOMER-FACING — notifies the ticket contact(s)'),
@@ -378,7 +378,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   },
   autotask_create_time_entry: atWrite('BILLABLE', 'roleId is required', 'Service tickets require start+stop times', 'summaryNotes does NOT populate the ticket Resolution field unless appendSummaryToResolution=true'),
   autotask_set_ticket_resolution: atWrite('Resolution drives the customer completion email', 'append=true by default; false OVERWRITES'),
-  autotask_assign_ticket: atWrite(),
+  autotask_assign_ticket: atWrite('Resource AND role together — Autotask rejects a lone assignedResourceID; the role defaults to Engineer (29683355)', 'Read-back VERIFIED — an accepted PATCH that did not stick returns PRECONDITION_FAILED, not success'),
   autotask_set_ticket_status: atWrite(),
   autotask_find_resource: R,
 
@@ -440,16 +440,16 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   itglue_document_sections: R,
 
   // ── IT Glue: writes ──────────────────────────────────────────────────────
-  itglue_create_document: igWrite('Defaults to DRAFT unless publish=true', 'Omitting documentFolderId drops the document at the org ROOT'),
+  itglue_create_document: igWrite('Defaults to DRAFT unless publish=true', 'Omitting documentFolderId drops the document at the org ROOT — and create is the ONLY time the API accepts a folder, so root placement is then permanent without a UI move'),
   itglue_create_document_folder: igWrite('Folder DELETE is deliberately not exposed — do it in the UI'),
-  itglue_move_document: igWrite('Read-back VERIFIED — moved:false means IT Glue did not apply it', 'Placement is metadata: applies immediately, outside the draft/publish cycle'),
+  itglue_move_document: igWrite('DOES NOT WORK — IT Glue rejects document_folder_id on PATCH (create-time placement only). Writes nothing and returns UPSTREAM_UNSUPPORTED; a human moves the document in the UI', 'Registered only so the reason is discoverable — do not retry it'),
   itglue_add_document_section: igWrite('Lands on the DRAFT revision only — techs see nothing until itglue_publish_document'),
   itglue_update_document_section: igWrite('Lands on the DRAFT revision only — techs see nothing until itglue_publish_document'),
   itglue_publish_document: {
     ...igWrite('Read-back VERIFIED — published:false means it silently no-opped', 'Pushes the ENTIRE current draft live, including earlier unpublished edits by others'),
     risk: 'destructive',
   },
-  itglue_rename_document: igWrite('Title metadata applies immediately, outside the draft/publish cycle'),
+  itglue_rename_document: igWrite('Title metadata applies immediately, outside the draft/publish cycle', 'Read-back VERIFIED', 'Rename ONLY — a documentFolderId argument fails the call before writing (it used to be silently ignored)'),
   itglue_relate_items: igWrite('ONE pair per call', 'One call links BOTH panes — the inverse returns 422, do not call twice'),
   itglue_upload_attachment: igWrite('ONE file per call', 'Hard 10 MB cap (IT Glue limit)'),
   itglue_create_flexible_asset: igWrite('Resolve trait keys with itglue_flexible_asset_type_fields first'),
