@@ -42,7 +42,7 @@ function fakeServer(): ToolRegisteringServer & { names: string[] } {
  */
 async function recordRealModules(): Promise<RecordedTool[]> {
   const { server, recorded } = recordingServer(fakeServer())
-  const [configRead, configWrite, write, itglue, unifi, hr, datto, salesPricing] = await Promise.all([
+  const [configRead, configWrite, write, itglue, unifi, hr, datto, salesPricing, kqm] = await Promise.all([
     import('@/lib/mcp-config-read-tools'),
     import('@/lib/mcp-config-write-tools'),
     import('@/lib/mcp-write-tools'),
@@ -51,6 +51,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
     import('@/lib/mcp-hr-tools'),
     import('@/lib/mcp-datto-rmm-tools'),
     import('@/lib/mcp-sales-pricing-tools'),
+    import('@/lib/mcp-kaseya-quote-manager-tools'),
   ])
   configRead.registerConfigReadTools(server)
   configWrite.registerConfigWriteTools(server)
@@ -60,6 +61,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
   hr.registerHrTools(server)
   datto.registerDattoRmmTools(server)
   salesPricing.registerSalesPricingTools(server)
+  kqm.registerKaseyaQuoteManagerTools(server)
   return recorded
 }
 

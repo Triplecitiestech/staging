@@ -27,6 +27,7 @@ import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
+import { registerKaseyaQuoteManagerTools } from '@/lib/mcp-kaseya-quote-manager-tools'
 import { verifyConnectorToken } from '@/lib/connector/auth'
 import { recordingServer, buildCapabilityReport } from '@/lib/connector/capability-registry'
 import { toolFailure } from '@/lib/connector/failure-envelope'
@@ -140,6 +141,15 @@ const handler = createMcpHandler(
     // system_settings. Exists because the admin pages are auth-walled and
     // crawler-blocked, so pricing was previously pasted in by hand.
     registerSalesPricingTools(server)
+
+    // ── Kaseya Quote Manager (read-only; GET-only by construction) ──────────
+    // The vendor API has no write surface at all: all 39 operations in the
+    // captured OpenAPI spec are GET, so there is no staged-write gate here and
+    // nothing to kill-switch. Tool surface is generated from KQM_RESOURCES and
+    // asserted against the spec by test, so coverage cannot drift silently.
+    // Auth mechanism is contradicted between the spec (header) and Kaseya's help
+    // page (query param) — header is the default, kqm_probe_connection settles it.
+    registerKaseyaQuoteManagerTools(server)
 
     // ── Self-description (registered LAST so it sees every tool above) ──────
     // The keyword-rich description is deliberate: Claude discovers tools by

@@ -141,8 +141,14 @@ const ENVELOPE_NOTE_SHORT =
   'report reasonCode, remediation and fixableBy to the user rather than just saying it did not work. ' +
   'Call tct_connector_capabilities for the full taxonomy.]'
 
-/** Surfaces already migrated to the envelope. Others keep plain-text failures. */
-const ENVELOPE_TOOL_PREFIXES = ['autotask_', 'tct_']
+/**
+ * Surfaces already migrated to the envelope. Others keep plain-text failures.
+ *
+ * `kqm_` was built on the envelope from its first commit rather than retrofitted
+ * — the taxonomy is vendor-neutral precisely so a new surface can adopt it
+ * directly, and a new surface has no legacy plain-text callers to break.
+ */
+const ENVELOPE_TOOL_PREFIXES = ['autotask_', 'tct_', 'kqm_']
 
 function toolHasEnvelope(name: string): boolean {
   return ENVELOPE_TOOL_PREFIXES.some((p) => name.startsWith(p))
@@ -254,6 +260,7 @@ export const VENDORS = {
   unifi: 'UniFi / Ubiquiti',
   hr: 'Microsoft Graph — TCT HumanResources SharePoint',
   sales: 'TCT Sales Calculator (our own pricing)',
+  kqm: 'Kaseya Quote Manager (Datto Commerce)',
   tct: 'TCT connector (meta)',
 } as const
 
@@ -288,6 +295,17 @@ export interface ToolFacts {
 
 const R: ToolFacts = { access: 'read', risk: 'read', staged: false }
 const r = (...constraints: string[]): ToolFacts => ({ ...R, constraints })
+
+/**
+ * Kaseya Quote Manager reads. Every one carries the two constraints that apply
+ * to the whole surface, so a caller is never left to infer them per tool.
+ */
+const KQM_SHARED = [
+  'Kaseya Quote Manager API is read-only by construction — all 39 documented operations are GET',
+  'Paging is 1-INDEXED, and responses carry NO total count, so a page-capped sweep reports truncated: true rather than implying completeness',
+] as const
+const KQM: ToolFacts = { ...R, constraints: [...KQM_SHARED] }
+const kqm = (...constraints: string[]): ToolFacts => ({ ...R, constraints: [...KQM_SHARED, ...constraints] })
 
 const AT_WRITE: Omit<ToolFacts, 'constraints'> = { access: 'write', risk: 'low-risk write', staged: false }
 const atWrite = (...constraints: string[]): ToolFacts => ({
@@ -423,6 +441,39 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'Runs the same calc engine as /admin/sales-calculator against live pricing — stateless, nothing is saved',
     'Industry, contract term, compliance and total seat count are NOT price inputs (no volume/term/vertical modifiers exist)',
     'INTERNAL: includes vendor costs and margins',
+  ),
+
+  // ── Kaseya Quote Manager (Datto Commerce): reads ─────────────────────────
+  // The vendor API has NO write surface at all — all 39 documented operations in
+  // the captured spec are GET — so there is nothing to gate and no write tool to
+  // classify. Listed one per line rather than generated from KQM_RESOURCES on
+  // purpose: deriving these from the same table that registers the tools would
+  // mean a newly added resource mints its own "reviewed" facts entry with nobody
+  // reviewing it, which is exactly the drift the completeness test exists to
+  // catch.
+  kqm_brands: KQM,
+  kqm_categories: kqm('The API offers this resource NO paging and no filters — it returns the full set'),
+  kqm_contacts: kqm('Filterable by customerID only'),
+  kqm_customers: KQM,
+  kqm_customer_addresses: kqm('Filterable by customerID only'),
+  kqm_employees: kqm('modifiedAfter is NOT supported for this resource, so no delta sync'),
+  kqm_products: kqm('Filterable by manufacturerPartNumber (exact match) only — no name/description search exists'),
+  kqm_product_images: kqm('The API has NO get-by-id for this resource — list with productID', 'modifiedAfter is NOT supported'),
+  kqm_product_suppliers: kqm('Filterable by productID only'),
+  kqm_purchase_orders: kqm('Filterable by orderNumber (exact match) only'),
+  kqm_purchase_order_costs: kqm('Filterable by purchaseOrderID only'),
+  kqm_purchase_order_lines: kqm('Filterable by purchaseOrderID only'),
+  kqm_quotes: kqm('Filterable by quoteNumber (exact match) only — no customer or date-range filter exists'),
+  kqm_quote_lines: kqm('Filterable by quoteSectionID — NOT by quote id; resolve sections via kqm_quote_sections first', 'modifiedAfter is NOT supported'),
+  kqm_quote_sections: kqm('Filterable by quoteID only', 'modifiedAfter is NOT supported'),
+  kqm_sales_orders: kqm('Filterable by orderNumber (exact match) only'),
+  kqm_sales_order_lines: kqm('Filterable by salesOrderID only'),
+  kqm_sales_order_payments: kqm('Filterable by salesOrderID only'),
+  kqm_suppliers: KQM,
+  kqm_warehouses: KQM,
+  kqm_probe_connection: r(
+    'DIAGNOSTIC: settles the spec-vs-help-page contradiction over whether the API key goes in a header or a query parameter',
+    'Tries each mechanism in isolation — never both at once — and never returns or logs the key',
   ),
 
   // ── IT Glue: reads ───────────────────────────────────────────────────────
