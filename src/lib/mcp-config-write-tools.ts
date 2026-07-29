@@ -30,7 +30,11 @@ const AREA_KEYS = [...Object.keys(CONFIG_WRITE_AREAS), ...Object.keys(CONFIG_ARE
 const AREA_SUMMARY = Object.values(CONFIG_WRITE_AREAS)
   .map((s) => {
     const createOnly = s.createOnlyFields?.length ? `; create-only: ${s.createOnlyFields.join(', ')}` : ''
-    return `${s.area} → ${s.entity} (${s.operations.join('/')}: ${s.allowedFields.join(', ')}${createOnly})`
+    // Named explicitly: a parent-id field is settable but goes in `parentId`,
+    // NOT in `changes`. Listing only allowedFields left callers to guess, and
+    // guessing `changes` is rejected as not-allowlisted.
+    const parent = s.parentIdField ? `; parentId = ${s.parentIdField}` : ''
+    return `${s.area} → ${s.entity} (${s.operations.join('/')}: ${s.allowedFields.join(', ')}${createOnly}${parent})`
   })
   .join('; ')
 
