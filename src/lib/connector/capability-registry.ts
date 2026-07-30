@@ -615,9 +615,20 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     killSwitch: 'CONNECTOR_HR_WRITES_ENABLED',
     constraints: [
       'APPEND-ONLY by design — never overwrites an existing row',
-      'Entry ID is computed automatically as the next ER-NNNN — never pass it',
+      'Entry ID is computed automatically as the next ER-NNNN read from the sheet — never pass it, and never infer it from the ER-DOC document numbering',
+      'Row width and column order come from the table\'s LIVE header row on every call; a column no parameter fills is appended blank and reported in unmappedColumns',
       'Read-back verified',
       'TCT\'s OWN HumanResources site only, via a dedicated Sites.Selected app',
+    ],
+  },
+  hr_er_log_columns: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_HR_WRITES_ENABLED',
+    constraints: [
+      'Writes nothing — reports the live header row and how hr_er_log_append maps onto it',
+      'Gated by the same HR kill switch as the writes: one switch covers the whole HR surface',
     ],
   },
   hr_file_document: {

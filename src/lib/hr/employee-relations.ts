@@ -39,6 +39,7 @@
  */
 
 import { withRetry, withTimeout, structuredLog } from '@/lib/resilience'
+import { throwClassified } from '@/lib/connector/failure-envelope'
 
 // ---------------------------------------------------------------------------
 // Configuration (env-overridable; live-verified defaults from the owner)
@@ -63,23 +64,59 @@ const PERFORMANCE_FOLDER = 'Performance & Conduct'
 /** Worksheet holding the log table (override via env if the tab is renamed). */
 const LOG_WORKSHEET = process.env.HR_ER_LOG_WORKSHEET || 'Log'
 
-/** Column order — MUST match the workbook header row exactly. */
-export const ER_COLUMNS = [
-  'Entry ID',
-  'Date Logged',
-  'Date of Incident',
-  'Employee',
-  'Role / Status',
-  'Category',
-  'Severity',
-  'Summary',
-  'Expectation Missed',
-  'Reference',
-  'Reported By',
-  'Action Taken',
-  'Linked Document',
-  'Follow-Up / Status',
-] as const
+/**
+ * The columns this tool KNOWS how to populate.
+ *
+ * THIS IS NOT THE ROW WIDTH. The row written to the workbook is built from the
+ * table's LIVE header row read at call time (see planErRow), never from this
+ * list. That distinction is the whole fix for the 2026-07-30 outage: this list
+ * was 14 entries, a human had added a 15th column ("Meeting with Tech"), and
+ * every append died on Graph 400 "The number of rows or columns in the input
+ * array doesn't match the size or dimensions of the range." A hardcoded width
+ * makes the sheet's owner unable to add a column without breaking the tool —
+ * so the sheet is now the authority on width and order, and this table only
+ * says which headers we have content for.
+ */
+export interface ErFieldSpec {
+  /** Canonical workbook header. */
+  column: string
+  /** Key on ErLogAppendInput supplying it (absent = computed by the tool). */
+  input?: keyof ErLogAppendInput
+  /** How the value is normalized on the way in. */
+  kind: 'text' | 'date' | 'computed'
+  /** Other header spellings that mean this same column. */
+  aliases?: string[]
+  /**
+   * The tool treats this as mandatory content. If the sheet has no column for
+   * it AND the caller supplied a value, the append fails loudly rather than
+   * silently dropping what the human wrote — losing an HR record's Summary or
+   * Employee to a padded blank is worse than not writing the row.
+   */
+  contentCritical?: boolean
+}
+
+export const ER_FIELDS: readonly ErFieldSpec[] = [
+  { column: 'Entry ID', kind: 'computed', contentCritical: true, aliases: ['EntryID', 'ER ID', 'ID'] },
+  { column: 'Date Logged', input: 'dateLogged', kind: 'computed', contentCritical: true },
+  { column: 'Date of Incident', input: 'dateOfIncident', kind: 'date', contentCritical: true, aliases: ['Incident Date'] },
+  { column: 'Employee', input: 'employee', kind: 'text', contentCritical: true, aliases: ['Employee Name'] },
+  { column: 'Role / Status', input: 'roleStatus', kind: 'text', contentCritical: true },
+  { column: 'Category', input: 'category', kind: 'text', contentCritical: true },
+  { column: 'Severity', input: 'severity', kind: 'text', contentCritical: true },
+  { column: 'Summary', input: 'summary', kind: 'text', contentCritical: true },
+  { column: 'Expectation Missed', input: 'expectationMissed', kind: 'text' },
+  { column: 'Reference', input: 'reference', kind: 'text' },
+  { column: 'Reported By', input: 'reportedBy', kind: 'text', contentCritical: true },
+  { column: 'Action Taken', input: 'actionTaken', kind: 'text' },
+  { column: 'Linked Document', input: 'linkedDocument', kind: 'text' },
+  { column: 'Follow-Up / Status', input: 'followUpStatus', kind: 'text', aliases: ['Follow Up / Status', 'Follow-Up'] },
+  // Added 2026-07-30 after the width outage: the owner had been filling this by
+  // hand (populated on ER-0001 and ER-0004). Now settable through the tool.
+  { column: 'Meeting with Tech', input: 'meetingWithTech', kind: 'text', aliases: ['Meeting With Technician'] },
+]
+
+/** Canonical header names, in canonical order. NOT the row width — see ER_FIELDS. */
+export const ER_COLUMNS: readonly string[] = ER_FIELDS.map((f) => f.column)
 
 const DOCX_CONTENT_TYPE =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -292,6 +329,231 @@ export function buildErDocFileName(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Live-header row planning (pure — the core of the width fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * Header-matching key: case-, spacing- and punctuation-insensitive.
+ * "Role / Status", "Role/Status" and "role status" all collapse to "rolestatus",
+ * so cosmetic header edits by a human do not silently unmap a column.
+ */
+export function normalizeHeader(name: unknown): string {
+  return sanitizePlainText(name).toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/**
+ * Does this header opt into being mandatory?
+ *
+ * IMPORTANT: Excel tables carry NO required-column metadata, and Graph reports
+ * none — so this is a HEADER-TEXT CONVENTION the sheet's owner can use, not a
+ * fact read from the workbook. Deliberately narrow (a trailing `*`, or an
+ * explicit `(required)`): a bare word like "required" would false-positive on a
+ * column named "Required Action", and a spurious hard failure here blocks the
+ * owner from logging a real HR issue. Anything unmarked is padded blank.
+ */
+export function headerMarksRequired(name: unknown): boolean {
+  const s = sanitizePlainText(name)
+  return /\*\s*$/.test(s) || /\(\s*required\s*\)/i.test(s)
+}
+
+export type ErRowProblem =
+  | { kind: 'no_columns' }
+  /** The sheet lost a column we have content for — writing would drop it. */
+  | { kind: 'missing_target_column'; column: string }
+  /** The sheet marks a column required and no tool input can fill it. */
+  | { kind: 'unpopulatable_required_column'; column: string }
+
+export interface ErRowPlan {
+  /** Row values in LIVE column order; width === liveColumns.length by construction. */
+  values: string[]
+  /** Live column name → value written (a report, for the tool result). */
+  byColumn: Record<string, string>
+  /** Live columns no tool input maps to. Padded with '' and warned about. */
+  unmappedColumns: string[]
+  /** Index of the Entry ID column in the live row, for read-back verification. */
+  entryIdIndex: number | null
+  /** Non-empty means: do not write; raise a structured failure instead. */
+  problems: ErRowProblem[]
+  warnings: string[]
+}
+
+/**
+ * Build the row to append from the table's LIVE header row.
+ *
+ * Contract:
+ *   - width and order come from `liveColumns`, never from ER_FIELDS
+ *   - a live column we have no input for is padded with '' (so a column a human
+ *     adds tomorrow cannot break the append)
+ *   - content we cannot place, or a column marked required we cannot fill, is
+ *     reported as a `problem` for the caller to turn into a structured failure
+ *
+ * `supplied` is keyed by CANONICAL column name (see suppliedErValues).
+ */
+export function planErRow(
+  liveColumns: readonly string[],
+  supplied: Record<string, string>
+): ErRowPlan {
+  const warnings: string[] = []
+  const problems: ErRowProblem[] = []
+
+  const specByKey = new Map<string, ErFieldSpec>()
+  for (const spec of ER_FIELDS) {
+    for (const name of [spec.column, ...(spec.aliases ?? [])]) {
+      specByKey.set(normalizeHeader(name), spec)
+    }
+  }
+
+  const values: string[] = []
+  const byColumn: Record<string, string> = {}
+  const unmappedColumns: string[] = []
+  const placed = new Set<string>()
+  const seenKeys = new Set<string>()
+  let entryIdIndex: number | null = null
+
+  liveColumns.forEach((live, index) => {
+    const key = normalizeHeader(live)
+    const record = (value: string) => {
+      values.push(value)
+      if (!(live in byColumn)) byColumn[live] = value
+    }
+
+    if (seenKeys.has(key)) {
+      warnings.push(
+        `The sheet has more than one column matching "${live}". Only the first was ` +
+          `populated; the duplicate was left blank. Reconcile the header row.`
+      )
+      record('')
+      return
+    }
+    seenKeys.add(key)
+
+    const spec = specByKey.get(key)
+    if (!spec) {
+      if (headerMarksRequired(live)) problems.push({ kind: 'unpopulatable_required_column', column: live })
+      else unmappedColumns.push(live)
+      record('')
+      return
+    }
+
+    if (spec.column === 'Entry ID') entryIdIndex = index
+    placed.add(spec.column)
+    record(supplied[spec.column] ?? '')
+  })
+
+  if (liveColumns.length === 0) problems.push({ kind: 'no_columns' })
+
+  // Content with nowhere to go. Only an error when there IS content: a blank
+  // optional field losing its column costs nothing, so it must not hard-fail.
+  for (const spec of ER_FIELDS) {
+    if (placed.has(spec.column)) continue
+    if (!(supplied[spec.column] ?? '')) continue
+    if (spec.contentCritical) problems.push({ kind: 'missing_target_column', column: spec.column })
+    else
+      warnings.push(
+        `The sheet has no "${spec.column}" column, so that value was not written. ` +
+          `Add the column to the sheet if it should be recorded.`
+      )
+  }
+
+  if (unmappedColumns.length > 0) {
+    warnings.push(
+      `The sheet has ${unmappedColumns.length} column(s) this tool has no input for: ` +
+        `${unmappedColumns.join(', ')}. They were left blank so the row width matches the ` +
+        `table. If one should be filled by this tool, a parameter needs adding for it.`
+    )
+  }
+
+  return { values, byColumn, unmappedColumns, entryIdIndex, problems, warnings }
+}
+
+/** Canonical-column → normalized value map, driven entirely by ER_FIELDS. */
+export function suppliedErValues(
+  input: ErLogAppendInput,
+  computed: { entryId: string; dateLogged: string }
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const spec of ER_FIELDS) {
+    if (spec.column === 'Entry ID') {
+      out[spec.column] = computed.entryId
+      continue
+    }
+    if (spec.column === 'Date Logged') {
+      out[spec.column] = computed.dateLogged
+      continue
+    }
+    // Every ErLogAppendInput field is `string | undefined`, so a keyof index is
+    // type-safe here — no cast, and adding a non-string field would fail to compile.
+    const raw = spec.input ? input[spec.input] : undefined
+    out[spec.column] = spec.kind === 'date' ? normalizeDate(raw) : sanitizePlainText(raw)
+  }
+  return out
+}
+
+/**
+ * Turn row-plan problems into the connector's structured failure envelope.
+ *
+ * Step 4 of the fix: a column the tool genuinely cannot populate must surface as
+ * a routed work item naming the column, never as a raw Graph 400 that tells the
+ * owner nothing about who fixes it.
+ */
+function throwErRowProblems(problems: ErRowProblem[], liveColumns: readonly string[]): never {
+  const sheet = `Live table columns (${liveColumns.length}): ${liveColumns.join(' | ') || '(none)'}`
+
+  if (problems.some((p) => p.kind === 'no_columns')) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        'The Employee Relations log table reports no columns, so no row can be built. The table or its header row is broken.',
+      evidence: 'Graph returned an empty column collection for the resolved workbook table.',
+      remediation:
+        'Open "Employee Relations Log.xlsx" and confirm the log table still has its header row, then retry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_append',
+    })
+  }
+
+  const unpopulatable = problems
+    .filter((p): p is { kind: 'unpopulatable_required_column'; column: string } => p.kind === 'unpopulatable_required_column')
+    .map((p) => p.column)
+  if (unpopulatable.length > 0) {
+    throwClassified({
+      reasonCode: 'NOT_IMPLEMENTED',
+      message:
+        `The sheet marks ${unpopulatable.length === 1 ? 'a column' : 'columns'} as required that no tool ` +
+        `parameter can fill: ${unpopulatable.join(', ')}. Nothing was written — a required column ` +
+        `must not be silently blanked.`,
+      evidence: `${sheet}. Marked required by header convention (trailing "*" or "(required)"), and no ER_FIELDS entry maps to it.`,
+      remediation:
+        `Either add a tool parameter for ${unpopulatable.join(', ')} (a connector change — one ER_FIELDS ` +
+        `entry plus one input on hr_er_log_append), or drop the required marker from the header in Excel ` +
+        `and fill that column by hand. Do NOT retry unchanged.`,
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_append',
+      details: { requiredColumnsWithoutInput: unpopulatable, liveColumns: [...liveColumns] },
+    })
+  }
+
+  const missing = problems
+    .filter((p): p is { kind: 'missing_target_column'; column: string } => p.kind === 'missing_target_column')
+    .map((p) => p.column)
+  throwClassified({
+    reasonCode: 'PRECONDITION_FAILED',
+    message:
+      `The sheet no longer has ${missing.length === 1 ? 'a column' : 'columns'} for content this entry ` +
+      `carries: ${missing.join(', ')}. Nothing was written, because appending would have silently ` +
+      `discarded what you wrote.`,
+    evidence: `${sheet}. No live column matches ${missing.join(', ')} (compared case/punctuation-insensitively, including known aliases).`,
+    remediation:
+      `Restore the ${missing.join(', ')} column${missing.length === 1 ? '' : 's'} to the log table in ` +
+      `"Employee Relations Log.xlsx" (or rename the replacement header back), then retry. If the column ` +
+      `was removed deliberately, say so and the tool's field table can be updated to match.`,
+    surface: 'hr_sharepoint',
+    tool: 'hr_er_log_append',
+    details: { missingColumns: missing, liveColumns: [...liveColumns] },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Graph resolution helpers
 // ---------------------------------------------------------------------------
 
@@ -434,21 +696,44 @@ async function findErWorksheet(driveId: string, itemId: string): Promise<string>
   return (match ?? ordered[0]).name
 }
 
-/** Read the Entry-ID column values (header excluded). Table addressed by NAME. */
-async function readEntryIdColumn(
+interface LiveTableShape {
+  /** Header names in live column order (sorted by the API's own index). */
+  columns: string[]
+  /** Entry-ID cell values, header excluded. */
+  entryIdValues: string[]
+}
+
+/**
+ * Read the table's LIVE shape: its header row and its Entry-ID values, in ONE
+ * Graph call. The header row is the authority on the width and order of an
+ * appended row — reading it at call time is what lets a human add a column
+ * without breaking the tool. Table addressed by NAME (never the braces-GUID id).
+ */
+async function readTableShape(
   driveId: string,
   itemId: string,
   table: WorkbookTable
-): Promise<string[]> {
+): Promise<LiveTableShape> {
   const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}`
   const cols = await graph<{
     value: Array<{ name: string; index: number; values: unknown[][] }>
   }>(`${base}/columns?$select=name,index,values`)
-  const list = cols.value ?? []
-  const col = list.find((c) => /entry\s*id/i.test(c.name)) ?? list.find((c) => c.index === 0)
-  if (!col) return []
+
+  // Sort by the API's index rather than trusting response order — the row we
+  // build is positional, so a wrong order would write values into wrong columns.
+  const list = [...(cols.value ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+  const columns = list.map((c) => String(c.name ?? ''))
+
+  const idCol =
+    list.find((c) => normalizeHeader(c.name) === normalizeHeader('Entry ID')) ??
+    list.find((c) => /entry\s*id/i.test(String(c.name ?? ''))) ??
+    list.find((c) => c.index === 0)
   // values is a 2-D array including the header row at [0].
-  return (col.values ?? []).slice(1).map((row) => String(row?.[0] ?? '').trim())
+  const entryIdValues = idCol
+    ? (idCol.values ?? []).slice(1).map((row) => String(row?.[0] ?? '').trim())
+    : []
+
+  return { columns, entryIdValues }
 }
 
 /** Ensure a child folder exists under a parent path; returns its item. */
@@ -566,18 +851,27 @@ export interface ErLogAppendInput {
   actionTaken?: string
   linkedDocument?: string
   followUpStatus?: string
+  /** Free-text note of what the technician said when the issue was discussed. */
+  meetingWithTech?: string
   /** Override "Date Logged" (defaults to today, Eastern). */
   dateLogged?: string
 }
 
 export interface ErLogAppendResult {
   entryId: string
+  /** Live column name → value written. Keys are the sheet's own headers. */
   row: Record<string, string>
   rowIndex: number | null
   verified: boolean
   duplicateEntryIdDetected: boolean
   workbookWebUrl: string | null
   resolvedDynamically: boolean
+  /** The table the row landed in. */
+  tableName: string
+  /** The LIVE header row the row width was built from, in order. */
+  tableColumns: string[]
+  /** Live columns left blank because no tool input maps to them. */
+  unmappedColumns: string[]
   warnings: string[]
 }
 
@@ -589,30 +883,24 @@ export async function appendErLogRow(input: ErLogAppendInput): Promise<ErLogAppe
   const table = await resolveLogTable(driveId, itemId)
   const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}`
 
-  // Compute the next Entry ID from the live table (never trust caller input).
-  const existingIds = await readEntryIdColumn(driveId, itemId, table)
-  const entryId = formatEntryId(nextEntryIdNumber(existingIds))
+  // Read the LIVE header row and the existing Entry IDs in one call. The header
+  // row — not a hardcoded list — decides the width and order of the row we send.
+  const shape = await readTableShape(driveId, itemId, table)
+
+  // Compute the next Entry ID from the sheet's own Entry ID column (never from
+  // caller input, and never inferred from the ER-DOC document numbering, which
+  // has legitimately diverged from it).
+  const entryId = formatEntryId(nextEntryIdNumber(shape.entryIdValues))
 
   const dateLogged = input.dateLogged ? normalizeDate(input.dateLogged) : todayEastern()
 
-  // Build the row in the canonical column order, all sanitized to plain text.
-  const rowValues: Record<string, string> = {
-    'Entry ID': entryId,
-    'Date Logged': dateLogged,
-    'Date of Incident': normalizeDate(input.dateOfIncident),
-    Employee: sanitizePlainText(input.employee),
-    'Role / Status': sanitizePlainText(input.roleStatus),
-    Category: sanitizePlainText(input.category),
-    Severity: sanitizePlainText(input.severity),
-    Summary: sanitizePlainText(input.summary),
-    'Expectation Missed': sanitizePlainText(input.expectationMissed),
-    Reference: sanitizePlainText(input.reference),
-    'Reported By': sanitizePlainText(input.reportedBy),
-    'Action Taken': sanitizePlainText(input.actionTaken),
-    'Linked Document': sanitizePlainText(input.linkedDocument),
-    'Follow-Up / Status': sanitizePlainText(input.followUpStatus),
-  }
-  const values = [ER_COLUMNS.map((c) => rowValues[c] ?? '')]
+  const supplied = suppliedErValues(input, { entryId, dateLogged })
+  const plan = planErRow(shape.columns, supplied)
+  if (plan.problems.length > 0) throwErRowProblems(plan.problems, shape.columns)
+  warnings.push(...plan.warnings)
+
+  const rowValues = plan.byColumn
+  const values = [plan.values]
 
   // Append (atomic table add; retries on transient 504 per Graph guidance).
   const added = await withTimeout(
@@ -629,15 +917,17 @@ export async function appendErLogRow(input: ErLogAppendInput): Promise<ErLogAppe
     'appendErLogRow'
   )
 
-  // Read-back verification: the created row must carry our Entry ID.
-  const writtenId = String(added?.values?.[0]?.[0] ?? '')
-  const verified = writtenId === entryId
+  // Read-back verification: the created row must carry our Entry ID. Read it at
+  // the Entry ID column's LIVE position, not index 0 — the column need not be first.
+  const writtenId =
+    plan.entryIdIndex === null ? '' : String(added?.values?.[0]?.[plan.entryIdIndex] ?? '')
+  const verified = plan.entryIdIndex !== null && writtenId === entryId
 
   // Concurrency check: our Entry ID must be unique in the column.
   let duplicateEntryIdDetected = false
   try {
-    const after = await readEntryIdColumn(driveId, itemId, table)
-    const count = after.filter((v) => v === entryId).length
+    const after = await readTableShape(driveId, itemId, table)
+    const count = after.entryIdValues.filter((v) => v === entryId).length
     if (count > 1) {
       duplicateEntryIdDetected = true
       warnings.push(
@@ -676,7 +966,89 @@ export async function appendErLogRow(input: ErLogAppendInput): Promise<ErLogAppe
     duplicateEntryIdDetected,
     workbookWebUrl,
     resolvedDynamically,
+    tableName: table.name,
+    tableColumns: shape.columns,
+    unmappedColumns: plan.unmappedColumns,
     warnings,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public operation 1b: describe the live log table (READ-ONLY)
+// ---------------------------------------------------------------------------
+
+export interface ErLogTableDescription {
+  tableName: string
+  columnCount: number
+  /** Live header row, in order. */
+  columns: string[]
+  /** Live columns this tool can fill, paired with the input that fills them. */
+  mapped: Array<{ column: string; input: string }>
+  /** Live columns no tool input maps to — appended as blanks. */
+  unmapped: string[]
+  /** Live columns marked required by header convention but unfillable. */
+  requiredWithoutInput: string[]
+  /** Canonical columns the tool knows but the sheet does not have. */
+  absentCanonicalColumns: string[]
+  rowCount: number
+  nextEntryId: string
+  workbookWebUrl: string | null
+  resolvedDynamically: boolean
+}
+
+/**
+ * Report the log table's live shape and how this tool maps onto it. Reads only —
+ * the diagnostic that was missing when the 2026-07-30 width outage hit, so the
+ * sheet can be checked against the tool WITHOUT appending a row to find out.
+ */
+export async function describeErLogTable(): Promise<ErLogTableDescription> {
+  assertReady()
+  const { driveId, itemId, resolvedDynamically } = await resolveWorkbook()
+  const table = await resolveLogTable(driveId, itemId)
+  const shape = await readTableShape(driveId, itemId, table)
+
+  // Plan a probe row with every known field filled, so the mapping report shows
+  // what WOULD be written rather than what a particular caller happened to send.
+  const probe: Record<string, string> = {}
+  for (const spec of ER_FIELDS) probe[spec.column] = `<${spec.column}>`
+  const plan = planErRow(shape.columns, probe)
+
+  const specByKey = new Map<string, ErFieldSpec>()
+  for (const spec of ER_FIELDS) {
+    for (const name of [spec.column, ...(spec.aliases ?? [])]) specByKey.set(normalizeHeader(name), spec)
+  }
+  const mapped: Array<{ column: string; input: string }> = []
+  for (const live of shape.columns) {
+    const spec = specByKey.get(normalizeHeader(live))
+    if (spec) mapped.push({ column: live, input: spec.input ?? `(computed: ${spec.column})` })
+  }
+  const present = new Set(shape.columns.map((c) => normalizeHeader(c)))
+  const absentCanonicalColumns = ER_FIELDS.filter((s) => !present.has(normalizeHeader(s.column))).map(
+    (s) => s.column
+  )
+
+  let workbookWebUrl: string | null = null
+  try {
+    const meta = await graph<DriveItemLite>(`/drives/${driveId}/items/${itemId}?$select=webUrl`)
+    workbookWebUrl = meta.webUrl ?? null
+  } catch {
+    /* non-fatal */
+  }
+
+  return {
+    tableName: table.name,
+    columnCount: shape.columns.length,
+    columns: shape.columns,
+    mapped,
+    unmapped: plan.unmappedColumns,
+    requiredWithoutInput: plan.problems
+      .filter((p): p is { kind: 'unpopulatable_required_column'; column: string } => p.kind === 'unpopulatable_required_column')
+      .map((p) => p.column),
+    absentCanonicalColumns,
+    rowCount: shape.entryIdValues.length,
+    nextEntryId: formatEntryId(nextEntryIdNumber(shape.entryIdValues)),
+    workbookWebUrl,
+    resolvedDynamically,
   }
 }
 

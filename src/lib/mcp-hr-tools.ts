@@ -15,16 +15,24 @@
 import { z } from 'zod'
 import {
   appendErLogRow,
+  describeErLogTable,
   fileErDocument,
   auditHrWrite,
 } from '@/lib/hr/employee-relations'
+import { toolFailure, FAILURE_ENVELOPE_TOOL_NOTE } from '@/lib/connector/failure-envelope'
 
 function ok(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
 }
-function fail(err: unknown) {
-  const m = err instanceof Error ? err.message : String(err)
-  return { content: [{ type: 'text' as const, text: `Error: ${m}` }], isError: true }
+
+/**
+ * Structured failure for the HR surface. Retrofitted 2026-07-30: a workbook
+ * width mismatch used to surface as a bare Graph 400 ("the number of rows or
+ * columns in the input array doesn't match…"), which named no column and routed
+ * the owner nowhere. The envelope carries reasonCode + remediation + fixableBy.
+ */
+function fail(err: unknown, tool: string) {
+  return toolFailure(err, { surface: 'hr_sharepoint', tool })
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,11 +47,19 @@ export function registerHrTools(server: any) {
       description:
         'WRITE (direct). Append ONE row to "Employee Relations Log.xlsx" in the HumanResources ' +
         'SharePoint site (…/General/Employee Files/_Employee Relations/). The Entry ID is ' +
-        'computed automatically as the next ER-NNNN — never pass it. Input is sanitized to plain ' +
-        'text (emojis/special characters stripped) and dates are stored as YYYY-MM-DD Eastern. ' +
+        'computed automatically as the next ER-NNNN, read from the sheet\'s own Entry ID column — ' +
+        'never pass it, and never infer it from the ER-DOC-NNNN document numbering, which has ' +
+        'legitimately diverged from it. Input is sanitized to plain text (emojis/special ' +
+        'characters stripped) and dates are stored as YYYY-MM-DD Eastern. ' +
+        'The row width and column ORDER are read from the table\'s LIVE header row on every call, ' +
+        'so a column a human adds to the sheet does not break this tool: any column no parameter ' +
+        'maps to is appended blank and reported in unmappedColumns — surface that to the user, ' +
+        'because a blank there may be a column someone expects to be filled. ' +
         'The row is appended to the workbook table (never overwriting existing rows) and ' +
         'read-back verified. Only call after the user has approved the exact wording. Returns the ' +
-        'assigned Entry ID and the row that landed.',
+        'assigned Entry ID, the row that landed keyed by the sheet\'s own headers, and the live ' +
+        'column list. ' +
+        FAILURE_ENVELOPE_TOOL_NOTE,
       inputSchema: {
         dateOfIncident: z.string().describe('Date the incident occurred (YYYY-MM-DD preferred)'),
         employee: z.string().describe('Employee name'),
@@ -60,6 +76,13 @@ export function registerHrTools(server: any) {
           .optional()
           .describe('Link to a filed document (e.g. a webUrl from hr_file_document)'),
         followUpStatus: z.string().optional().describe('Follow-up / status (e.g. Open, Closed)'),
+        meetingWithTech: z
+          .string()
+          .optional()
+          .describe(
+            'What the technician said when the issue was discussed with them (free text). Leave ' +
+              'unset if the conversation has not happened yet.'
+          ),
         dateLogged: z
           .string()
           .optional()
@@ -83,6 +106,7 @@ export function registerHrTools(server: any) {
           actionTaken: args.actionTaken,
           linkedDocument: args.linkedDocument,
           followUpStatus: args.followUpStatus,
+          meetingWithTech: args.meetingWithTech,
           dateLogged: args.dateLogged,
         })
         auditHrWrite('hr_er_log_append', actor, 'success', {
@@ -91,13 +115,39 @@ export function registerHrTools(server: any) {
           verified: result.verified,
           duplicateEntryIdDetected: result.duplicateEntryIdDetected,
           resolvedDynamically: result.resolvedDynamically,
+          tableColumnCount: result.tableColumns.length,
+          unmappedColumnCount: result.unmappedColumns.length,
         })
         return ok(result)
       } catch (e) {
         auditHrWrite('hr_er_log_append', actor, 'error', {
           error: e instanceof Error ? e.message : String(e),
         })
-        return fail(e)
+        return fail(e, 'hr_er_log_append')
+      }
+    }
+  )
+
+  server.registerTool(
+    'hr_er_log_columns',
+    {
+      title: 'HR: inspect the Employee Relations log table',
+      description:
+        'READ-ONLY. Report the LIVE shape of the log table in "Employee Relations Log.xlsx": its ' +
+        'name, its header row in order, the column count, which columns hr_er_log_append can fill ' +
+        'and which it would leave blank, any column marked required that no parameter fills, ' +
+        'canonical columns the sheet no longer has, the row count and the next Entry ID. Writes ' +
+        'nothing. Use this to check the sheet against the tool after someone edits the workbook, ' +
+        'or to explain why a column came back blank — without appending a row to find out. ' +
+        FAILURE_ENVELOPE_TOOL_NOTE,
+      inputSchema: {},
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (_args: any, _extra: any) => {
+      try {
+        return ok(await describeErLogTable())
+      } catch (e) {
+        return fail(e, 'hr_er_log_columns')
       }
     }
   )
@@ -114,7 +164,8 @@ export function registerHrTools(server: any) {
         'base64Content OR an https sourceUrl we control. The filename is generated as ' +
         'ER-DOC-NNNN_[LastName]_[YYYY-MM-DD]_[Type].docx (the NNNN is computed automatically). Both ' +
         'uploads are read-back verified. Returns both webUrls — put the relevant one in the log ' +
-        'row\'s Linked Document via hr_er_log_append. Only call after the user approves the document.',
+        'row\'s Linked Document via hr_er_log_append. Only call after the user approves the document. ' +
+        FAILURE_ENVELOPE_TOOL_NOTE,
       inputSchema: {
         lastName: z.string().describe('Subject last name (used in the filename and folder match)'),
         docType: z.string().describe('Document type for the filename, e.g. Warning, PIP, Counseling'),
@@ -153,7 +204,7 @@ export function registerHrTools(server: any) {
         auditHrWrite('hr_file_document', actor, 'error', {
           error: e instanceof Error ? e.message : String(e),
         })
-        return fail(e)
+        return fail(e, 'hr_file_document')
       }
     }
   )
