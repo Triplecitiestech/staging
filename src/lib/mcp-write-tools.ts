@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
+import { classifyPublishVisibility, decideNotificationVerdict } from '@/lib/autotask-activity'
 import * as write from '@/lib/autotask-write'
 import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
 
@@ -94,6 +95,142 @@ async function verifyAssignment(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ticket-note read-back, and what "notified" can actually be proven
+// ---------------------------------------------------------------------------
+//
+// 2026-07-30, ticket 34648: autotask_add_customer_note advertised that it
+// "posts an externally-visible note that notifies the ticket contact(s)". Two
+// notes were posted for a contact with receivesEmailNotifications true and
+// NEITHER notified her; the owner notified the customer by hand. The write
+// returned only { result: { itemId } }, so the assistant reported the customer
+// as notified when she was not.
+//
+// The REST TicketNotes entity has NO notification field — 12 fields, verified
+// against both the Kaseya docs and this instance's live entityInformation, none
+// of which controls recipients or the UI's Notify behaviour:
+//   https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TicketNotesEntity.htm
+// Notification recipients are chosen in the UI-only Notification panel:
+//   https://www.autotask.net/help/content/3_features/1_SharedFeatures/Notifications/NotificationPanel.htm
+// So the API cannot ASK for a notification. What it CAN do is observe whether
+// one happened, via two read-only Tickets fields plus NotificationHistory:
+//   https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TicketsEntity.htm
+//   https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/NotificationHistoryEntity.htm
+//
+// Hence: read the note back, report the publish level Autotask stored, and
+// report notification state as an OBSERVATION with its evidence. Never as an
+// assumption, and never as an outcome the tool arranged.
+
+/** Look up the live label for a publish id so the response never guesses it. */
+async function publishLabel(client: AutotaskClient, publish: number | null | undefined): Promise<string | null> {
+  if (publish == null) return null
+  try {
+    const labels = await client.picklistLabelMap('TicketNotes', 'publish')
+    return labels.get(publish) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read a just-created note back and describe what Autotask actually stored.
+ * A POST's itemId proves a row exists; it says nothing about the row's
+ * visibility, which is the thing a customer-facing write is claiming.
+ */
+async function readBackNote(client: AutotaskClient, ticketId: number, noteId: number) {
+  const note = await client.getTicketNoteById(ticketId, noteId)
+  if (!note) {
+    return {
+      noteReadBack: false as const,
+      note: null,
+      readBackNote:
+        `Autotask returned note id ${noteId} for ticket ${ticketId} but a read-back query did not return it. Do not describe this note as posted until you have checked the ticket.`,
+    }
+  }
+  const label = await publishLabel(client, note.publish)
+  return {
+    noteReadBack: true as const,
+    note: {
+      id: note.id,
+      createDateTime: note.createDateTime ?? null,
+      title: note.title ?? null,
+      publish: note.publish ?? null,
+      publishLabel: label,
+      visibility: classifyPublishVisibility(note.publish, label),
+      noteType: note.noteType ?? null,
+      creatorResourceID: note.creatorResourceID ?? null,
+      impersonatorCreatorResourceID: note.impersonatorCreatorResourceID ?? null,
+    },
+    readBackNote: null,
+  }
+}
+
+/**
+ * Was a CUSTOMER notification observed for this ticket after the write?
+ *
+ * The verdict comes from Tickets.lastCustomerNotificationDateTime — Autotask's
+ * own stamp for when a customer notification last went out — compared before
+ * and after the write. That avoids having to guess from recipient addresses
+ * whether a NotificationHistory row was a customer email or a staff one.
+ * NotificationHistory is still read, to name the template and recipients for
+ * the human.
+ *
+ * A false verdict is deliberately FAIL-CLOSED: notifications may be dispatched
+ * asynchronously, so "not observed" is not proof that none will ever fire — but
+ * treating unobserved as not-notified is the only safe direction, because the
+ * failure being fixed is a customer being told she was contacted when she was
+ * not.
+ */
+async function observeCustomerNotification(
+  client: AutotaskClient,
+  ticketId: number,
+  /** null means the PRE-write read failed — not that the ticket had no prior notification. */
+  before: { lastCustomerNotificationDateTime: string | null } | null,
+  writeStartedAt: Date,
+) {
+  const after = await client.getTicketActivityStamps(ticketId)
+  const prev = before?.lastCustomerNotificationDateTime ?? null
+  const now = after?.lastCustomerNotificationDateTime ?? null
+
+  // Verdict logic is pure and separately tested (decideNotificationVerdict) —
+  // notably, a MISSING baseline can never read as "previously null", or a ticket
+  // notified last week would look freshly notified.
+  const baselineEstablished = before !== null
+  const { customerNotified: advanced } = decideNotificationVerdict({ baselineEstablished, before: prev, after: now })
+
+  // Widen slightly behind the write to absorb clock skew between us and Autotask.
+  const from = new Date(writeStartedAt.getTime() - 60_000)
+  let notifications: Array<Record<string, unknown>> = []
+  let historyError: string | null = null
+  try {
+    const hist = await client.getNotificationHistory({ ticketId, from, max: 25 })
+    notifications = hist.notifications
+  } catch (e) {
+    historyError = e instanceof Error ? e.message : String(e)
+  }
+
+  return {
+    customerNotified: advanced,
+    notificationEvidence: {
+      basis: 'Tickets.lastCustomerNotificationDateTime, read before and after the write',
+      baselineEstablished,
+      lastCustomerNotificationDateTimeBefore: prev,
+      lastCustomerNotificationDateTimeAfter: now,
+      notificationHistorySinceWrite: notifications.map((n) => ({
+        templateName: n.templateName ?? null,
+        recipientEmailAddress: n.recipientEmailAddress ?? null,
+        notificationSentTime: n.notificationSentTime ?? null,
+      })),
+      notificationHistoryError: historyError,
+    },
+    notificationNote: advanced
+      ? `A customer notification WAS observed: Autotask advanced lastCustomerNotificationDateTime to ${now}. Recipients and template are in notificationEvidence.notificationHistorySinceWrite.`
+      : !baselineEstablished
+      ? `CANNOT CONFIRM: the pre-write read of lastCustomerNotificationDateTime failed, so there is no baseline to compare against and no notification can be confirmed either way (the ticket currently reports ${now ?? 'null'}). Treat the customer as NOT notified — do not report her as contacted. Check autotask_notification_history({ ticketId: ${ticketId} }) and the ticket in Autotask.`
+      : `NO customer notification was observed. Autotask's lastCustomerNotificationDateTime did not advance (${prev ?? 'null'} before, ${now ?? 'null'} after). TELL THE USER THE CUSTOMER HAS NOT BEEN NOTIFIED — the note is on the ticket, the contact has not been emailed. The REST API has no field to request a notification, so this tool cannot send one. To reach the contact: notify from the note form in Autotask (the Notification panel), or have an Autotask Event configured to fire on customer-facing note creation. Notifications can be dispatched asynchronously, so if you want to re-check rather than act, call autotask_notification_history({ ticketId: ${ticketId} }).`,
+  }
+}
+
 // Append text to a ticket's Resolution field (GET current, concat, PATCH).
 // Resolution — not the time-entry summary — is what fills the customer
 // completion email, so this is used on close.
@@ -155,19 +292,69 @@ export function registerWriteTools(server: any) {
 
   server.registerTool(
     'autotask_add_internal_note',
-    { title: 'Autotask: add internal note', description: 'WRITE. Add an INTERNAL-only note to a ticket, attributed to the signed-in tech. Only call after the user has reviewed and approved the exact text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), note: z.string().describe('Note body'), title: z.string().optional().describe('Optional note title') } },
+    {
+      title: 'Autotask: add internal note',
+      description: 'WRITE. Add an internal note to a ticket (publish 2), attributed to the signed-in tech. The response reports the publish level READ BACK off the created note with its live Autotask label, so the note\'s actual visibility is observed rather than assumed. Only call after the user has reviewed and approved the exact text.',
+      inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), note: z.string().describe('Note body'), title: z.string().optional().describe('Optional note title') },
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, note, title }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.createTicketNote(ticketId, { title: title ?? 'Internal note', description: note, publish: 2 }, rid)) } catch (e) { return fail(e) }
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        const res = await write.createTicketNote(ticketId, { title: title ?? 'Internal note', description: note, publish: 2 }, rid)
+        const noteId = (res as { itemId?: number } | null)?.itemId
+        if (!noteId) return okTicket(ticketId, { result: res, note: 'Autotask returned no itemId for the note; visibility could not be verified by read-back.' })
+        const back = await readBackNote(new AutotaskClient(), ticketId, noteId).catch(() => null)
+        return ok({ result: res, ticketUrl: getAutotaskTicketUrl(String(ticketId)), ...(back ?? { noteReadBack: false, readBackNote: 'The read-back query failed; the note was created but its stored publish level was not confirmed.' }) })
+      } catch (e) { return fail(e) }
     }
   )
 
   server.registerTool(
     'autotask_add_customer_note',
-    { title: 'Autotask: add customer-facing note', description: 'WRITE, CUSTOMER-FACING. Posts an externally-visible note that notifies the ticket contact(s), attributed to the signed-in tech. Confirm the exact wording with the user before calling.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), message: z.string().describe('Message to the customer'), title: z.string().optional().describe('Optional note title') } },
+    {
+      title: 'Autotask: add customer-facing note',
+      description:
+        'WRITE, CUSTOMER-VISIBLE. Adds a ticket note at publish 1 ("All Autotask Users" — the Internal-cleared state, which per Kaseya\'s note-form docs is viewable by Client Portal customers), attributed to the signed-in tech. ' +
+        'THIS TOOL DOES NOT NOTIFY ANYONE AND CANNOT. The Autotask REST TicketNotes entity has no field for notification recipients or the UI\'s Notify behaviour (12 fields, verified against Kaseya docs and this instance\'s live entityInformation); recipients are chosen in the UI-only Notification panel. Whether the contact receives an email depends entirely on an Autotask Event (workflow rule) configured by an admin — which this tool neither controls nor can read. ' +
+        'What the response DOES report, by reading Autotask back after the write: the created note id, the publish level with its live label, and customerNotified — an OBSERVATION derived from Tickets.lastCustomerNotificationDateTime before vs after the write. When customerNotified is false, the contact has NOT been emailed: say so plainly and never tell the user the customer was notified. Posting this note is not the same as contacting the customer. Confirm the exact wording with the user before calling.',
+      inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), message: z.string().describe('Message to the customer'), title: z.string().optional().describe('Optional note title') },
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, message, title }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)) } catch (e) { return fail(e) }
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        const client = new AutotaskClient()
+        // Read the notification stamp BEFORE the write — the only way an
+        // "advanced" comparison afterwards means anything.
+        const before = await client.getTicketActivityStamps(ticketId).catch(() => null)
+        const writeStartedAt = new Date()
+
+        const res = await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)
+        const noteId = (res as { itemId?: number } | null)?.itemId
+
+        const back = noteId
+          ? await readBackNote(client, ticketId, noteId).catch(() => null)
+          : null
+        const notified = await observeCustomerNotification(client, ticketId, before, writeStartedAt).catch((e) => ({
+          customerNotified: false,
+          notificationEvidence: { basis: 'observation FAILED', error: e instanceof Error ? e.message : String(e) },
+          notificationNote:
+            'Could not observe notification state (the read-back query failed). Treat the customer as NOT notified until confirmed — do not report her as contacted.',
+        }))
+
+        return ok({
+          result: res,
+          ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+          ...(back ?? {
+            noteReadBack: false,
+            readBackNote: noteId
+              ? 'The read-back query failed; the note was created but its stored publish level was not confirmed.'
+              : 'Autotask returned no itemId for the note, so nothing could be read back. Check the ticket before reporting the note as posted.',
+          }),
+          ...notified,
+        })
+      } catch (e) { return fail(e) }
     }
   )
 

@@ -346,8 +346,17 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_company_tickets: R,
   autotask_get_ticket: R,
   autotask_get_ticket_by_number: R,
-  autotask_ticket_notes: R,
-  autotask_ticket_time_entries: r('No internal cost/rate data — Autotask time entries carry none'),
+  autotask_ticket_notes: r(
+    'TicketNotes ONLY — time entries and attachments are excluded by construction',
+    'NEVER the basis for a claim that work was not done or a ticket was not updated — autotask_ticket_activity is',
+    'Carries activityGap: true means activity exists that this read did not return',
+  ),
+  autotask_ticket_time_entries: r('No internal cost/rate data — Autotask time entries carry none', 'TimeEntries only — carries activityGap for what it did not return'),
+  autotask_ticket_activity: r(
+    'The ONLY read that should ground a statement about whether work was done — merges TicketNotes + TimeEntries + TicketAttachments',
+    'TimeEntries has no publish field in the REST API, so time-entry visibility reports scope "unknown" with the reason rather than a guess',
+    'sourcesUnavailable names any source whose query failed, so a broken query never reads as an empty result',
+  ),
   autotask_time_entries_search: R,
   autotask_active_projects: R,
   autotask_list_roles: R,
@@ -389,9 +398,13 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
 
   // ── Autotask: ticket-scoped writes (impersonated) ────────────────────────
   autotask_create_ticket: atWrite('Autotask requires dueDateTime unless the category supplies a default', 'assignedResourceID REQUIRES assignedResourceRoleID — the role defaults to Engineer (29683355) rather than failing the create', 'Assignment is read-back VERIFIED: assignmentVerified false means the resource did not stick'),
-  autotask_add_internal_note: atWrite('Internal-only (publish=2)'),
+  autotask_add_internal_note: atWrite('Internal (publish=2)', 'Publish level is read back off the created note, not assumed'),
   autotask_add_customer_note: {
-    ...atWrite('CUSTOMER-FACING — notifies the ticket contact(s)'),
+    ...atWrite(
+      'CUSTOMER-VISIBLE (publish=1 "All Autotask Users" — the Internal-cleared state)',
+      'DOES NOT NOTIFY ANYONE AND CANNOT: the REST TicketNotes entity has no notification field (12 fields, verified live) — recipients are chosen in the UI-only Notification panel, and delivery depends on an Autotask Event an admin configures',
+      'customerNotified is an OBSERVATION from Tickets.lastCustomerNotificationDateTime before vs after the write; false means the contact has NOT been emailed',
+    ),
     risk: 'destructive',
   },
   autotask_create_time_entry: atWrite('BILLABLE', 'roleId is required', 'Service tickets require start+stop times', 'summaryNotes does NOT populate the ticket Resolution field unless appendSummaryToResolution=true'),

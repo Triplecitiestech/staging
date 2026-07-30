@@ -12,6 +12,16 @@
  */
 
 import { withRetry } from '@/lib/resilience';
+import {
+  classifyPublishVisibility,
+  computeActivityGap,
+  newestTimestamp,
+  sortActivity,
+  timeEntryVisibility,
+  type ActivityAuthor,
+  type ActivityGap,
+  type ActivityItem,
+} from '@/lib/autotask-activity';
 
 // ============================================
 // TYPES
@@ -217,11 +227,69 @@ export interface AutotaskTicketNote {
   title: string;
   description: string;
   noteType?: number;
-  publish?: number; // 1=All/External, 2=Internal Only, 3=Customer-visible
+  /**
+   * Who can view the note. Live picklist on this instance (system values):
+   * 1 = "All Autotask Users"    → CUSTOMER-VISIBLE (the Internal-cleared state)
+   * 2 = "Internal Project Team" → internal
+   * 4 = "Internal & Co-Managed" → internal + co-managing resources
+   *
+   * There is NO id 3, and 1 is counter-intuitively the customer-visible value:
+   * per Kaseya's note-form docs, Internal cleared means "all Autotask
+   * resources, Outsourcing partners, and customers with access to the item in
+   * the Client Portal can view the note". Never map these ids from memory —
+   * classifyPublishVisibility() in autotask-activity.ts resolves the live label.
+   */
+  publish?: number;
   creatorResourceID?: number;
   creatorContactID?: number;
+  createdByContactID?: number;
+  impersonatorCreatorResourceID?: number;
   lastActivityDate?: string;
   createDateTime?: string;
+}
+
+/**
+ * One chronological timeline for a ticket, spanning every activity entity the
+ * REST API exposes. Spreads ActivityGap so activityGap / lastActivityDate /
+ * gapSeconds sit at the top level where a caller cannot miss them.
+ */
+export interface TicketActivityResult extends ActivityGap {
+  ticketId: number;
+  counts: { total: number; ticketNotes: number; timeEntries: number; attachments: number };
+  /** Total hoursWorked across the ticket's time entries. */
+  hoursLogged: number;
+  lastCustomerVisibleActivityDateTime: string | null;
+  lastCustomerNotificationDateTime: string | null;
+  /**
+   * A source whose query FAILED, named. An empty timeline caused by a broken
+   * query must never be indistinguishable from a genuinely empty one.
+   */
+  sourcesUnavailable: Array<{ sourceEntity: string; error: string }>;
+  timeline: ActivityItem[];
+}
+
+/**
+ * Autotask TicketAttachments row, restricted to QUERYABLE fields.
+ *
+ * creatorType, data and fileSize are documented as "fields that cannot be
+ * queried" and return an error if requested, so they are absent by design.
+ * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TicketAttachmentsEntity.htm
+ */
+export interface AutotaskTicketAttachment {
+  id: number;
+  ticketID?: number;
+  ticketNoteID?: number;
+  timeEntryID?: number;
+  parentID?: number;
+  title?: string;
+  fullPath?: string;
+  contentType?: string;
+  attachmentType?: string;
+  publish?: number;
+  attachDate?: string;
+  attachedByResourceID?: number;
+  attachedByContactID?: number;
+  impersonatorCreatorResourceID?: number;
 }
 
 export interface AutotaskTimeEntry {
@@ -277,6 +345,13 @@ export interface TimeEntryView {
   dateWorked: string;
   startDateTime: string | null;
   endDateTime: string | null;
+  /**
+   * When the RECORD was saved, as distinct from when the work happened. The
+   * activity timeline orders by this, because Tickets.lastActivityDate is a
+   * record-activity stamp — comparing it against a work start time would
+   * compare unlike things and mis-report the gap.
+   */
+  createDateTime: string | null;
   hoursWorked: number;
   hoursToBill: number | null;
   isNonBillable: boolean;
@@ -1172,7 +1247,10 @@ export class AutotaskClient {
 
   /** id -> label map for an entity picklist field (includes inactive values so
    *  historical ids still resolve). Returns an empty map if not a picklist. */
-  private async picklistLabelMap(entity: string, fieldName: string): Promise<Map<number, string>> {
+  /** id -> label for a picklist field. Public so writes can report the LIVE
+   * label of a value they stored (e.g. a note's publish level) rather than
+   * hardcoding a mapping that drifts per instance. */
+  async picklistLabelMap(entity: string, fieldName: string): Promise<Map<number, string>> {
     const info = await this.getFieldInfo(entity);
     const field = info?.fields?.find((f) => f.name === fieldName);
     const map = new Map<number, string>();
@@ -1351,6 +1429,261 @@ export class AutotaskClient {
   }
 
   /**
+   * Read a SINGLE ticket note back by id.
+   *
+   * Exists so a note write can report what Autotask actually stored (id,
+   * publish level, note type, attribution) instead of echoing the itemId the
+   * POST returned. An itemId proves a row was created; it proves nothing about
+   * the row's visibility.
+   */
+  async getTicketNoteById(ticketId: number, noteId: number): Promise<AutotaskTicketNote | null> {
+    const rows = await this.queryAll<AutotaskTicketNote>('TicketNotes', {
+      op: 'and',
+      items: [
+        { op: 'eq', field: 'id', value: noteId },
+        { op: 'eq', field: 'ticketID', value: ticketId },
+      ],
+    });
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Attachments on a ticket, including those parented to its notes and time
+   * entries (documented: "Query results will include attachments parented to
+   * TicketNotes, TimeEntries, and TicketAttachments parented to tickets with IDs
+   * referenced in the request").
+   *
+   * Requests QUERYABLE fields only — creatorType, data and fileSize are
+   * documented as fields that error when queried, and `data` is the file bytes
+   * we never want to pull into a tool response anyway.
+   * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TicketAttachmentsEntity.htm
+   */
+  async getTicketAttachments(ticketId: number): Promise<AutotaskTicketAttachment[]> {
+    const fields = [
+      'id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'title', 'fullPath',
+      'contentType', 'attachmentType', 'publish', 'attachDate',
+      'attachedByResourceID', 'attachedByContactID', 'impersonatorCreatorResourceID',
+    ];
+    try {
+      return await this.queryAll<AutotaskTicketAttachment>('TicketAttachments',
+        { op: 'eq', field: 'ticketID', value: ticketId }, fields);
+    } catch (err) {
+      // Attachments are the optional third source in the activity timeline.
+      // Surfacing the failure (rather than silently returning []) is what stops
+      // "no attachments" from being indistinguishable from "the query broke".
+      console.error(`[AutotaskClient] getTicketAttachments failed for ticket ${ticketId}:`, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
+   * The three activity/notification stamps Autotask maintains on a ticket.
+   *
+   * All three are read-only datetimes on the Tickets entity:
+   *   lastActivityDate                    — any activity on the ticket
+   *   lastCustomerNotificationDateTime    — when a customer notification last went out
+   *   lastCustomerVisibleActivityDateTime — last activity a customer could see
+   * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TicketsEntity.htm
+   *
+   * Narrow explicit-field query rather than widening TICKET_QUERY_FIELDS, which
+   * the reporting sync also uses (same pattern as getTicketAssignment).
+   * lastCustomerNotificationDateTime is what makes "did the customer actually
+   * get notified" an OBSERVABLE fact rather than an assumption.
+   */
+  async getTicketActivityStamps(ticketId: number): Promise<{
+    lastActivityDate: string | null;
+    lastCustomerNotificationDateTime: string | null;
+    lastCustomerVisibleActivityDateTime: string | null;
+  } | null> {
+    const rows = await this.queryAll<{
+      id: number;
+      lastActivityDate?: string | null;
+      lastCustomerNotificationDateTime?: string | null;
+      lastCustomerVisibleActivityDateTime?: string | null;
+    }>('Tickets', { op: 'eq', field: 'id', value: ticketId },
+      ['id', 'lastActivityDate', 'lastCustomerNotificationDateTime', 'lastCustomerVisibleActivityDateTime']);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      lastActivityDate: row.lastActivityDate ?? null,
+      lastCustomerNotificationDateTime: row.lastCustomerNotificationDateTime ?? null,
+      lastCustomerVisibleActivityDateTime: row.lastCustomerVisibleActivityDateTime ?? null,
+    };
+  }
+
+  /** id -> Contact (name/email), batched. Mirrors resourceMap for contact-authored rows. */
+  private async contactMap(ids: number[]): Promise<Map<number, AutotaskContact>> {
+    const map = new Map<number, AutotaskContact>();
+    const distinct = Array.from(new Set(ids.filter((v): v is number => typeof v === 'number' && v > 0)));
+    for (let i = 0; i < distinct.length; i += 200) {
+      const chunk = distinct.slice(i, i + 200);
+      if (chunk.length === 0) continue;
+      const rows = await this.queryAll<AutotaskContact>('Contacts',
+        { op: 'in', field: 'id', value: chunk },
+        ['id', 'companyID', 'firstName', 'lastName', 'emailAddress', 'isActive']);
+      for (const c of rows) map.set(c.id, c);
+    }
+    return map;
+  }
+
+  /**
+   * ONE chronological timeline for a ticket: TicketNotes + TimeEntries +
+   * TicketAttachments, each tagged with its source entity, author and customer
+   * visibility, plus the activity-gap check against the ticket's own
+   * lastActivityDate.
+   *
+   * This is the tool that must be used to answer "did the technician do the
+   * work / update the ticket". autotask_ticket_notes cannot: it returns
+   * TicketNotes only, and on ticket 34648 a completed 2.67-hour build existed
+   * solely as a time entry.
+   *
+   * Attachments are best-effort: if that query fails the timeline still returns
+   * notes + time entries, with the failure NAMED in sourcesUnavailable so a
+   * missing source can never read as an empty one.
+   */
+  async getTicketActivity(ticketId: number): Promise<TicketActivityResult> {
+    const sourcesUnavailable: Array<{ sourceEntity: string; error: string }> = [];
+
+    const [notes, timeEntries, attachments, stamps] = await Promise.all([
+      this.getTicketNotes(ticketId),
+      this.getTicketTimeEntries(ticketId),
+      this.getTicketAttachments(ticketId).catch((err) => {
+        sourcesUnavailable.push({ sourceEntity: 'TicketAttachments', error: err instanceof Error ? err.message : String(err) });
+        return [] as AutotaskTicketAttachment[];
+      }),
+      this.getTicketActivityStamps(ticketId),
+    ]);
+
+    const [notePublishLabels, attachmentPublishLabels, noteTypeLabels] = await Promise.all([
+      this.picklistLabelMap('TicketNotes', 'publish').catch(() => new Map<number, string>()),
+      this.picklistLabelMap('TicketAttachments', 'publish').catch(() => new Map<number, string>()),
+      this.picklistLabelMap('TicketNotes', 'noteType').catch(() => new Map<number, string>()),
+    ]);
+
+    const resourceIds = [
+      ...notes.map((n) => n.creatorResourceID),
+      ...notes.map((n) => n.impersonatorCreatorResourceID),
+      ...timeEntries.map((t) => t.resourceID),
+      ...attachments.map((a) => a.attachedByResourceID),
+    ].filter((v): v is number => typeof v === 'number' && v > 0);
+    const contactIds = [
+      ...notes.map((n) => n.createdByContactID ?? n.creatorContactID),
+      ...attachments.map((a) => a.attachedByContactID),
+    ].filter((v): v is number => typeof v === 'number' && v > 0);
+
+    const [resMap, conMap] = await Promise.all([this.resourceMap(resourceIds), this.contactMap(contactIds)]);
+
+    const author = (opts: { resourceId?: number | null; contactId?: number | null; impersonatorResourceId?: number | null }): ActivityAuthor => {
+      const rid = typeof opts.resourceId === 'number' && opts.resourceId > 0 ? opts.resourceId : null;
+      const cid = typeof opts.contactId === 'number' && opts.contactId > 0 ? opts.contactId : null;
+      const r = rid ? resMap.get(rid) : undefined;
+      const c = cid ? conMap.get(cid) : undefined;
+      if (c) {
+        return { type: 'contact', resourceId: rid, name: `${c.firstName} ${c.lastName}`.trim() || null, email: c.emailAddress ?? null, contactId: cid, impersonatorResourceId: opts.impersonatorResourceId ?? null };
+      }
+      return {
+        type: rid ? 'resource' : cid ? 'contact' : 'unknown',
+        resourceId: rid,
+        name: r ? `${r.firstName} ${r.lastName}`.trim() || null : null,
+        email: r?.email ?? null,
+        contactId: cid,
+        impersonatorResourceId: opts.impersonatorResourceId ?? null,
+      };
+    };
+
+    const items: ActivityItem[] = [];
+
+    for (const n of notes) {
+      items.push({
+        source: 'ticket_note',
+        sourceEntity: 'TicketNotes',
+        id: n.id,
+        at: n.createDateTime ?? n.lastActivityDate ?? '',
+        atField: n.createDateTime ? 'createDateTime' : 'lastActivityDate',
+        title: n.title ?? null,
+        author: author({ resourceId: n.creatorResourceID, contactId: n.createdByContactID ?? n.creatorContactID, impersonatorResourceId: n.impersonatorCreatorResourceID }),
+        visibility: classifyPublishVisibility(n.publish, n.publish == null ? null : notePublishLabels.get(n.publish) ?? null),
+        body: n.description ?? null,
+        internalBody: null,
+        work: null,
+        parent: null,
+        file: null,
+        noteType: n.noteType == null ? null : { id: n.noteType, label: noteTypeLabels.get(n.noteType) ?? null },
+      });
+    }
+
+    for (const t of timeEntries) {
+      items.push({
+        source: 'time_entry',
+        sourceEntity: 'TimeEntries',
+        id: t.id,
+        at: t.createDateTime ?? t.startDateTime ?? t.dateWorked ?? '',
+        atField: t.createDateTime ? 'createDateTime' : t.startDateTime ? 'startDateTime' : 'dateWorked',
+        title: null,
+        author: author({ resourceId: t.resourceID }),
+        visibility: timeEntryVisibility(),
+        body: t.summaryNotes ?? null,
+        internalBody: t.internalNotes ?? null,
+        work: {
+          dateWorked: t.dateWorked ?? null,
+          startDateTime: t.startDateTime ?? null,
+          endDateTime: t.endDateTime ?? null,
+          hoursWorked: t.hoursWorked ?? null,
+          hoursToBill: t.hoursToBill ?? null,
+          billable: t.isNonBillable == null ? null : !t.isNonBillable,
+        },
+        parent: null,
+        file: null,
+        noteType: null,
+      });
+    }
+
+    for (const a of attachments) {
+      items.push({
+        source: 'attachment',
+        sourceEntity: 'TicketAttachments',
+        id: a.id,
+        at: a.attachDate ?? '',
+        atField: 'attachDate',
+        title: a.title ?? null,
+        author: author({ resourceId: a.attachedByResourceID, contactId: a.attachedByContactID, impersonatorResourceId: a.impersonatorCreatorResourceID }),
+        visibility: classifyPublishVisibility(a.publish, a.publish == null ? null : attachmentPublishLabels.get(a.publish) ?? null),
+        body: a.fullPath ?? null,
+        internalBody: null,
+        work: null,
+        parent: { ticketNoteId: a.ticketNoteID ?? null, timeEntryId: a.timeEntryID ?? null },
+        file: { contentType: a.contentType ?? null, attachmentType: a.attachmentType ?? null },
+        noteType: null,
+      });
+    }
+
+    const timeline = sortActivity(items);
+    const gap = computeActivityGap({
+      lastActivityDate: stamps?.lastActivityDate ?? null,
+      newestRetrievedActivityAt: newestTimestamp(timeline),
+    });
+
+    return {
+      ticketId,
+      counts: {
+        total: timeline.length,
+        ticketNotes: notes.length,
+        timeEntries: timeEntries.length,
+        attachments: attachments.length,
+      },
+      hoursLogged: timeEntries.reduce((sum, t) => sum + (typeof t.hoursWorked === 'number' ? t.hoursWorked : 0), 0),
+      lastCustomerVisibleActivityDateTime: stamps?.lastCustomerVisibleActivityDateTime ?? null,
+      lastCustomerNotificationDateTime: stamps?.lastCustomerNotificationDateTime ?? null,
+      // Spread supplies lastActivityDate, activityGap, gapSeconds, reason and
+      // newestRetrievedActivityAt — lastActivityDate comes from the same stamps
+      // read, so it must not also be set above (the spread would overwrite it).
+      ...gap,
+      sourcesUnavailable,
+      timeline,
+    };
+  }
+
+  /**
    * Create a note on a ticket in Autotask (for customer replies)
    */
   async createTicketNote(ticketId: number, data: {
@@ -1447,6 +1780,7 @@ export class AutotaskClient {
       dateWorked: e.dateWorked,
       startDateTime: e.startDateTime ?? null,
       endDateTime: e.endDateTime ?? null,
+      createDateTime: e.createDateTime ?? null,
       hoursWorked: e.hoursWorked,
       hoursToBill: e.hoursToBill ?? null,
       isNonBillable: !!e.isNonBillable,
