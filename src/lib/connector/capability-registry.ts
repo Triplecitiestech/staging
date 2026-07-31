@@ -621,13 +621,27 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
       'TCT\'s OWN HumanResources site only, via a dedicated Sites.Selected app',
     ],
   },
+  hr_er_log_update: {
+    access: 'write',
+    risk: 'low-risk write',
+    staged: false,
+    killSwitch: 'CONNECTOR_HR_WRITES_ENABLED',
+    constraints: [
+      'Patches ONE existing row located by Entry ID — never creates a row, and refuses rather than guessing when an Entry ID appears twice',
+      'Entry ID and Date Logged can never be written: there is no parameter for either',
+      'Only the columns named in the call are written; cells are patched individually in place, never a row or table rewrite',
+      'Cell positions come from the table\'s LIVE header row on every call',
+      'Every written cell is read-back verified against the row\'s Entry ID, not against a row position',
+      'TCT\'s OWN HumanResources site only, via a dedicated Sites.Selected app',
+    ],
+  },
   hr_er_log_columns: {
     access: 'read',
     risk: 'read',
     staged: false,
     killSwitch: 'CONNECTOR_HR_WRITES_ENABLED',
     constraints: [
-      'Writes nothing — reports the live header row and how hr_er_log_append maps onto it',
+      'Writes nothing — reports the live header row and how hr_er_log_append / hr_er_log_update map onto it',
       'Gated by the same HR kill switch as the writes: one switch covers the whole HR surface',
     ],
   },

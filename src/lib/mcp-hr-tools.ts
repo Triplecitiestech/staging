@@ -15,6 +15,7 @@
 import { z } from 'zod'
 import {
   appendErLogRow,
+  updateErLogRow,
   describeErLogTable,
   fileErDocument,
   auditHrWrite,
@@ -124,6 +125,121 @@ export function registerHrTools(server: any) {
           error: e instanceof Error ? e.message : String(e),
         })
         return fail(e, 'hr_er_log_append')
+      }
+    }
+  )
+
+  server.registerTool(
+    'hr_er_log_update',
+    {
+      title: 'HR: update an Employee Relations log row',
+      description:
+        'WRITE (direct). Patch ONE EXISTING row of "Employee Relations Log.xlsx", located by its Entry ID ' +
+        '(e.g. "ER-0005"). This tool NEVER creates a row — if the Entry ID does not exist it fails rather ' +
+        'than appending, because a duplicate row would inflate the subject\'s disciplinary record. Use ' +
+        'hr_er_log_append for a NEW entry and this tool for anything that fills in or corrects an entry ' +
+        'that already exists: the meetingWithTech text once the conversation with the technician has ' +
+        'happened, followUpStatus when the item closes, linkedDocument when a write-up is filed later, or ' +
+        'a changed actionTaken. ' +
+        'It NEVER writes Entry ID or Date Logged — Entry ID is the immutable key, and Date Logged records ' +
+        'when the entry was created, not when it was edited; there is deliberately no parameter for either. ' +
+        'Pass entryId plus AT LEAST ONE field to change; every field you omit is left exactly as it is, and ' +
+        'no other row is touched. Cells are patched individually in place (never a row or table rewrite), ' +
+        'at positions read from the table\'s LIVE header row on every call, so a column a human adds or ' +
+        'moves cannot make this write the wrong cell. Input is sanitized to plain text (emojis/special ' +
+        'characters stripped) and dates are stored as YYYY-MM-DD Eastern. ' +
+        'By default a field REPLACES the cell; set appendToSummary / appendToMeetingWithTech to add the new ' +
+        'text on a new line instead, which is what you want for a follow-up conversation. Passing an empty ' +
+        'string clears a cell — that is an explicit instruction, so only send one deliberately. ' +
+        'More than one row with the same Entry ID is a refusal, not a guess. Every written cell is ' +
+        'read-back verified. Only call after the user has approved the exact wording. Returns the Entry ID, ' +
+        'the full row after the patch keyed by the sheet\'s own headers, a per-cell before/after list of ' +
+        'what actually changed, and any column whose value already matched. ' +
+        FAILURE_ENVELOPE_TOOL_NOTE,
+      inputSchema: {
+        entryId: z
+          .string()
+          .describe(
+            'Entry ID of the EXISTING row to patch, e.g. "ER-0005". Matched case-insensitively and ' +
+              'trimmed. Never written — this is the lookup key.'
+          ),
+        dateOfIncident: z.string().optional().describe('Date the incident occurred (YYYY-MM-DD preferred)'),
+        employee: z.string().optional().describe('Employee name'),
+        roleStatus: z.string().optional().describe('Role / Status (e.g. "Technician / Active")'),
+        category: z.string().optional().describe('Category (e.g. Attendance, Conduct, Performance)'),
+        severity: z.string().optional().describe('Severity (e.g. Low, Medium, High)'),
+        summary: z.string().optional().describe('Factual summary of what happened'),
+        expectationMissed: z.string().optional().describe('Which expectation/policy was missed'),
+        reference: z.string().optional().describe('Reference (e.g. ticket #, policy id)'),
+        reportedBy: z.string().optional().describe('Who reported/observed it'),
+        actionTaken: z.string().optional().describe('Action taken so far'),
+        linkedDocument: z
+          .string()
+          .optional()
+          .describe('Link to a filed document (e.g. a webUrl from hr_file_document)'),
+        followUpStatus: z.string().optional().describe('Follow-up / status (e.g. Open, Closed)'),
+        meetingWithTech: z
+          .string()
+          .optional()
+          .describe(
+            'What the technician said when the issue was discussed with them (free text). This is the ' +
+              'field hr_er_log_append tells you to leave unset until the conversation has happened — ' +
+              'this is where it lands afterwards.'
+          ),
+        appendToSummary: z
+          .boolean()
+          .optional()
+          .describe(
+            'Append the supplied summary to the existing Summary on a new line instead of replacing it. Default false (replace).'
+          ),
+        appendToMeetingWithTech: z
+          .boolean()
+          .optional()
+          .describe(
+            'Append the supplied meetingWithTech text to the existing cell on a new line instead of ' +
+              'replacing it. Default false (replace). Use this for a follow-up conversation so the earlier ' +
+              'one is kept.'
+          ),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args: any, extra: any) => {
+      const actor = emailOf(extra)
+      try {
+        const result = await updateErLogRow({
+          entryId: args.entryId,
+          dateOfIncident: args.dateOfIncident,
+          employee: args.employee,
+          roleStatus: args.roleStatus,
+          category: args.category,
+          severity: args.severity,
+          summary: args.summary,
+          expectationMissed: args.expectationMissed,
+          reference: args.reference,
+          reportedBy: args.reportedBy,
+          actionTaken: args.actionTaken,
+          linkedDocument: args.linkedDocument,
+          followUpStatus: args.followUpStatus,
+          meetingWithTech: args.meetingWithTech,
+          appendToSummary: args.appendToSummary,
+          appendToMeetingWithTech: args.appendToMeetingWithTech,
+        })
+        auditHrWrite('hr_er_log_update', actor, 'success', {
+          entryId: result.entryId,
+          rowIndex: result.rowIndex,
+          verified: result.verified,
+          // Column NAMES only — never the text written, which is HR content.
+          changedColumns: result.changed.map((c) => c.column),
+          unchangedRequestedCount: result.unchangedRequested.length,
+          resolvedDynamically: result.resolvedDynamically,
+          tableColumnCount: result.tableColumns.length,
+        })
+        return ok(result)
+      } catch (e) {
+        auditHrWrite('hr_er_log_update', actor, 'error', {
+          error: e instanceof Error ? e.message : String(e),
+        })
+        return fail(e, 'hr_er_log_update')
       }
     }
   )
