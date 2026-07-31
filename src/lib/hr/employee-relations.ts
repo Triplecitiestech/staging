@@ -554,6 +554,495 @@ function throwErRowProblems(problems: ErRowProblem[], liveColumns: readonly stri
 }
 
 // ---------------------------------------------------------------------------
+// Live-header PATCH planning (pure — the update counterpart to planErRow)
+// ---------------------------------------------------------------------------
+
+/**
+ * The columns an UPDATE may write. Derived from ER_FIELDS rather than listed
+ * again, so the append and update surfaces can never drift apart: everything a
+ * caller can supply, EXCEPT the two computed identity columns.
+ *
+ * Entry ID and Date Logged are excluded BY CONSTRUCTION (`kind: 'computed'`), so
+ * hr_er_log_update has no parameter for either — the exclusion is a property of
+ * this table, not a runtime check that a later edit could forget. Entry ID is the
+ * immutable key the patch is looked up BY; Date Logged records when the entry was
+ * created, and moving it would destroy the only record of when the issue was
+ * first logged.
+ */
+export const ER_UPDATABLE_FIELDS: readonly ErFieldSpec[] = ER_FIELDS.filter(
+  (f) => f.kind !== 'computed'
+)
+
+/** Canonical columns an update may never write. The runtime backstop to the above. */
+export const ER_IMMUTABLE_COLUMNS: readonly string[] = ER_FIELDS.filter(
+  (f) => f.kind === 'computed'
+).map((f) => f.column)
+
+/**
+ * Columns whose new text may ACCUMULATE instead of replacing. Follow-up
+ * conversations with a technician are additive by nature: the second thing he
+ * said does not undo the first, and the earlier text is part of the record.
+ */
+export const ER_APPEND_MODE_FLAGS: ReadonlyArray<{
+  flag: 'appendToSummary' | 'appendToMeetingWithTech'
+  column: string
+}> = [
+  { flag: 'appendToSummary', column: 'Summary' },
+  { flag: 'appendToMeetingWithTech', column: 'Meeting with Tech' },
+]
+
+/** Canonical columns the caller asked to append to rather than replace. */
+export function appendModeColumns(input: {
+  appendToSummary?: boolean
+  appendToMeetingWithTech?: boolean
+}): Set<string> {
+  const out = new Set<string>()
+  for (const { flag, column } of ER_APPEND_MODE_FLAGS) if (input[flag]) out.add(column)
+  return out
+}
+
+/** Entry ID normalized for comparison: sanitized, trimmed, upper-cased. */
+export function normalizeEntryId(input: unknown): string {
+  return sanitizePlainText(input).toUpperCase()
+}
+
+/**
+ * Canonical ER-NNNN form of a loosely-typed Entry ID, or null when the input is
+ * not an ER id at all. "er-5" and "ER-0005" name the SAME entry, so a second
+ * matching pass may compare canonically — but only after an exact match failed,
+ * and never across two different numbers.
+ */
+export function canonicalEntryId(input: unknown): string | null {
+  const m = /^ER-?(\d+)$/.exec(normalizeEntryId(input).replace(/\s+/g, ''))
+  return m ? formatEntryId(parseInt(m[1], 10)) : null
+}
+
+export interface EntryIdMatch {
+  /** Data-row indices (0-based, header excluded) carrying this Entry ID. */
+  indices: number[]
+  /** true when the match needed the canonical ER-NNNN form, not the literal text. */
+  canonicalized: boolean
+  /** The Entry ID exactly as the sheet spells it, for reporting back. */
+  matchedAs: string | null
+}
+
+/**
+ * Locate the row(s) carrying an Entry ID. Returns EVERY match — the caller must
+ * refuse to write when there is more than one rather than picking a row, because
+ * guessing which of two identically-keyed rows to patch can silently attach one
+ * employee's follow-up to another entry.
+ */
+export function matchEntryIdRows(
+  entryIdCells: readonly unknown[],
+  wanted: unknown
+): EntryIdMatch {
+  const target = normalizeEntryId(wanted)
+  const spelledAt = (i: number) => String(entryIdCells[i] ?? '').trim()
+
+  const exact: number[] = []
+  if (target) {
+    entryIdCells.forEach((cell, i) => {
+      if (normalizeEntryId(cell) === target) exact.push(i)
+    })
+  }
+  if (exact.length > 0) {
+    return { indices: exact, canonicalized: false, matchedAs: spelledAt(exact[0]) }
+  }
+
+  const canonical = canonicalEntryId(wanted)
+  if (!canonical) return { indices: [], canonicalized: false, matchedAs: null }
+  const loose: number[] = []
+  entryIdCells.forEach((cell, i) => {
+    if (canonicalEntryId(cell) === canonical) loose.push(i)
+  })
+  return {
+    indices: loose,
+    canonicalized: loose.length > 0,
+    matchedAs: loose.length > 0 ? spelledAt(loose[0]) : null,
+  }
+}
+
+// --- A1 addressing ---------------------------------------------------------
+//
+// A patch writes SINGLE CELLS, so it needs each target cell's absolute address.
+// Everything below is pure so the arithmetic that decides which cell gets
+// written is unit-testable without Graph: an off-by-one here would edit the
+// wrong employee's row.
+
+/** 0-based column index to Excel column letters (0 = A, 26 = AA). */
+export function columnLetters(index: number): string {
+  let n = Math.max(0, Math.floor(index)) + 1
+  let out = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    out = String.fromCharCode(65 + rem) + out
+    n = Math.floor((n - 1) / 26)
+  }
+  return out
+}
+
+/** Excel column letters to a 0-based index. null for anything that is not letters. */
+export function columnIndexOfLetters(letters: string): number | null {
+  if (!/^[A-Za-z]+$/.test(letters)) return null
+  let n = 0
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64)
+  return n - 1
+}
+
+export interface ParsedRangeAddress {
+  /** Worksheet name, unquoted; null when the address carried no sheet prefix. */
+  sheet: string | null
+  /** 0-based column index of the first cell. */
+  startColumnIndex: number
+  /** 1-based sheet row of the first cell. */
+  startRow: number
+  endColumnIndex: number
+  endRow: number
+}
+
+/**
+ * Parse a range address as Graph reports it — "Log!A2:O6", or
+ * "'Employee Log'!A2:O6" when the sheet name needs quoting.
+ *
+ * Returns null rather than guessing. Every cell this tool WRITES is derived from
+ * this parse, so a half-understood address must stop the write, not shift it.
+ */
+export function parseRangeAddress(address: unknown): ParsedRangeAddress | null {
+  const raw = sanitizePlainText(address).replace(/\$/g, '')
+  if (!raw) return null
+
+  let local = raw
+  let sheet: string | null = null
+  const bang = raw.lastIndexOf('!')
+  if (bang >= 0) {
+    local = raw.slice(bang + 1)
+    const prefix = raw.slice(0, bang).trim()
+    const quoted = prefix.length >= 2 && prefix.startsWith("'") && prefix.endsWith("'")
+    sheet = quoted ? prefix.slice(1, -1).replace(/''/g, "'") : prefix
+    if (!sheet) sheet = null
+  }
+
+  const m = /^([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?$/.exec(local.trim())
+  if (!m) return null
+  const startColumnIndex = columnIndexOfLetters(m[1])
+  const endColumnIndex = m[3] ? columnIndexOfLetters(m[3]) : startColumnIndex
+  if (startColumnIndex === null || endColumnIndex === null) return null
+  const startRow = parseInt(m[2], 10)
+  const endRow = m[4] ? parseInt(m[4], 10) : startRow
+  if (!Number.isFinite(startRow) || startRow < 1) return null
+  return { sheet, startColumnIndex, startRow, endColumnIndex, endRow }
+}
+
+/** Single-cell A1 address. No sheet prefix — the worksheet sits in the URL path. */
+export function cellAddress(columnIndex: number, row: number): string {
+  return `${columnLetters(columnIndex)}${Math.max(1, Math.floor(row))}`
+}
+
+/**
+ * Excel serial date to YYYY-MM-DD.
+ *
+ * Defined only from serial 61 (1900-03-01) onward: serials 1-60 sit inside
+ * Excel's deliberate 1900-leap-year bug, where 60 is a date that never existed —
+ * there is no honest conversion there, so it returns null instead of one.
+ */
+export function excelSerialToYmd(serial: number): string | null {
+  if (!Number.isFinite(serial) || serial < 61) return null
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86_400_000)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Did the cell land as intended?
+ *
+ * String equality, plus ONE computed equivalence: a date written as text into a
+ * date-FORMATTED column comes back from Excel as a serial number, not as
+ * "2026-08-01". Reporting that as a mismatch would set verified:false on every
+ * date patch and teach the reader to ignore the flag — but claiming `verified`
+ * without proof is the worse failure, so the equivalence is narrow and computed
+ * from the documented epoch rather than assumed.
+ */
+export function cellValuesEqual(expected: string, actual: unknown): boolean {
+  const a = String(actual ?? '').trim()
+  const e = expected.trim()
+  if (a === e) return true
+  if (!a || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return false
+  const serial = Number(a)
+  return Number.isFinite(serial) && excelSerialToYmd(serial) === e
+}
+
+/** Row values keyed by the sheet's own headers. First occurrence wins, as in planErRow. */
+export function keyRowByColumns(
+  columns: readonly string[],
+  values: readonly unknown[]
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  columns.forEach((column, i) => {
+    if (!(column in out)) out[column] = String(values[i] ?? '')
+  })
+  return out
+}
+
+function truncateForWarning(text: string, max = 80): string {
+  const s = text.replace(/\s+/g, ' ').trim()
+  return s.length > max ? `${s.slice(0, max)}...` : s
+}
+
+/** One cell the patch will write, located by its position in the live header row. */
+export interface ErPatchCell {
+  /** The sheet's OWN header name for this column. */
+  column: string
+  /** 0-based position in the live header row. */
+  columnIndex: number
+  before: string
+  after: string
+}
+
+export type ErPatchProblem =
+  | { kind: 'no_columns' }
+  | { kind: 'no_patch_fields' }
+  /** A column the caller named does not exist in the live header row. */
+  | { kind: 'missing_target_column'; column: string }
+  /** Entry ID / Date Logged reached the planner despite having no parameter. */
+  | { kind: 'immutable_column'; column: string }
+
+export interface ErPatchPlan {
+  /** Cells to write. EMPTY means the row already held every supplied value. */
+  cells: ErPatchCell[]
+  /** Live columns whose supplied value already matched the cell. */
+  unchangedRequested: string[]
+  /** The whole row after the patch, keyed by the sheet's own headers. */
+  rowAfter: Record<string, string>
+  /** Non-empty means: do not write; raise a structured failure instead. */
+  problems: ErPatchProblem[]
+  warnings: string[]
+}
+
+/**
+ * Plan an in-place patch of ONE row from the table's LIVE header row.
+ *
+ * Contract, and the difference from planErRow:
+ *   - column POSITIONS come from `liveColumns` at call time, never from ER_FIELDS,
+ *     so a human reordering or adding a column cannot make this write the wrong cell
+ *   - only columns the caller actually supplied are written; every other cell in
+ *     the row is left alone, not rewritten with its current value (a full-row
+ *     rewrite would replace any formula in the row with a computed value)
+ *   - a supplied column that the sheet does NOT have is a `problem`, not a
+ *     warning: the caller explicitly asked for that cell, so quietly not writing
+ *     it is exactly the silent-drop failure this surface keeps eliminating
+ *   - Entry ID and Date Logged are never written, even if they somehow arrive
+ *
+ * `supplied` is keyed by CANONICAL column name (see suppliedErPatchValues) and
+ * contains ONLY the fields the caller passed — presence is the patch instruction.
+ */
+export function planErPatch(
+  liveColumns: readonly string[],
+  existingRow: readonly unknown[],
+  supplied: Record<string, string>,
+  options: { appendToColumns?: readonly string[] } = {}
+): ErPatchPlan {
+  const warnings: string[] = []
+  const problems: ErPatchProblem[] = []
+  const appendTo = new Set((options.appendToColumns ?? []).map((c) => normalizeHeader(c)))
+
+  const specByKey = new Map<string, ErFieldSpec>()
+  for (const spec of ER_FIELDS) {
+    for (const name of [spec.column, ...(spec.aliases ?? [])]) specByKey.set(normalizeHeader(name), spec)
+  }
+  const immutable = new Set(ER_IMMUTABLE_COLUMNS)
+
+  for (const column of ER_IMMUTABLE_COLUMNS) {
+    if (column in supplied) problems.push({ kind: 'immutable_column', column })
+  }
+  if (liveColumns.length === 0) problems.push({ kind: 'no_columns' })
+  if (Object.keys(supplied).length === 0) problems.push({ kind: 'no_patch_fields' })
+
+  const cells: ErPatchCell[] = []
+  const unchangedRequested: string[] = []
+  const rowAfter: Record<string, string> = {}
+  const placed = new Set<string>()
+  const seenKeys = new Set<string>()
+
+  liveColumns.forEach((live, index) => {
+    const key = normalizeHeader(live)
+    const before = String(existingRow[index] ?? '')
+    const setAfter = (value: string) => {
+      if (!(live in rowAfter)) rowAfter[live] = value
+    }
+
+    const spec = specByKey.get(key)
+    const duplicate = seenKeys.has(key)
+    seenKeys.add(key)
+    const canonical = spec?.column
+    const requestedHere =
+      canonical !== undefined && canonical in supplied && !immutable.has(canonical)
+
+    // Not a column we were asked to touch (or a duplicate header, or an identity
+    // column): the cell is left exactly as it is.
+    if (!requestedHere || duplicate) {
+      if (requestedHere && duplicate) {
+        warnings.push(
+          `The sheet has more than one column matching "${live}". Only the first was patched; ` +
+            `the duplicate was left as it is. Reconcile the header row.`
+        )
+      }
+      setAfter(before)
+      return
+    }
+
+    placed.add(canonical)
+    const requested = supplied[canonical]
+    let after: string
+
+    if (appendTo.has(key)) {
+      if (!requested) {
+        warnings.push(
+          `Append mode was requested for "${live}" but the supplied text was empty, so nothing ` +
+            `was appended and the cell is unchanged.`
+        )
+        after = before
+      } else if (before.trim().length === 0) {
+        after = requested
+      } else {
+        if (before.split(/\r?\n/).some((line) => line.trim() === requested.trim())) {
+          warnings.push(
+            `"${live}" already contains a line identical to the text being appended, so this may ` +
+              `be a repeated call. It was appended anyway — this tool never silently drops what a ` +
+              `human wrote. Check the cell and remove the duplicate line if it was unintended.`
+          )
+        }
+        after = `${before}\n${requested}`
+      }
+    } else {
+      after = requested
+      if (after === '' && before !== '') {
+        warnings.push(
+          `"${live}" was CLEARED: an empty value was supplied explicitly, replacing ` +
+            `"${truncateForWarning(before)}".`
+        )
+      }
+    }
+
+    setAfter(after)
+    if (after === before) unchangedRequested.push(live)
+    else cells.push({ column: live, columnIndex: index, before, after })
+  })
+
+  for (const column of Object.keys(supplied)) {
+    if (placed.has(column) || immutable.has(column)) continue
+    problems.push({ kind: 'missing_target_column', column })
+  }
+
+  return { cells, unchangedRequested, rowAfter, problems, warnings }
+}
+
+/**
+ * Canonical-column to normalized-value map for a PATCH. Unlike suppliedErValues,
+ * only the fields the caller actually PASSED appear — an absent key means "leave
+ * that cell alone", and an empty string means "clear it", which are different
+ * instructions and must not collapse into one.
+ */
+export function suppliedErPatchValues(input: ErLogUpdateInput): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const spec of ER_UPDATABLE_FIELDS) {
+    // 'dateLogged' is the one ErLogAppendInput key with no update counterpart:
+    // excluding it here narrows spec.input to keys ErLogPatchFields really has,
+    // so this stays type-safe without a cast.
+    if (!spec.input || spec.input === 'dateLogged') continue
+    const raw = input[spec.input]
+    if (raw === undefined) continue
+    out[spec.column] = spec.kind === 'date' ? normalizeDate(raw) : sanitizePlainText(raw)
+  }
+  return out
+}
+
+/**
+ * Turn patch-plan problems into the connector's structured failure envelope.
+ *
+ * Same discipline as throwErRowProblems: a column that cannot be written must
+ * surface as a routed work item naming the column and the live header row, never
+ * as a bare Graph error or — worse — as a success that quietly wrote less than
+ * the caller asked for.
+ */
+function throwErPatchProblems(problems: ErPatchProblem[], liveColumns: readonly string[]): never {
+  const sheet = `Live table columns (${liveColumns.length}): ${liveColumns.join(' | ') || '(none)'}`
+  const patchable = ER_UPDATABLE_FIELDS.map((f) => f.input).filter(Boolean).join(', ')
+
+  if (problems.some((p) => p.kind === 'no_patch_fields')) {
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      message:
+        'No fields to update were supplied, so there is nothing to patch. Pass entryId AND at least ' +
+        `one of: ${patchable}. Nothing was written.`,
+      evidence:
+        'The call carried only entryId and/or the append-mode flags, which identify a row but change nothing in it.',
+      remediation:
+        'Add the field(s) you want to change and call again. Entry ID and Date Logged are deliberately ' +
+        'not updatable: Entry ID is the key this tool looks the row up by, and Date Logged records when ' +
+        'the entry was created, not when it was edited.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+    })
+  }
+
+  if (problems.some((p) => p.kind === 'no_columns')) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        'The Employee Relations log table reports no columns, so no cell can be located. The table or its header row is broken.',
+      evidence: 'Graph returned an empty column collection for the resolved workbook table.',
+      remediation:
+        'Open "Employee Relations Log.xlsx" and confirm the log table still has its header row, then retry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+    })
+  }
+
+  const immutable = problems
+    .filter((p): p is { kind: 'immutable_column'; column: string } => p.kind === 'immutable_column')
+    .map((p) => p.column)
+  if (immutable.length > 0) {
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      message:
+        `${immutable.join(' and ')} cannot be updated and this tool has no parameter for ${
+          immutable.length === 1 ? 'it' : 'them'
+        }. Nothing was written.`,
+      evidence:
+        'Entry ID is the immutable key the row is looked up by. Date Logged records when the entry was ' +
+        'created; an edit that moved it would destroy the only record of when the issue was first logged.',
+      remediation:
+        'Drop those values from the call. If an entry was logged under the wrong Entry ID or the wrong ' +
+        'Date Logged, that is a correction a human makes in the workbook — not a connector write.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { immutableColumns: immutable },
+    })
+  }
+
+  const missing = problems
+    .filter((p): p is { kind: 'missing_target_column'; column: string } => p.kind === 'missing_target_column')
+    .map((p) => p.column)
+  throwClassified({
+    reasonCode: 'PRECONDITION_FAILED',
+    message:
+      `The log table has no column for ${missing.join(', ')}, so ${
+        missing.length === 1 ? 'that value' : 'those values'
+      } could not be written. NOTHING was written at all — a partial patch would leave the row in a ` +
+      `state neither you nor the sheet describes.`,
+    evidence: `${sheet}. No live column matches ${missing.join(', ')} (compared case/punctuation-insensitively, including known aliases).`,
+    remediation:
+      `Run hr_er_log_columns to see the live header row. Either restore/rename the ${missing.join(', ')} ` +
+      `column${missing.length === 1 ? '' : 's'} in "Employee Relations Log.xlsx", or drop ${
+        missing.length === 1 ? 'that field' : 'those fields'
+      } from the call. Do NOT retry unchanged.`,
+    surface: 'hr_sharepoint',
+    tool: 'hr_er_log_update',
+    details: { missingColumns: missing, liveColumns: [...liveColumns] },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Graph resolution helpers
 // ---------------------------------------------------------------------------
 
@@ -734,6 +1223,154 @@ async function readTableShape(
     : []
 
   return { columns, entryIdValues }
+}
+
+interface LiveTableGrid {
+  /** Header names in live column order (sorted by the API's own index). */
+  columns: string[]
+  /** Data-body rows, row-major, in live column order. Header row excluded. */
+  rows: string[][]
+  /** Position of the Entry ID column in the live header row. */
+  entryIdIndex: number | null
+  /** Worksheet holding the table, parsed from the data-body address. */
+  sheetName: string | null
+  /** 1-based sheet row of the FIRST data row. */
+  firstDataRow: number | null
+  /** 0-based sheet column of the table's first column. */
+  firstColumnIndex: number | null
+  /** The data-body address exactly as Graph reported it (evidence). */
+  dataBodyAddress: string | null
+}
+
+/**
+ * Read the table's LIVE header row, every data cell, and the ABSOLUTE address the
+ * data body occupies.
+ *
+ * Kept separate from readTableShape rather than folded into it: the append path
+ * needs only the header row and the Entry-ID column, and must not start carrying
+ * every row body — or start depending on the data-body address — as a side effect
+ * of the update path existing. Both read the same live table; neither is the other's
+ * refactor.
+ *
+ * The address is what makes an in-place single-cell patch possible: every cell the
+ * update later WRITES is derived from it, never from an assumed "tables start at A1".
+ */
+async function readTableGrid(
+  driveId: string,
+  itemId: string,
+  table: WorkbookTable
+): Promise<LiveTableGrid> {
+  const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}`
+
+  // Header row from the same authority the append path uses: the API's own column
+  // collection, ordered by its own index. Response order is never trusted — the
+  // cells we address are positional, so a wrong order would patch a wrong column.
+  const cols = await graph<{ value: Array<{ name: string; index: number }> }>(
+    `${base}/columns?$select=name,index`
+  )
+  const list = [...(cols.value ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+  const columns = list.map((c) => String(c.name ?? ''))
+  let entryIdIndex = columns.findIndex((c) => normalizeHeader(c) === normalizeHeader('Entry ID'))
+  if (entryIdIndex < 0) entryIdIndex = columns.findIndex((c) => /entry\s*id/i.test(c))
+
+  let rows: string[][] = []
+  let dataBodyAddress: string | null = null
+  try {
+    const body = await graph<{ address?: string; values?: unknown[][] }>(
+      `${base}/dataBodyRange?$select=address,values`
+    )
+    dataBodyAddress = body?.address ?? null
+    rows = (body?.values ?? []).map((row) => (row ?? []).map((cell) => String(cell ?? '')))
+  } catch {
+    // A table with no data body at all — leave rows empty so the caller reports
+    // "Entry ID not found" against an empty log rather than crashing.
+  }
+
+  const parsed = dataBodyAddress ? parseRangeAddress(dataBodyAddress) : null
+  return {
+    columns,
+    rows,
+    entryIdIndex: entryIdIndex >= 0 ? entryIdIndex : null,
+    sheetName: parsed?.sheet ?? null,
+    firstDataRow: parsed?.startRow ?? null,
+    firstColumnIndex: parsed?.startColumnIndex ?? null,
+    dataBodyAddress,
+  }
+}
+
+/** The worksheet a table sits on. Fallback for an address with no sheet prefix. */
+async function resolveTableWorksheetName(
+  driveId: string,
+  itemId: string,
+  table: WorkbookTable
+): Promise<string | null> {
+  try {
+    const ws = await graph<{ name?: string }>(
+      `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}/worksheet?$select=name`
+    )
+    return ws?.name ? String(ws.name) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Guard every address that reaches a range URL.
+ *
+ * Addresses are built from the parsed data-body address and are `[A-Z]+[0-9]+` by
+ * construction, so this can never fire from ordinary use — it exists so that a
+ * future caller cannot make a WIDER range (a whole column, a whole row, "A:Z")
+ * reach a write. A single cell is the only range this surface may touch.
+ */
+function assertSingleCellAddress(address: string): void {
+  if (!/^[A-Z]+[1-9]\d*$/.test(address)) {
+    throw new Error(
+      `Refusing to touch "${address}": not a single-cell address. This tool patches one cell at a time.`
+    )
+  }
+}
+
+function rangeUrl(driveId: string, itemId: string, sheetName: string, address: string): string {
+  assertSingleCellAddress(address)
+  return (
+    `/drives/${driveId}/items/${itemId}/workbook/worksheets/${encodeURIComponent(sheetName)}` +
+    `/range(address='${address}')`
+  )
+}
+
+/**
+ * Write ONE cell.
+ *
+ * Deliberately not a row PATCH (`/tables/{name}/rows/itemAt(index=N)`), which
+ * takes the whole row's values: that would rewrite every cell in the row —
+ * replacing any formula it contains with a computed value, and touching cells the
+ * caller never named. "Patch only the named columns" has to mean the untouched
+ * cells are never written at all, not written back with the same value.
+ */
+async function patchCell(
+  driveId: string,
+  itemId: string,
+  sheetName: string,
+  address: string,
+  value: string
+): Promise<void> {
+  await graph(rangeUrl(driveId, itemId, sheetName, address), {
+    method: 'PATCH',
+    body: JSON.stringify({ values: [[value]] }),
+  })
+}
+
+/** Read ONE cell's value. */
+async function readCell(
+  driveId: string,
+  itemId: string,
+  sheetName: string,
+  address: string
+): Promise<string> {
+  const res = await graph<{ values?: unknown[][] }>(
+    `${rangeUrl(driveId, itemId, sheetName, address)}?$select=values`
+  )
+  return String(res?.values?.[0]?.[0] ?? '')
 }
 
 /** Ensure a child folder exists under a parent path; returns its item. */
@@ -1053,6 +1690,348 @@ export async function describeErLogTable(): Promise<ErLogTableDescription> {
 }
 
 // ---------------------------------------------------------------------------
+// Public operation 1c: patch ONE existing row of the Employee Relations Log
+// ---------------------------------------------------------------------------
+
+/**
+ * The patchable half of ErLogAppendInput: every field optional, and `dateLogged`
+ * removed. Deriving it from the append input is what keeps the two tools
+ * interchangeable in a caller's head — the parameter names and types cannot
+ * drift, because there is only one list of them.
+ */
+export type ErLogPatchFields = Partial<Omit<ErLogAppendInput, 'dateLogged'>>
+
+export interface ErLogUpdateInput extends ErLogPatchFields {
+  /** The row to patch, e.g. "ER-0005". Matched case-insensitively and trimmed. */
+  entryId: string
+  /** Append to the existing Summary on a new line instead of replacing it. */
+  appendToSummary?: boolean
+  /** Append to the existing Meeting with Tech on a new line instead of replacing it. */
+  appendToMeetingWithTech?: boolean
+}
+
+export interface ErLogUpdateResult {
+  /** The Entry ID as the SHEET spells it (not necessarily as it was typed). */
+  entryId: string
+  /** 0-based row index within the table's data rows. */
+  rowIndex: number | null
+  /** The FULL row after the patch, keyed by the sheet's own headers. */
+  row: Record<string, string>
+  /** One entry per cell actually written. */
+  changed: Array<{ column: string; before: string; after: string }>
+  /** Columns whose supplied value already matched the cell, so nothing was written. */
+  unchangedRequested: string[]
+  /** From read-back: every written cell was confirmed to hold its new value. */
+  verified: boolean
+  workbookWebUrl: string | null
+  resolvedDynamically: boolean
+  tableName: string
+  /** The LIVE header row the cell positions were resolved from, in order. */
+  tableColumns: string[]
+  warnings: string[]
+}
+
+/**
+ * Patch named columns of ONE existing row, located by Entry ID.
+ *
+ * WHY THIS EXISTS: hr_er_log_append tells the caller to leave meetingWithTech
+ * unset when the conversation with the technician has not happened yet — which
+ * guarantees the field needs filling later. The same is true of followUpStatus
+ * when an item closes and linkedDocument when a write-up is filed afterwards.
+ * Without this, those rows stayed half-finished, and the only alternative was
+ * appending a second row — which would inflate the subject's disciplinary record,
+ * the one failure mode this log cannot tolerate.
+ *
+ * Guarantees:
+ *   - exactly one row is touched, identified by Entry ID; more than one match is
+ *     a refusal, never a guess
+ *   - only the named columns are written; every other cell is left alone
+ *   - Entry ID and Date Logged are never written (no parameter exists for them,
+ *     and planErPatch refuses them if they somehow arrive)
+ *   - cell positions come from the LIVE header row on every call
+ */
+export async function updateErLogRow(input: ErLogUpdateInput): Promise<ErLogUpdateResult> {
+  assertReady()
+  const warnings: string[] = []
+
+  const wantedEntryId = sanitizePlainText(input.entryId)
+  if (!wantedEntryId) {
+    throwClassified({
+      reasonCode: 'INVALID_INPUT',
+      message: 'entryId is required: it names the single row to patch. Nothing was written.',
+      evidence: 'entryId was empty or whitespace after sanitization.',
+      remediation:
+        'Pass the Entry ID of the row to update, e.g. "ER-0005". Run hr_er_log_columns or read the ' +
+        'workbook if you do not know it. This tool never creates a row — use hr_er_log_append for a new entry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+    })
+  }
+
+  // Caller errors are settled before any Graph call: cheaper, and it keeps a
+  // no-op call from touching the workbook at all.
+  const supplied = suppliedErPatchValues(input)
+  const appendTo = appendModeColumns(input)
+  for (const { flag, column } of ER_APPEND_MODE_FLAGS) {
+    if (appendTo.has(column) && !(column in supplied)) {
+      warnings.push(
+        `${flag} was set but no ${column} text was supplied, so there was nothing to append.`
+      )
+    }
+  }
+  if (Object.keys(supplied).length === 0) throwErPatchProblems([{ kind: 'no_patch_fields' }], [])
+
+  const { driveId, itemId, resolvedDynamically } = await resolveWorkbook()
+  const table = await resolveLogTable(driveId, itemId)
+  const grid = await readTableGrid(driveId, itemId, table)
+  if (grid.columns.length === 0) throwErPatchProblems([{ kind: 'no_columns' }], grid.columns)
+
+  const entryIdIndex = grid.entryIdIndex
+  if (entryIdIndex === null) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        'The log table has no Entry ID column, so a row cannot be located by Entry ID. Nothing was written.',
+      evidence: `Live table columns (${grid.columns.length}): ${grid.columns.join(' | ') || '(none)'}`,
+      remediation:
+        'Restore the "Entry ID" column to the log table in "Employee Relations Log.xlsx" (run ' +
+        'hr_er_log_columns to see the live header row), then retry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { liveColumns: grid.columns },
+    })
+  }
+
+  // ── Locate the row ───────────────────────────────────────────────────────
+  const entryIdCells = grid.rows.map((row) => row[entryIdIndex] ?? '')
+  const match = matchEntryIdRows(entryIdCells, wantedEntryId)
+
+  if (match.indices.length === 0) {
+    const present = entryIdCells.map((v) => v.trim()).filter((v) => v.length > 0)
+    const shown = present.slice(0, 40)
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        `No row in the Employee Relations log carries Entry ID "${wantedEntryId}", so there was nothing ` +
+        `to patch and nothing was written. This tool NEVER creates a row — a missing Entry ID is not a ` +
+        `reason to append one.`,
+      evidence:
+        `The log has ${present.length} row(s). Entry IDs present: ${shown.join(', ') || '(none)'}` +
+        `${present.length > shown.length ? ` … and ${present.length - shown.length} more` : ''}.`,
+      remediation:
+        'Run hr_er_log_columns to confirm the row count and the next Entry ID, then call again with an ' +
+        'Entry ID that exists. If the entry was never logged, hr_er_log_append is the right tool.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { requestedEntryId: wantedEntryId, presentEntryIds: present, rowCount: present.length },
+    })
+  }
+
+  if (match.indices.length > 1) {
+    const rows = match.indices.map((i) => ({
+      rowIndex: i,
+      sheetRow: grid.firstDataRow === null ? null : grid.firstDataRow + i,
+      entryId: entryIdCells[i],
+    }))
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        `Entry ID "${wantedEntryId}" appears on ${match.indices.length} rows, so the row to patch is ` +
+        `ambiguous. NOTHING was written — patching the wrong one would attach this text to the wrong ` +
+        `incident, and there is no safe way to guess which is meant.`,
+      evidence:
+        `Duplicate at table row indices ${match.indices.join(' and ')}` +
+        `${grid.firstDataRow === null ? '' : ` (sheet rows ${rows.map((r) => r.sheetRow).join(' and ')})`}` +
+        `, spelled ${rows.map((r) => `"${r.entryId}"`).join(' and ')}.`,
+      remediation:
+        'Reconcile the duplicate in "Employee Relations Log.xlsx" first — give one of the rows a unique ' +
+        'Entry ID or remove the accidental copy — then retry. A human decides which row is the real entry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { requestedEntryId: wantedEntryId, duplicateRows: rows },
+    })
+  }
+
+  const rowIndex = match.indices[0]
+  const entryId = match.matchedAs || wantedEntryId
+  if (match.canonicalized) {
+    warnings.push(
+      `"${sanitizePlainText(input.entryId)}" was matched to Entry ID "${entryId}" by its number. ` +
+        `Pass the exact id to avoid any ambiguity.`
+    )
+  }
+
+  // ── Plan the patch ───────────────────────────────────────────────────────
+  const plan = planErPatch(grid.columns, grid.rows[rowIndex] ?? [], supplied, {
+    appendToColumns: [...appendTo],
+  })
+  if (plan.problems.length > 0) throwErPatchProblems(plan.problems, grid.columns)
+  warnings.push(...plan.warnings)
+
+  // ── Resolve absolute addresses ───────────────────────────────────────────
+  const sheetName = grid.sheetName ?? (await resolveTableWorksheetName(driveId, itemId, table))
+  if (!sheetName || grid.firstDataRow === null || grid.firstColumnIndex === null) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        'The log table\'s position in the worksheet could not be resolved, so no cell can be addressed ' +
+        'for an in-place patch. Nothing was written.',
+      evidence: `Data-body address reported by Graph: ${grid.dataBodyAddress ?? '(none)'}; worksheet: ${sheetName ?? '(unresolved)'}.`,
+      remediation:
+        'Confirm the log table still exists as an Excel table with a data body in ' +
+        '"Employee Relations Log.xlsx" (hr_er_log_columns reports the table it resolves), then retry.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { dataBodyAddress: grid.dataBodyAddress, worksheet: sheetName },
+    })
+  }
+  // Held as locals, not read off `grid` inside the closure: a property narrowing
+  // does not survive into a callback, and these two numbers decide which cell is
+  // written.
+  const firstColumnIndex = grid.firstColumnIndex
+  const sheetRow = grid.firstDataRow + rowIndex
+  const addressOf = (columnIndex: number) => cellAddress(firstColumnIndex + columnIndex, sheetRow)
+
+  // Re-read the Entry ID cell at the exact address we are about to write around.
+  // The grid read above and the writes below are separate calls, so a concurrent
+  // insert could have shifted the row between them; this closes most of that
+  // window, and the read-back after the write closes the rest.
+  const liveEntryIdCell = await readCell(driveId, itemId, sheetName, addressOf(entryIdIndex))
+  if (normalizeEntryId(liveEntryIdCell) !== normalizeEntryId(entryId)) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        `The row moved while this update was being prepared: the cell that held Entry ID "${entryId}" now ` +
+        `reads "${liveEntryIdCell}". NOTHING was written, because writing there would have edited a ` +
+        `different employee's entry.`,
+      evidence: `Re-read of ${addressOf(entryIdIndex)} on worksheet "${sheetName}" returned "${liveEntryIdCell}", not "${entryId}".`,
+      remediation:
+        'Someone else is editing the workbook. Call again from a fresh read once they are done — the row ' +
+        'will be re-located by its Entry ID.',
+      surface: 'hr_sharepoint',
+      tool: 'hr_er_log_update',
+      details: { entryId, address: addressOf(entryIdIndex), found: liveEntryIdCell },
+    })
+  }
+
+  // ── Nothing to write ─────────────────────────────────────────────────────
+  if (plan.cells.length === 0) {
+    warnings.push(
+      'No cell needed writing: the row already held every value supplied. The workbook was NOT modified.'
+    )
+    return {
+      entryId,
+      rowIndex,
+      row: keyRowByColumns(grid.columns, grid.rows[rowIndex] ?? []),
+      changed: [],
+      unchangedRequested: plan.unchangedRequested,
+      // The grid read IS the read-back here — the row was read and matches.
+      verified: true,
+      workbookWebUrl: await readWorkbookWebUrl(driveId, itemId),
+      resolvedDynamically,
+      tableName: table.name,
+      tableColumns: grid.columns,
+      warnings: withDynamicResolveWarning(warnings, resolvedDynamically),
+    }
+  }
+
+  // ── Write, one cell at a time ────────────────────────────────────────────
+  for (const cell of plan.cells) {
+    await withTimeout(
+      () =>
+        withRetry(
+          () => patchCell(driveId, itemId, sheetName, addressOf(cell.columnIndex), cell.after),
+          { maxRetries: 2, baseDelayMs: 600 }
+        ),
+      30_000,
+      'updateErLogRow'
+    )
+  }
+
+  // ── Read-back verification ───────────────────────────────────────────────
+  // Verified against the ENTRY ID, not against a row position: if the row moved,
+  // saying so is the point, and a position-only check would miss it.
+  let verified = false
+  let row = plan.rowAfter
+  let reportedRowIndex: number | null = rowIndex
+  try {
+    const after = await readTableGrid(driveId, itemId, table)
+    const afterIdIndex = after.entryIdIndex
+    const afterMatch = matchEntryIdRows(
+      afterIdIndex === null ? [] : after.rows.map((r) => r[afterIdIndex] ?? ''),
+      entryId
+    )
+    if (afterMatch.indices.length !== 1) {
+      warnings.push(
+        `Read-back could not re-locate Entry ID "${entryId}" as a single row (${afterMatch.indices.length} ` +
+          `match(es)), so the patch is UNVERIFIED. The cells were written — open the workbook and confirm.`
+      )
+    } else {
+      const afterIndex = afterMatch.indices[0]
+      reportedRowIndex = afterIndex
+      const afterRow = after.rows[afterIndex] ?? []
+      if (afterIndex !== rowIndex) {
+        warnings.push(
+          `The row's position CHANGED between the read and the write (table row index ${rowIndex} to ` +
+            `${afterIndex}) — someone edited the workbook at the same time. The cells were written to the ` +
+            `earlier position, so they may have landed on a different row. Open the workbook and check ` +
+            `both rows now.`
+        )
+      }
+      const mismatched = plan.cells.filter((c) => !cellValuesEqual(c.after, afterRow[c.columnIndex]))
+      verified = afterIndex === rowIndex && mismatched.length === 0
+      row = keyRowByColumns(after.columns, afterRow)
+      if (mismatched.length > 0) {
+        warnings.push(
+          `Read-back mismatch on ${mismatched.length} cell(s): ` +
+            mismatched
+              .map((c) => `"${c.column}" shows "${truncateForWarning(String(afterRow[c.columnIndex] ?? ''))}"`)
+              .join('; ') +
+            '. Verify the workbook before relying on this entry.'
+        )
+      }
+    }
+  } catch {
+    warnings.push(
+      'Could not re-read the row to verify the patch. The cells were written; verification is unconfirmed.'
+    )
+  }
+
+  return {
+    entryId,
+    rowIndex: reportedRowIndex,
+    row,
+    changed: plan.cells.map((c) => ({ column: c.column, before: c.before, after: c.after })),
+    unchangedRequested: plan.unchangedRequested,
+    verified,
+    workbookWebUrl: await readWorkbookWebUrl(driveId, itemId),
+    resolvedDynamically,
+    tableName: table.name,
+    tableColumns: grid.columns,
+    warnings: withDynamicResolveWarning(warnings, resolvedDynamically),
+  }
+}
+
+/** The workbook's webUrl, or null. Non-fatal — a missing link never fails a write. */
+async function readWorkbookWebUrl(driveId: string, itemId: string): Promise<string | null> {
+  try {
+    const meta = await graph<DriveItemLite>(`/drives/${driveId}/items/${itemId}?$select=webUrl`)
+    return meta.webUrl ?? null
+  } catch {
+    return null
+  }
+}
+
+function withDynamicResolveWarning(warnings: string[], resolvedDynamically: boolean): string[] {
+  if (!resolvedDynamically) return warnings
+  return [
+    ...warnings,
+    'The configured driveId/itemId did not resolve; the workbook was located by path instead ' +
+      '(it may have moved). Update HR_ER_DRIVE_ID / HR_ER_ITEM_ID.',
+  ]
+}
+
+// ---------------------------------------------------------------------------
 // Public operation 2: file a .docx to the central + subject folders
 // ---------------------------------------------------------------------------
 
@@ -1156,7 +2135,7 @@ async function verifyUpload(driveId: string, itemId: string, expectedBytes: numb
 // ---------------------------------------------------------------------------
 
 export function auditHrWrite(
-  operation: 'hr_er_log_append' | 'hr_file_document',
+  operation: 'hr_er_log_append' | 'hr_er_log_update' | 'hr_file_document',
   actorEmail: string | undefined,
   outcome: 'success' | 'error',
   detail: Record<string, unknown>
