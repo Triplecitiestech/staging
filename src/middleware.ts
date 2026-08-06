@@ -70,6 +70,15 @@ export function middleware(request: NextRequest) {
     return new NextResponse('Not Found', { status: 404 })
   }
 
+  // App Router paths are case-sensitive, but "RTP" is an acronym customers
+  // and staff naturally type capitalized — /RTP used to 404 while /rtp served
+  // the page. Normalize any casing to the real path instead.
+  if (url.pathname !== '/rtp' && url.pathname.toLowerCase() === '/rtp') {
+    const target = url.clone()
+    target.pathname = '/rtp'
+    return NextResponse.redirect(target, 308)
+  }
+
   return response
 }
 
