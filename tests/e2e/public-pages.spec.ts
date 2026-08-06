@@ -111,6 +111,28 @@ test.describe('Public Pages — Security', () => {
   })
 })
 
+test.describe('RTP Case-Insensitive Access', () => {
+  // /rtp is unlinked and noindex, so a typed URL is the only way in. "RTP" is
+  // an acronym, so the capitalized spellings must land on the page too.
+  for (const path of ['/RTP', '/Rtp', '/rTp']) {
+    test(`${path} lands on the RTP page`, async ({ page }) => {
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(200)
+      expect(new URL(page.url()).pathname).toBe('/rtp')
+      await expect(
+        page.getByRole('heading', { name: 'Recommended Technology Platform' })
+      ).toBeVisible()
+    })
+  }
+
+  test('query strings survive the redirect', async ({ page }) => {
+    await page.goto('/RTP?utm_source=email')
+    const url = new URL(page.url())
+    expect(url.pathname).toBe('/rtp')
+    expect(url.searchParams.get('utm_source')).toBe('email')
+  })
+})
+
 test.describe('404 Handling', () => {
   test('nonexistent page returns 404', async ({ page }) => {
     const response = await page.goto('/this-page-does-not-exist-12345')
