@@ -136,6 +136,22 @@ Microsoft: *"On the Microsoft identity platform (requests made to the v2.0 endpo
 
 **Residual uncertainty:** our metadata change is the only server-side lever, and it only helps if the client derives its requested scopes from the discovery document. If interactive sign-ins continue at ~75-minute intervals after a fresh reconnect, the client is not reading `scopes_supported` and the remedy is client-side, not ours. Verify behaviourally with the query below — look for `IsInteractive: False` rows appearing for the first time.
 
+**THAT FIX DID NOT WORK — measured 2026-08-10. The residual-uncertainty branch is the real one.** A live 401 on the production deployment, from a real Claude client:
+
+```
+12:11:30 POST /api/connector/entra/mcp 401
+{"operation":"connector.entra.verify_failed",
+ "reason":"\"exp\" claim timestamp check failed",
+ "token_aud":"<client-id GUID>","token_iss":"https://login.microsoftonline.com/<tid>/v2.0",
+ "token_ver":"2.0","token_scp":"mcp.access"}
+```
+
+Read it claim by claim: `aud`, `iss` and `ver` are exactly what we expect, so the token *shape* is correct and every earlier v1/v2 fix is holding. The sole failure is `exp` — the token is simply expired. And **`scp` is `mcp.access` alone**: `offline_access` was never granted, so Entra issued no refresh token, so there is nothing to renew from.
+
+On the same day `curl https://www.triplecitiestech.com/.well-known/oauth-protected-resource` returns `"scopes_supported":["…/mcp.access","offline_access"]`. We advertise it; the client does not ask for it. **`scopes_supported` in RFC 9728 protected-resource metadata is not a lever on this client** — do not spend another session tuning it. The one remaining server-side option, untried and unverified, is the RFC 6750 `scope` parameter on the `WWW-Authenticate` challenge; treat that as a hypothesis, not a fix, until a token comes back carrying `offline_access` in `scp`.
+
+**Diagnostic shortcut:** `token_scp` in the `verify_failed` log answers "does a refresh token exist at all" in one line, with no tenant access required. An `exp`-only failure plus an `scp` without `offline_access` is this cause, confirmed — no sign-in-log query needed.
+
 ```powershell
 Connect-MgGraph -Scopes 'AuditLog.Read.All' -NoWelcome
 Get-MgAuditLogSignIn -Filter "appDisplayName eq 'TCT MCP Connector'" -Top 30 |
@@ -201,7 +217,31 @@ To exclude an app from a policy in the portal: **Assignments → Target resource
 ### Ruled out
 
 - **Concurrent refresh across surfaces** — Microsoft does not revoke the prior refresh token on use.
-- **Client secret expiry** — would break permanently, not daily. Still worth confirming the expiry date, since a silent expiry *will* eventually cause a hard outage: Entra → the app → **Certificates & secrets**.
+- **Client secret expiry** — would break permanently, not daily. Still worth confirming the expiry date, since a silent expiry *will* eventually cause a hard outage: Entra → the app → **Certificates & secrets**. **Ruled out as a cause of the DAILY drops only — see "Hard outage" below, where it is the leading candidate for a permanent one.**
+
+---
+
+## Hard outage — reconnecting no longer fixes it (2026-08-10, OPEN)
+
+*Distinguish this from the daily drops above. Daily drop = works again after reconnecting. Hard outage = the OAuth flow completes, Claude shows "Connected", and the connector still sits on a **Connect** button with zero tools.*
+
+**Server side was verified healthy first, so this is not ours to fix by deploying:**
+
+| Check | Result |
+|---|---|
+| `/.well-known/oauth-protected-resource` | 200, correct `resource` + `authorization_servers` + `offline_access` |
+| `POST /api/connector/entra/mcp` unauthenticated | 401 with a correct RFC 9728 `WWW-Authenticate` + `resource_metadata` |
+| Connector route 5xx / timeouts | none today; 2 timeouts in 7 days, last 2026-08-03 on the *previous* deployment |
+| Last deploy touching the connector | 2026-07-31. The only production deploy since (2026-08-06, `63607a0`) adds a `/rtp` casing redirect to `middleware.ts`, whose matcher excludes `api` — it cannot reach this route |
+
+**What the token says:** structurally perfect, expired, `scp: mcp.access` — i.e. the no-refresh-token cause above. That explains the connector *dying*. It does not explain a fresh interactive reconnect failing to revive it, because a successful reconnect mints a token good for 60-90 minutes.
+
+**Two candidates for why the reconnect does not take, and the check that settles each:**
+
+1. **The app's client secret has expired.** Best fit. The authorize leg would still succeed — the user sees the Microsoft sign-in and Claude's "Connected" page — while the code→token exchange fails, leaving Claude with no new token and replaying the stale one, which is exactly the 401 observed. Check: Entra → App registrations → **TCT MCP Connector** → **Certificates & secrets** → the secret's **Expires** date. Confirm in Entra → **Sign-in logs** filtered to the app: `AADSTS7000222` is an expired client secret.
+2. **A cached authorization surviving remove/re-add** — the documented 2026-07-16 behaviour, which is why the endpoint moved to `/entra/mcp` in the first place. Check: does a reconnect ever produce a `verify_failed` line whose token is *not* expired? If every failure is `exp`, the client is replaying, not re-acquiring.
+
+**If it is the secret:** create a new one, then **remove and re-add the connector** in Claude and paste the new secret under *Advanced settings* — a connector cannot be edited in place, so updating the secret means re-adding. Set the new expiry to 24 months and put the date in the calendar; there is no warning before it lapses and the failure mode is this outage.
 - **Serverless session loss** — the connector is stateless Streamable HTTP. Worth noting the `[transport]` route segment also matches `/sse`, and the SSE transport in `mcp-handler` needs Redis for session state, which is **not** configured. If any client is ever pointed at `.../entra/sse` instead of `.../entra/mcp`, expect constant drops. Confirm the configured URL ends in `/mcp`.
 
 Sources: [Refresh tokens in the Microsoft identity platform](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens) · [Configurable token lifetimes](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes) · [Conditional Access session lifetime](https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-session-lifetime) — all retrieved 2026-07-28.
