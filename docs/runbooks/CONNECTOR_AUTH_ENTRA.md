@@ -136,7 +136,7 @@ Microsoft: *"On the Microsoft identity platform (requests made to the v2.0 endpo
 
 **Residual uncertainty:** our metadata change is the only server-side lever, and it only helps if the client derives its requested scopes from the discovery document. If interactive sign-ins continue at ~75-minute intervals after a fresh reconnect, the client is not reading `scopes_supported` and the remedy is client-side, not ours. Verify behaviourally with the query below — look for `IsInteractive: False` rows appearing for the first time.
 
-**THAT FIX DID NOT WORK — measured 2026-08-10. The residual-uncertainty branch is the real one.** A live 401 on the production deployment, from a real Claude client:
+**2026-08-10 — a live 401 on the production deployment, from a real Claude client. Read the retraction below before drawing anything from it:**
 
 ```
 12:11:30 POST /api/connector/entra/mcp 401
@@ -146,11 +146,15 @@ Microsoft: *"On the Microsoft identity platform (requests made to the v2.0 endpo
  "token_ver":"2.0","token_scp":"mcp.access"}
 ```
 
-Read it claim by claim: `aud`, `iss` and `ver` are exactly what we expect, so the token *shape* is correct and every earlier v1/v2 fix is holding. The sole failure is `exp` — the token is simply expired. And **`scp` is `mcp.access` alone**: `offline_access` was never granted, so Entra issued no refresh token, so there is nothing to renew from.
+Read it claim by claim: `aud`, `iss` and `ver` are exactly what we expect, so the token *shape* is correct and every earlier v1/v2 fix is holding. The sole failure is `exp` — the token is simply expired.
 
-On the same day `curl https://www.triplecitiestech.com/.well-known/oauth-protected-resource` returns `"scopes_supported":["…/mcp.access","offline_access"]`. We advertise it; the client does not ask for it. **`scopes_supported` in RFC 9728 protected-resource metadata is not a lever on this client** — do not spend another session tuning it. The one remaining server-side option, untried and unverified, is the RFC 6750 `scope` parameter on the `WWW-Authenticate` challenge; treat that as a hypothesis, not a fix, until a token comes back carrying `offline_access` in `scp`.
+**RETRACTION, same day, before anyone builds on it: `token_scp` does NOT tell you whether a refresh token exists.** The first version of this note read `scp: "mcp.access"` as proof that `offline_access` was never granted, and called the Jul 28 fix disproven. It proves nothing of the kind. Microsoft defines `scp` as *"the set of scopes **exposed by the application** for which the client application has requested (and received) consent"* ([access token claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference)). `offline_access` is a **reserved** scope, not one our API exposes — so it is absent from `scp` whether or not it was requested, exactly like `openid`, `profile` and `email`. **An absence guaranteed by the format carries no information.**
 
-**Diagnostic shortcut:** `token_scp` in the `verify_failed` log answers "does a refresh token exist at all" in one line, with no tenant access required. An `exp`-only failure plus an `scp` without `offline_access` is this cause, confirmed — no sign-in-log query needed.
+So the status of the Jul 28 metadata fix is **UNKNOWN, not disproven**, and the only evidence that settles it is the one cause 4 was actually built on: **`IsInteractive: False` rows in the Entra sign-in logs** (PowerShell below). Interactive-only = still no refresh token. There is no cheaper substitute; this note briefly claimed there was.
+
+Two things that *are* usable from that log line. `scp` carries the SHORT scope name (`mcp.access`), not the full `https://…/mcp.access` we advertise — Entra strips the Application-ID-URI prefix. And the custom scope arriving at all is weak evidence the client **is** reading our `scopes_supported`, which cuts against the "client ignores our metadata" theory rather than for it.
+
+**Lesson, and it is the house one.** The claim was built from a field that could not carry it, and it read as *more* rigorous than the sign-in-log measurement it displaced precisely because it was cheaper — one log line versus a Graph query. Same shape as `periodType`, `parentIdField` and the Kaseya auth probe. Before treating an absent value as a finding, establish that the format would have shown it had it been there.
 
 ```powershell
 Connect-MgGraph -Scopes 'AuditLog.Read.All' -NoWelcome
@@ -161,6 +165,46 @@ Get-MgAuditLogSignIn -Filter "appDisplayName eq 'TCT MCP Connector'" -Top 30 |
 ```
 
 Historical note: an `ErrorCode 9010010` ("resource parameter provided in the request doesn't match") on 2026-07-16 corresponds to the WorkOS→Entra cutover debugging recorded above, not to this issue.
+
+### The fix that does not depend on Claude: extend the access token lifetime
+
+*Three sessions have now tried to influence what the CLIENT asks for. This one does not need the client to do anything.*
+
+The ~75-minute cadence is not a bug, it is the **default access-token lifetime**: Microsoft issues a random 60-90 minutes (75 average). Refresh and session lifetimes stopped being configurable in Jan 2021 — which is what the table above records, and it is why nobody looked further. But **access token lifetime is still configurable**, and always has been: `AccessTokenLifetime` on a `tokenLifetimePolicy`, minimum `00:10:00`, **maximum `23:59:59`**, assignable to a single application ([configurable token lifetimes](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes)).
+
+Setting it to the maximum takes the reconnect cadence from **~every 75 minutes to ~once a day**, whether or not a refresh token ever appears. It is tenant config — no deploy, no code change.
+
+Four things worth knowing before running it:
+
+- **There is no portal UI.** Token lifetime policies are Microsoft Graph / Graph PowerShell only. Do not go looking in the Entra admin center for a setting that does not exist there.
+- **An organization-level policy beats an application-level one.** Check for an existing org default first — if one exists, the app-level policy below is silently ignored. This is the documented precedence and the usual reason "it didn't take".
+- **CAE is not an option here.** Continuous Access Evaluation extends tokens to 24-28 hours automatically, but only when *both* client and resource support it. Our connector is a plain custom API with no CAE support, so it will never qualify.
+- **Longer token = longer window after revocation.** A disabled account or revoked session keeps working against the connector until the token expires. That is the real trade, and at 24 hours it is a real one. Bounded by what the connector can reach: no IT Glue passwords, and config/firewall writes still need an approval the token itself cannot grant.
+
+```powershell
+Connect-MgGraph -Scopes 'Policy.ReadWrite.ApplicationConfiguration','Application.ReadWrite.All' -NoWelcome
+
+# 0. FIRST: does an org-level policy already exist? It would override everything below.
+Get-MgPolicyTokenLifetimePolicy |
+  Select-Object Id, DisplayName, IsOrganizationDefault, Definition | Format-List
+
+# 1. Create a 24-hour access-token policy (23:59:59 is the documented maximum)
+$policy = New-MgPolicyTokenLifetimePolicy `
+  -DisplayName 'TCT MCP Connector - 24h access token' `
+  -Definition @('{"TokenLifetimePolicy":{"Version":1,"AccessTokenLifetime":"23:59:59"}}') `
+  -IsOrganizationDefault:$false
+
+# 2. Resolve the app and attach the policy to it
+$app = Get-MgApplication -Filter "displayName eq 'TCT MCP Connector'"
+New-MgApplicationTokenLifetimePolicyByRef -ApplicationId $app.Id -BodyParameter @{
+  "@odata.id" = "https://graph.microsoft.com/v1.0/policies/tokenLifetimePolicies/$($policy.Id)"
+}
+
+# 3. Verify the assignment stuck
+Get-MgApplicationTokenLifetimePolicyByRef -ApplicationId $app.Id
+```
+
+**The policy only affects tokens minted after it is applied**, so reconnect the connector once afterwards or the current token still dies on its original schedule. Confirm it worked by the interval, not by the command succeeding: the next drop should be ~24 hours out, not ~75 minutes.
 
 ### Adding a tool? Clients must reconnect to see it
 
