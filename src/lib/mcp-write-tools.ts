@@ -231,6 +231,126 @@ async function observeCustomerNotification(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Editing an existing note: proving the edit actually landed
+// ---------------------------------------------------------------------------
+//
+// The connector could create notes but not edit them, so every correction became
+// another note and a ticket accumulated a stack of them — unreadable for the tech
+// who has to follow it. Autotask does support the edit: live entityInformation on
+// 2026-08-10 reports TicketNotes.canUpdate true with description, title and
+// publish all isReadOnly false (canDelete is FALSE, so there is no delete to
+// build and none is faked).
+//
+// The verification below is the point of the tool, not decoration. An accepted
+// PATCH that Autotask silently dropped is the failure mode that let the IT Glue
+// folder-move defect survive twelve days returning moved:false with no error, so
+// every field is compared against what the note actually says afterwards.
+
+/** One requested field whose live value does not match what was asked for. */
+export interface NoteFieldMismatch {
+  field: 'description' | 'title' | 'publish'
+  requested: string | number
+  actual: string | number | null
+}
+
+const EDITABLE_NOTE_FIELDS = ['description', 'title', 'publish'] as const
+
+/**
+ * Normalize line endings before comparing note text.
+ *
+ * A TRANSPORT equivalence, not a semantic one: text sent with \n can come back
+ * \r\n, and reporting that as a failed write would return PRECONDITION_FAILED on
+ * an edit that landed perfectly. That is worse than having no check at all,
+ * because it teaches the reader to ignore the verification flag — the same
+ * reasoning that made hr_er_log_update compare a date against its Excel serial
+ * rather than flagging every date patch as unverified. NOTHING else is
+ * normalized: trailing whitespace, casing and interior spacing are compared
+ * exactly, so a real truncation or substitution still fails.
+ */
+function normalizeNoteText(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
+type NoteFieldValues = { description?: string; title?: string; publish?: number }
+
+/**
+ * Compare what was REQUESTED against what the note now says.
+ *
+ * Deliberately requested-vs-live rather than before-vs-after, because the
+ * caller's goal is an end state. Re-sending a value the note already had changes
+ * nothing and is still a success — reported in `unchangedFields` so the response
+ * never implies an edit that did not happen — whereas a value that did not stick
+ * is a hard failure regardless of the HTTP status Autotask returned.
+ *
+ * Pure, and exported for the regression test.
+ */
+export function verifyNoteEdit(
+  requested: write.TicketNoteEdit,
+  before: NoteFieldValues,
+  after: NoteFieldValues,
+): { mismatches: NoteFieldMismatch[]; changedFields: string[]; unchangedFields: string[] } {
+  const mismatches: NoteFieldMismatch[] = []
+  const changedFields: string[] = []
+  const unchangedFields: string[] = []
+
+  const matches = (field: (typeof EDITABLE_NOTE_FIELDS)[number], want: string | number, got: unknown): boolean => {
+    if (field === 'publish') return got === want
+    return typeof got === 'string' && normalizeNoteText(got) === normalizeNoteText(String(want))
+  }
+
+  for (const field of EDITABLE_NOTE_FIELDS) {
+    const want = requested[field]
+    if (want === undefined) continue
+    const got = after[field]
+    if (!matches(field, want, got)) {
+      // Fail closed: a field the read-back did not return at all counts as not
+      // landed, never as "probably fine".
+      mismatches.push({ field, requested: want, actual: (got as string | number | undefined) ?? null })
+      continue
+    }
+    ;(matches(field, want, before[field]) ? unchangedFields : changedFields).push(field)
+  }
+
+  return { mismatches, changedFields, unchangedFields }
+}
+
+/**
+ * Describe a publish transition in full, with both LIVE labels.
+ *
+ * Changing publish can move a note from internal to customer-visible or back, so
+ * the response must never make the reader infer that from two bare ids. Labels
+ * are resolved from the live picklist because these ids are actively misleading
+ * — 1 "All Autotask Users" is the CUSTOMER-VISIBLE state on this instance, and
+ * there is no id 3.
+ */
+async function describePublishChange(client: AutotaskClient, beforePublish: number | null | undefined, afterPublish: number | null | undefined) {
+  const [beforeLabel, afterLabel] = await Promise.all([
+    publishLabel(client, beforePublish),
+    publishLabel(client, afterPublish),
+  ])
+  const beforeVisibility = classifyPublishVisibility(beforePublish, beforeLabel)
+  const afterVisibility = classifyPublishVisibility(afterPublish, afterLabel)
+  const changed = (beforePublish ?? null) !== (afterPublish ?? null)
+  const scopeChanged = beforeVisibility.scope !== afterVisibility.scope
+
+  return {
+    publishChanged: changed,
+    publishBefore: { publish: beforePublish ?? null, publishLabel: beforeLabel, visibility: beforeVisibility },
+    publishAfter: { publish: afterPublish ?? null, publishLabel: afterLabel, visibility: afterVisibility },
+    publishChangeNote: !changed
+      ? `The note's publish level was NOT changed — it remains ${beforePublish ?? 'unset'} "${beforeLabel ?? 'label not resolved'}" (${beforeVisibility.scope}).`
+      : `VISIBILITY CHANGED: this note moved from publish ${beforePublish ?? 'unset'} "${beforeLabel ?? 'label not resolved'}" (${beforeVisibility.scope}) to publish ${afterPublish ?? 'unset'} "${afterLabel ?? 'label not resolved'}" (${afterVisibility.scope}).` +
+        (scopeChanged
+          ? afterVisibility.scope === 'customer_visible'
+            ? ' TELL THE USER THIS NOTE IS NOW CUSTOMER-VISIBLE — it was internal before, and customers with Client Portal access to the ticket can now read it.'
+            : afterVisibility.scope === 'internal'
+            ? ' TELL THE USER THIS NOTE IS NO LONGER CUSTOMER-VISIBLE — it was readable by the customer before and is now internal only.'
+            : ' The resulting visibility could not be classified from the live picklist — check the note in Autotask before describing who can see it.'
+          : ' The audience scope did not change.'),
+  }
+}
+
 // Append text to a ticket's Resolution field (GET current, concat, PATCH).
 // Resolution — not the time-entry summary — is what fills the customer
 // completion email, so this is used on close.
@@ -353,6 +473,148 @@ export function registerWriteTools(server: any) {
               : 'Autotask returned no itemId for the note, so nothing could be read back. Check the ticket before reporting the note as posted.',
           }),
           ...notified,
+        })
+      } catch (e) { return fail(e) }
+    }
+  )
+
+  server.registerTool(
+    'autotask_update_ticket_note',
+    {
+      title: 'Autotask: edit an existing ticket note',
+      description:
+        'WRITE. Edits an EXISTING ticket note IN PLACE — use this to correct a note rather than posting a follow-up correction note, because stacked corrections make a ticket unreadable for the technician who has to follow it. ' +
+        'Takes noteId (the note\'s OWN id — from autotask_ticket_notes or autotask_ticket_activity, not the ticket id) plus AT LEAST ONE of description, title, publish. A call supplying none of the three is rejected as INVALID_INPUT. ' +
+        'ONLY the fields you pass are written: Autotask\'s PATCH updates just the properties named and leaves every omitted field untouched (its docs: "if the JSON input does not include a property for a field, the API will not update that field"), so there is NO GET-and-merge and an unsupplied field can never be blanked. Autotask relaxes required-field rules for PATCH, which is why editing description alone is legal even though the entity marks several fields required. ' +
+        'Attributed to the signed-in technician via Autotask resource impersonation, which Autotask records in impersonatorUpdaterResourceID. ' +
+        'READ-BACK VERIFIED: the note is re-read after the write and every requested field compared against what Autotask actually stored. If a value did not stick you get PRECONDITION_FAILED — an accepted PATCH is never reported as success on its HTTP status alone. Re-sending a value the note already had succeeds but is listed in unchangedFields, so the response never implies an edit that did not happen. ' +
+        'VISIBILITY TRAP: changing publish can move a note from internal to customer-visible OR the reverse. Whenever publish changes, the response reports publishChanged with the before and after ids, their LIVE Autotask labels and the resulting scope — surface that to the user. Beware that publish 1 "All Autotask Users" is the CUSTOMER-VISIBLE state on this instance, not an internal one. Editing the text of an already customer-visible note also changes what the customer can read. ' +
+        'This tool does NOT notify anyone and CANNOT: the REST TicketNotes entity has no notification field of any kind, so an edit reaches nobody by email. ' +
+        'There is NO delete — live entityInformation reports TicketNotes.canDelete false, so a note can be corrected but never removed; do not offer to delete one. ' +
+        'Confirm the exact replacement wording with the user before calling.',
+      inputSchema: {
+        noteId: z.number().int().describe('The ticket NOTE id to edit (TicketNotes.id) — from autotask_ticket_notes or autotask_ticket_activity. NOT the ticket id.'),
+        description: z.string().optional().describe('Replacement note body. Replaces the existing text entirely — pass the full corrected note, not just the change.'),
+        title: z.string().optional().describe('Replacement note title'),
+        publish: z.number().int().optional().describe('Replacement publish level. On this instance: 1 = "All Autotask Users" (CUSTOMER-VISIBLE), 2 = "Internal Project Team", 4 = "Internal & Co-Managed". There is no 3. Confirm with autotask_entity_picklist if unsure — changing this changes who can read the note.'),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ noteId, description, title, publish }: any, extra: any) => {
+      try {
+        // Build the payload from ONLY what the caller supplied. Assembled by
+        // explicit key so an unrelated argument can never reach the PATCH body.
+        const requested: write.TicketNoteEdit = {}
+        if (description !== undefined) requested.description = description
+        if (title !== undefined) requested.title = title
+        if (publish !== undefined) requested.publish = publish
+
+        if (Object.keys(requested).length === 0) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message:
+              `No change was requested for note ${noteId}: at least one of description, title or publish must be supplied. Nothing was written.`,
+            evidence: 'The tool refuses an empty edit before contacting Autotask — a PATCH carrying only an id would be a pointless write against a note it might not even be able to prove it changed.',
+            remediation: 'Call again with the field(s) you want to change. To read the note\'s current text first, use autotask_ticket_notes or autotask_ticket_activity.',
+            surface: 'autotask',
+            tool: 'autotask_update_ticket_note',
+            details: { noteId },
+          })
+        }
+
+        const rid = await resolveResourceId(emailOf(extra))
+        const client = new AutotaskClient()
+
+        // Pre-read: establishes the note EXISTS, captures the before values the
+        // verification and the publish-change report compare against, and yields
+        // the ticket id (this tool deliberately does not ask the caller for one).
+        // A THROW here is a lookup failure and classifies as TRANSIENT/etc; only
+        // a clean null means "no such note".
+        const before = await client.getTicketNoteByNoteId(noteId)
+        if (!before) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message: `No Autotask ticket note has id ${noteId}, so there is nothing to edit. Nothing was written.`,
+            evidence: `A TicketNotes query filtered on id ${noteId} succeeded and returned no rows (a failed query would have raised a different error, so this is a genuine absence, not a broken lookup).`,
+            remediation:
+              'Check the note id — a TICKET id passed here will not match a note. List the ticket\'s notes with autotask_ticket_notes, or its full timeline with autotask_ticket_activity, and use the id of the note you mean.',
+            surface: 'autotask',
+            tool: 'autotask_update_ticket_note',
+            details: { noteId },
+          })
+        }
+
+        const ticketId = before.ticketID
+        const result = await write.updateTicketNote(ticketId, noteId, requested, rid)
+
+        // Read back and prove it. Unlike the pre-read, a failure here means the
+        // write may well have landed — so this can never be reported as success.
+        const after = await client.getTicketNoteByNoteId(noteId)
+        if (!after) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message:
+              `Autotask accepted the edit to note ${noteId} on ticket ${ticketId}, but the note could not be read back afterwards, so nothing about the edit is confirmed. Do NOT report the note as corrected.`,
+            evidence: 'The post-write TicketNotes read returned no row for a note id that existed moments earlier, so the stored values could not be compared against what was requested.',
+            remediation: `Open the ticket in Autotask and check the note before doing anything else: ${getAutotaskTicketUrl(String(ticketId))}. Do not retry blindly — the edit may already have applied.`,
+            surface: 'autotask',
+            tool: 'autotask_update_ticket_note',
+            details: { noteId, ticketId, requestedFields: Object.keys(requested) },
+          })
+        }
+
+        const { mismatches, changedFields, unchangedFields } = verifyNoteEdit(requested, before, after)
+        const visibility = await describePublishChange(client, before.publish, after.publish).catch(() => null)
+
+        if (mismatches.length) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message:
+              `Autotask accepted the PATCH for note ${noteId} on ticket ${ticketId} but the read-back does not show ${mismatches
+                .map((m) => `${m.field} (asked for ${JSON.stringify(m.requested)}, the note now reports ${JSON.stringify(m.actual)})`)
+                .join('; ')}. Do NOT report this note as corrected.` +
+              (changedFields.length ? ` Note that ${changedFields.join(' and ')} DID change, so the note is now partially edited.` : ''),
+            evidence:
+              'Verified by re-reading the note by id after the write and comparing every requested field against the stored value, rather than trusting the PATCH\'s HTTP status. Line endings are the only difference tolerated.',
+            remediation:
+              `Read the note as it now stands (autotask_ticket_notes on ticket ${ticketId}) and check it in Autotask before retrying: ${getAutotaskTicketUrl(String(ticketId))}. Retrying the identical call is unlikely to behave differently — a field Autotask silently drops needs a different approach, not another attempt.`,
+            surface: 'autotask',
+            tool: 'autotask_update_ticket_note',
+            details: { noteId, ticketId, mismatches, changedFields, unchangedFields },
+          })
+        }
+
+        return ok({
+          result,
+          noteId,
+          ticketId,
+          ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+          editVerified: true,
+          requestedFields: Object.keys(requested),
+          changedFields,
+          unchangedFields,
+          ...(unchangedFields.length
+            ? {
+                unchangedNote: `${unchangedFields.join(' and ')} already held the requested value, so ${
+                  unchangedFields.length === 1 ? 'that field' : 'those fields'
+                } did not actually change. Do not describe ${unchangedFields.length === 1 ? 'it' : 'them'} as edited.`,
+              }
+            : {}),
+          note: {
+            id: after.id,
+            title: after.title ?? null,
+            description: after.description ?? null,
+            publish: after.publish ?? null,
+            noteType: after.noteType ?? null,
+            lastActivityDate: after.lastActivityDate ?? null,
+          },
+          ...(visibility ?? {
+            publishChanged: null,
+            publishChangeNote:
+              'The publish picklist labels could not be resolved, so this response cannot state who can see the note. The field values themselves were verified — check the note in Autotask before describing its visibility.',
+          }),
+          verifiedBy:
+            'The note was re-read by id after the write and every requested field matched the stored value. Autotask records the editing technician in impersonatorUpdaterResourceID.',
         })
       } catch (e) { return fail(e) }
     }

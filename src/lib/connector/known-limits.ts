@@ -113,6 +113,14 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
         'Membership is therefore add/remove only — change a bundle by deleting the row and creating a new one. Both are implemented behind the approval gate (area service_bundle_member).',
     },
     {
+      capability: 'Delete a ticket note',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports TicketNotes.canDelete false (canQuery/canCreate/canUpdate all true), confirmed against LIVE metadata on 2026-08-10 and matching the Kaseya TicketNotes entity reference, which marks the entity updatable but not deletable.',
+      notes:
+        'EDITING a note IS available — autotask_update_ticket_note changes description/title/publish in place, which is what a correction actually needs. A note can therefore be corrected but never removed; do not offer a delete or imply an edit failed when a delete was wanted. Removing a note is a UI action for a human with the rights to it.',
+    },
+    {
       capability: 'Read or write queue routing, inbound email processing, queue notification settings',
       reason: 'VENDOR_NO_API',
       verifiedBy: SPEC_AUDIT_PENDING,

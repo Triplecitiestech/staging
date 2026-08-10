@@ -59,6 +59,63 @@ export async function createTicketNote(
   }
 }
 
+/**
+ * Fields an existing ticket note can be edited through. Deliberately a closed
+ * set of the three the API reports writable and a human would want to correct —
+ * live entityInformation 2026-08-10: TicketNotes.canUpdate true, with
+ * description / title / publish all isReadOnly false.
+ *
+ * noteType and ticketID are writable upstream too and are NOT here on purpose:
+ * re-typing a note or moving it to another ticket are different operations from
+ * fixing its text, and neither is what the correction-note problem needs.
+ */
+export interface TicketNoteEdit {
+  description?: string
+  title?: string
+  publish?: number
+}
+
+/**
+ * Update an EXISTING ticket note in place.
+ *
+ * PATCH, never PUT, and carrying ONLY the fields the caller supplied. Autotask
+ * documents the difference explicitly: PATCH "will update only the properties of
+ * the target that you designate. If the JSON input does not include a property
+ * for a field, the API will not update that field", whereas PUT "will update all
+ * properties of the target" and defaults every omitted field to null.
+ * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/API_Calls/REST_Updating_Data_PATCH.htm
+ *
+ * So there is NO GET-and-merge here, and there must never be one. Autotask
+ * relaxes its required-field rules for PATCH (required applies to POST), which
+ * is why a body of `id` + one field is legal even though description, publish,
+ * noteType and ticketID all report isRequired true. Rebuilding the record from a
+ * read would also introduce a lost-update window: a colleague's edit landing
+ * between the read and the write would be silently overwritten with stale text.
+ *
+ * The caller passes ticketID for the URL only — it is never re-sent in the body,
+ * because a field the caller did not ask to change has no business in a partial
+ * write.
+ *
+ * PATH ORDER mirrors createTicketNote, for the same reason: Kaseya documents
+ * child collections as having their own access URLs and points at its Swagger
+ * instance for the exact form rather than stating it in the entity reference, so
+ * the working path is established by trying the parent collection and falling
+ * back to the root entity — not assumed.
+ */
+export async function updateTicketNote(
+  ticketID: number,
+  noteID: number,
+  fields: TicketNoteEdit,
+  impersonationResourceId?: number
+): Promise<unknown> {
+  const payload = { id: noteID, ...fields }
+  try {
+    return await patch(`Tickets/${ticketID}/Notes`, payload, impersonationResourceId)
+  } catch {
+    return await patch('TicketNotes', payload, impersonationResourceId)
+  }
+}
+
 // Create a ticket time entry. Autotask requires roleID for ticket time entries,
 // and SERVICE tickets additionally require a start AND stop time — so when
 // startDateTime/stopDateTime are supplied they are sent as startDateTime/

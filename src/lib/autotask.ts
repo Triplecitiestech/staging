@@ -1448,6 +1448,25 @@ export class AutotaskClient {
   }
 
   /**
+   * Read a single ticket note by its NOTE id alone, without knowing the ticket.
+   *
+   * autotask_update_ticket_note addresses a note by id — a technician correcting
+   * a note has the note in front of them, not necessarily its ticket — so the
+   * ticket has to come from the note itself, both to build the ticket URL and to
+   * verify the write against the right record.
+   *
+   * Returns null ONLY when the query succeeded and matched nothing. A failed
+   * query THROWS, so "this note does not exist" can never be confused with
+   * "the lookup broke" — the caller routes those to different reason codes.
+   */
+  async getTicketNoteByNoteId(noteId: number): Promise<AutotaskTicketNote | null> {
+    const rows = await this.queryAll<AutotaskTicketNote>('TicketNotes', {
+      op: 'eq', field: 'id', value: noteId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /**
    * Attachments on a ticket, including those parented to its notes and time
    * entries (documented: "Query results will include attachments parented to
    * TicketNotes, TimeEntries, and TicketAttachments parented to tickets with IDs
