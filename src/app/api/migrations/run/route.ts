@@ -725,6 +725,63 @@ export async function POST(request: Request) {
       results.push(`⚠️ connector_tool_calls: ${err.message}`)
     }
 
+    // Connector's OWN OAuth authorization server (src/lib/connector/oauth/).
+    // Exists because claude.ai's connector proxy never refreshes tokens against
+    // an external IdP, so we issue our own and set the lifetime ourselves.
+    //
+    // codes and refresh tokens are stored ONLY as SHA-256. There is deliberately
+    // no column that could hold the plaintext — a dump of these tables must not
+    // be replayable against the token endpoint. Do not add one.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS connector_oauth_clients (
+          client_id TEXT PRIMARY KEY,
+          client_name TEXT,
+          redirect_uris TEXT[] NOT NULL DEFAULT '{}',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_used_at TIMESTAMPTZ
+        )
+      `)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS connector_oauth_codes (
+          code_hash TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL,
+          redirect_uri TEXT NOT NULL,
+          code_challenge TEXT NOT NULL,
+          code_challenge_method TEXT NOT NULL,
+          resource TEXT,
+          user_email TEXT NOT NULL,
+          scope TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ
+        )
+      `)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS connector_oauth_refresh_tokens (
+          token_hash TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL,
+          user_email TEXT NOT NULL,
+          scope TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at TIMESTAMPTZ NOT NULL,
+          revoked_at TIMESTAMPTZ,
+          rotated_to TEXT
+        )
+      `)
+      for (const idx of [
+        'CREATE INDEX IF NOT EXISTS connector_oauth_codes_expires_idx ON connector_oauth_codes (expires_at)',
+        'CREATE INDEX IF NOT EXISTS connector_oauth_refresh_user_idx ON connector_oauth_refresh_tokens (lower(user_email))',
+        'CREATE INDEX IF NOT EXISTS connector_oauth_refresh_expires_idx ON connector_oauth_refresh_tokens (expires_at)',
+      ]) {
+        await client.query(idx)
+      }
+      results.push('✅ connector_oauth_* tables (clients, codes, refresh tokens)')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ connector_oauth_*: ${err.message}`)
+    }
+
     // Exchange Online automation: per-tenant enablement + async runner jobs.
     // snake_case like all HR/M365 tables (docs/gotchas.md -> Database rules).
     try {
