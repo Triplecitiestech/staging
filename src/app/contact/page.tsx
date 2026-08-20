@@ -1,98 +1,16 @@
 'use client'
 
-import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/shared/PageHero'
+import ContactForm from '@/components/shared/ContactForm'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
-import { CalendarIcon, ClockIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
+import { CalendarIcon, ClockIcon, PhoneIcon, MailIcon, GlobeIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
-import { Turnstile } from '@marsidev/react-turnstile'
 
 export default function Contact() {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    company: '',
-    message: '',
-    website: '' // Honeypot field
-  })
-
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [turnstileToken, setTurnstileToken] = useState<string>('')
-  const [formLoadTime] = useState<number>(Date.now())
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setSubmitStatus('idle')
-
-    // Client-side spam checks
-    if (formData.website) {
-      // Honeypot filled - likely spam
-      setSubmitStatus('error')
-      setIsSubmitting(false)
-      return
-    }
-
-    const timeElapsed = Date.now() - formLoadTime
-    if (timeElapsed < 3000) {
-      // Form submitted too quickly (less than 3 seconds)
-      setSubmitStatus('error')
-      setIsSubmitting(false)
-      return
-    }
-
-    if (!turnstileToken) {
-      // Turnstile not completed
-      setSubmitStatus('error')
-      setIsSubmitting(false)
-      return
-    }
-
-    try {
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...formData,
-          turnstileToken,
-          formLoadTime
-        }),
-      })
-
-      if (response.ok) {
-        setSubmitStatus('success')
-        setFormData({ name: '', email: '', phone: '', company: '', message: '', website: '' })
-        setTurnstileToken('')
-      } else {
-        const errorData = await response.json()
-        console.error('Server error:', errorData)
-        console.error('Status:', response.status)
-        setSubmitStatus('error')
-      }
-    } catch (error) {
-      console.error('Error submitting form:', error)
-      setSubmitStatus('error')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
   return (
     <main>
       <Header />
@@ -183,137 +101,7 @@ export default function Contact() {
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="name" className="block text-sm font-semibold text-white mb-2">
-                      Name *
-                    </label>
-                    <input
-                      type="text"
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
-                      placeholder="Your full name"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-semibold text-white mb-2">
-                      Email *
-                    </label>
-                    <input
-                      type="email"
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
-                      placeholder="your.email@company.com"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="phone" className="block text-sm font-semibold text-white mb-2">
-                      Phone
-                    </label>
-                    <input
-                      type="tel"
-                      id="phone"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
-                      placeholder="(607) 555-0123"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="company" className="block text-sm font-semibold text-white mb-2">
-                      Company
-                    </label>
-                    <input
-                      type="text"
-                      id="company"
-                      name="company"
-                      value={formData.company}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
-                      placeholder="Your company name"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="message" className="block text-sm font-semibold text-white mb-2">
-                    Message *
-                  </label>
-                  <textarea
-                    id="message"
-                    name="message"
-                    value={formData.message}
-                    onChange={handleInputChange}
-                    required
-                    rows={5}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 resize-none backdrop-blur-sm"
-                    placeholder="Tell us about your IT needs, questions, or how we can help..."
-                  />
-                </div>
-
-                {/* Honeypot field - hidden from users */}
-                <div style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }} aria-hidden="true">
-                  <label htmlFor="website">Website (leave blank)</label>
-                  <input
-                    type="text"
-                    id="website"
-                    name="website"
-                    value={formData.website}
-                    onChange={handleInputChange}
-                    tabIndex={-1}
-                    autoComplete="off"
-                  />
-                </div>
-
-                {/* Cloudflare Turnstile */}
-                <div className="flex justify-center">
-                  <Turnstile
-                    siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
-                    onSuccess={(token) => setTurnstileToken(token)}
-                    onError={() => setTurnstileToken('')}
-                    onExpire={() => setTurnstileToken('')}
-                    options={{
-                      theme: 'dark',
-                      size: 'normal'
-                    }}
-                  />
-                </div>
-
-                {/* Submit Status Messages */}
-                {submitStatus === 'success' && (
-                  <div className="flex items-center space-x-3 text-green-400 bg-green-900/30 border border-green-400/50 p-4 rounded-xl">
-                    <CheckCircleIcon size={20} />
-                    <span className="font-medium">Thank you! Your message has been sent successfully.</span>
-                  </div>
-                )}
-
-                {submitStatus === 'error' && (
-                  <div className="flex items-center space-x-3 text-red-400 bg-red-900/30 border border-red-400/50 p-4 rounded-xl">
-                    <span className="font-medium">Sorry, there was an error sending your message. Please try again or contact us directly.</span>
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-4 px-6 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-black font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/50 text-lg"
-                >
-                  {isSubmitting ? 'Sending...' : 'Send Message'}
-                </Button>
-              </form>
+              <ContactForm />
             </div>
 
             {/* Sales Contact Information */}

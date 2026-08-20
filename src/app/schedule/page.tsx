@@ -5,19 +5,9 @@ import Footer from '@/components/layout/Footer'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { PhoneIcon, ClockIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
 import { CONTACT_INFO } from '@/constants/data'
-import Script from 'next/script'
-import { useEffect, useState } from 'react'
+import CalendlyEmbed from '@/components/shared/CalendlyEmbed'
 
 export default function SchedulePage() {
-  const [widgetReady, setWidgetReady] = useState(false)
-
-  useEffect(() => {
-    // Check if Calendly widget script is already loaded
-    if (window.Calendly) {
-      setWidgetReady(true)
-    }
-  }, [])
-
   return (
     <main>
       <Header />
@@ -65,38 +55,11 @@ export default function SchedulePage() {
           </div>
 
           {/* Calendly Embed — no wrapper overflow, let iframe auto-resize */}
-          {!widgetReady && (
-            <div className="flex items-center justify-center py-32">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-4" />
-                <p className="text-gray-400">Loading calendar...</p>
-              </div>
-            </div>
-          )}
-          <div
-            className="calendly-inline-widget"
-            data-url="https://calendly.com/kurtis-tct?background_color=111827&text_color=e5e7eb&primary_color=06b6d4&hide_gdpr_banner=1"
-            data-resize="true"
-            style={{ minWidth: '320px', width: '100%' }}
-          />
+          <CalendlyEmbed />
         </div>
       </section>
-
-      {/* Calendly Widget Script */}
-      <Script
-        src="https://assets.calendly.com/assets/external/widget.js"
-        strategy="lazyOnload"
-        onLoad={() => setWidgetReady(true)}
-      />
 
       <Footer />
     </main>
   )
-}
-
-// Extend Window for Calendly
-declare global {
-  interface Window {
-    Calendly?: unknown
-  }
 }
