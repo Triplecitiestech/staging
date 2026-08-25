@@ -473,7 +473,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'Read-back VERIFIED per field',
   ),
   autotask_update_task: atWrite(
-    'This WORKS — the previous "task PATCH is BLOCKED on a 404" claim was a fallback chain reporting the 404 of ProjectTasks, an entity that does not exist here, in place of the real error. Live entityInformation reports Tasks.canUpdate true',
+    'The previous "task PATCH is BLOCKED on a 404" claim is RETRACTED — live entityInformation reports Tasks.canUpdate true, and the old evidence was a fallback chain that rethrew only its last error, one of whose three URLs (ProjectTasks) is not an entity here at all',
     'PATCHes ONLY the fields supplied',
     'assignedResourceID + assignedResourceRoleID travel together; null clears the assignment and does NOT acquire a role',
     'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success',
