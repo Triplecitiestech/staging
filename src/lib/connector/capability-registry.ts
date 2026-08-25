@@ -422,6 +422,144 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_set_ticket_status: atWrite(),
   autotask_find_resource: R,
 
+  // ── Autotask: project / task / CRM reads ─────────────────────────────────
+  autotask_get_task: r(
+    'Task FIELDS only — structurally excludes notes and time entries, so it can never ground a claim that work was not done',
+    'Carries activityGap: true means activity exists this read did not return — call autotask_task_activity',
+  ),
+  autotask_project_detail: r(
+    'The only connector read that lists a project\'s TASKS',
+    'Reads Tasks and Phases at their root entities with NO silent fallback — a failed query raises rather than returning an empty list',
+  ),
+  autotask_task_activity: r(
+    'The ONLY read that should ground a statement about whether work was done on a task — merges TaskNotes + TimeEntries',
+    'TimeEntries has no publish field in the REST API, so time-entry visibility is reported null (not exposed), never guessed',
+    'sourcesUnavailable names any source whose query failed, so a broken query never reads as an empty result',
+  ),
+
+  // ── Autotask: project / task writes (impersonated, DIRECT) ───────────────
+  // Direct rather than staged because these are operational records — one row,
+  // by id, visible and correctable in the Autotask UI immediately. The staged
+  // gate is for instance CONFIGURATION, which changes how every future record
+  // behaves. Every one of these is read-back verified.
+  autotask_create_project: atWrite(
+    'REQUIRED: companyId, projectName, projectType, status, startDateTime, endDateTime — Autotask marks all six required',
+    'The company is PERMANENT: Projects.companyID is isReadOnly true, supplied by the URL, and can never be changed',
+    'No delete exists: entityInformation reports Projects.canDelete false — a mistake can only be set to status 0 (Inactive)',
+    'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success',
+  ),
+  autotask_update_project: atWrite(
+    'PATCHes ONLY the fields supplied — omitted fields are untouched, so nothing can be blanked by accident',
+    'companyID is not a parameter: Autotask reports it read-only, so a project cannot be moved between companies by any route',
+    'Read-back VERIFIED per field',
+  ),
+  autotask_add_project_note: atWrite(
+    'Defaults to publish 2 (Internal Project Team) so a note is never accidentally customer-visible',
+    'DOES NOT NOTIFY ANYONE AND CANNOT — the REST note entities carry no notification field',
+    'The stored publish level is read back off the created note, not assumed',
+  ),
+  autotask_create_project_phase: atWrite(
+    'Phases are OPTIONAL for tasks — Tasks.phaseID is not required, so do not create one just to add a task',
+    'The project is PERMANENT: Phases.projectID is isReadOnly true',
+    'No delete exists: entityInformation reports Phases.canDelete false',
+  ),
+  autotask_update_project_phase: atWrite('PATCHes ONLY the fields supplied', 'A phase cannot be moved between projects', 'Read-back VERIFIED per field'),
+  autotask_create_task: atWrite(
+    'REQUIRED: projectId, title, status, taskType',
+    'Task status ids are PER-INSTANCE — this instance has NO id 4; In Progress is 8',
+    'assignedResourceID REQUIRES assignedResourceRoleID — the role defaults to Engineer (29683355) rather than failing the create',
+    'A phaseID from a different project is refused BEFORE writing, with both project ids named',
+    'No delete exists: entityInformation reports Tasks.canDelete false',
+    'Read-back VERIFIED per field',
+  ),
+  autotask_update_task: atWrite(
+    'This WORKS — the previous "task PATCH is BLOCKED on a 404" claim was a fallback chain reporting the 404 of ProjectTasks, an entity that does not exist here, in place of the real error. Live entityInformation reports Tasks.canUpdate true',
+    'PATCHes ONLY the fields supplied',
+    'assignedResourceID + assignedResourceRoleID travel together; null clears the assignment and does NOT acquire a role',
+    'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success',
+  ),
+  autotask_add_task_note: atWrite(
+    'Defaults to publish 2 (Internal Project Team); publish 1 "All Autotask Users" is the CUSTOMER-VISIBLE state on this instance and there is no id 3',
+    'DOES NOT NOTIFY ANYONE AND CANNOT — the REST TaskNotes entity has no notification field',
+    'No delete exists: entityInformation reports TaskNotes.canDelete false — correct a note with autotask_update_task_note instead',
+  ),
+  autotask_update_task_note: atWrite(
+    'Edits an EXISTING task note in place — the alternative to stacking correction notes',
+    'Addressed by NOTE id (TaskNotes.id), not task id',
+    'Changing publish can move a note between internal and CUSTOMER-VISIBLE in either direction — the response reports both ids and the resulting scope',
+    'Read-back VERIFIED per field',
+  ),
+  autotask_create_task_time_entry: atWrite(
+    'BILLABLE',
+    'Requires hoursWorked OR startDateTime + stopDateTime — unlike Service TICKETS, tasks do not require a start/stop pair',
+    'Read-back VERIFIED: task, resource, hours and summary are re-read, so an accepted POST that stored something else returns PRECONDITION_FAILED',
+  ),
+  autotask_update_time_entry: {
+    ...atWrite(
+      'BILLABLE — changing hoursWorked changes what the customer is billed if the entry is billable and uninvoiced; the response says so explicitly',
+      'Works on task AND ticket time entries',
+      'Does NOT delete time. Autotask reports TimeEntries.canDelete true; deletion is deliberately not exposed — see knownLimits',
+      'Read-back VERIFIED per field',
+    ),
+    risk: 'destructive',
+  },
+  autotask_add_task_secondary_resource: atWrite(
+    'resourceId AND roleId are BOTH required — entityInformation marks both isRequired on TaskSecondaryResources',
+    'These rows cannot be edited (canUpdate false) — change a role by removing the row and adding a new one',
+    'An identical existing row is reported as alreadyPresent rather than duplicated',
+    'Verified by re-listing the task\'s secondary resources after the write',
+  ),
+  autotask_remove_task_secondary_resource: {
+    ...atWrite(
+      'Removes a row — takes the ROW id, not the resource id, and names the rows present when the id does not match',
+      'Verified by re-listing the task\'s secondary resources after the delete',
+    ),
+    risk: 'destructive',
+  },
+  autotask_add_task_predecessor: atWrite(
+    'Both task ids are FIXED once created (predecessorTaskID and successorTaskID are isReadOnly) — only lagDays can change afterwards',
+    'Both tasks must be in the same project; a cross-project or self-dependency is refused BEFORE writing',
+    'Verified by re-listing the successor\'s predecessors after the write',
+  ),
+  autotask_remove_task_predecessor: {
+    ...atWrite(
+      'Removes a row — takes the ROW id, not a task id',
+      'This is also how a dependency is re-pointed, since both task ids on the row are read-only',
+      'Verified by re-listing the successor\'s predecessors after the delete',
+    ),
+    risk: 'destructive',
+  },
+
+  // ── Autotask: CRM writes (impersonated, DIRECT) ──────────────────────────
+  autotask_create_company: {
+    ...atWrite(
+      'REQUIRED: companyName, companyType, ownerResourceID, phone — Autotask marks all four required',
+      'PERMANENT: entityInformation reports Companies.canDelete FALSE, so a company created by mistake can never be removed, only set isActive false',
+      'Because of that, a company whose name already exists is REFUSED with the existing id — override with allowDuplicateName: true',
+      'Read-back VERIFIED per field',
+    ),
+    risk: 'destructive',
+  },
+  autotask_update_company: atWrite(
+    'PATCHes ONLY the fields supplied',
+    'isActive: false is the ONLY way to retire a company — Autotask offers no delete and none is faked',
+    'Read-only Companies fields (the billTo* block, invoiceTemplateID, quoteTemplateID, apiVendorID) are deliberately not parameters',
+    'Read-back VERIFIED per field',
+  ),
+  autotask_create_contact: atWrite(
+    'REQUIRED: companyId, firstName, lastName',
+    'The company is PERMANENT: Contacts.companyID is isReadOnly true — a contact created under the wrong company must be deactivated and recreated',
+    'primaryContact and receivesEmailNotifications change who Autotask emails about this company\'s tickets',
+    'Read-back VERIFIED per field',
+  ),
+  autotask_update_contact: atWrite(
+    'PATCHes ONLY the fields supplied',
+    'A contact\'s company cannot be changed — Contacts.companyID is read-only, so there is no parameter for it',
+    'isActive: false retires a contact. Autotask DOES permit contact deletion (canDelete true) but this connector does not expose it — deletion loses the ticket-history association irrecoverably; see knownLimits',
+    'Changing primaryContact or receivesEmailNotifications is flagged in the response as a notification-impact change',
+    'Read-back VERIFIED per field',
+  ),
+
   // ── Autotask: config writes (staged gate) ────────────────────────────────
   autotask_stage_config_write: {
     access: 'write',

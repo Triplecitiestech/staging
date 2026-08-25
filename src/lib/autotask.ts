@@ -567,18 +567,33 @@ export interface PicklistDetailed {
 
 // Autotask project status picklist mappings (common defaults)
 // These can vary per instance - use getFieldInfo to get actual values
+// Autotask project status picklist ids, VERIFIED against this instance's live
+// picklist on 2026-08-25 (autotask_entity_picklist Projects.status):
+//   0 Inactive · 1 New · 2 In Progress · 3 On Hold · 4 Change Order
+//   5 Complete · 6 Waiting Parts · 7 Waiting Customer
+// ACTIVE was 4 until 2026-08-25 — but 4 is "Change Order" here, not an active
+// state, so mapLocalProjectStatusToAt('ACTIVE') was writing the wrong status
+// and mapAtProjectStatus read every Change Order project as ACTIVE. Do not
+// restore a value from Autotask's DEFAULT picklist: these ids are per-instance.
 const AT_PROJECT_STATUS = {
   INACTIVE: 0,
   NEW: 1,
-  ACTIVE: 4,
+  ACTIVE: 2,
   COMPLETE: 5,
 } as const;
 
-// Autotask task status picklist mappings
-// Autotask default picklist values for Task status:
-//   1 = New, 4 = In Progress, 5 = Complete, 7 = Waiting Customer
+// Autotask task status picklist ids, VERIFIED against this instance's live
+// picklist on 2026-08-25 (autotask_entity_picklist Tasks.status). The 18 live
+// ids are 1, 5, 7, 8, 9, 10, 11, 12, 19, 21, 22, 25, 26, 27, 31, 35, 50, 52.
+//
+// IN_PROGRESS was 4 until 2026-08-25. **There is no id 4 in this instance's
+// Tasks.status picklist at all** — the value came from Autotask's DEFAULT
+// picklist, which docs/gotchas.md then recorded as fact. Every write-back of a
+// WORK_IN_PROGRESS task therefore sent a nonexistent status, and every task
+// actually sitting at 8 read back as NOT_STARTED. Resolve these from the live
+// picklist (autotask_entity_picklist) before ever changing them again.
 const AT_TASK_STATUS_NEW = 1;
-const AT_TASK_STATUS_IN_PROGRESS = 4;
+const AT_TASK_STATUS_IN_PROGRESS = 8;
 const AT_TASK_STATUS_COMPLETE = 5;
 const AT_TASK_STATUS_WAITING_CUSTOMER = 7;
 
@@ -1172,6 +1187,120 @@ export class AutotaskClient {
       internalNotes: data.internalNotes || '',
     });
     return result.item;
+  }
+
+  // ============================================
+  // PROJECT / TASK / CRM READ-BACKS (connector writes)
+  // ============================================
+  //
+  // Narrow, id-addressed reads whose ONLY job is to prove a write landed.
+  // Every one returns null for "the query succeeded and matched nothing" and
+  // THROWS when the lookup itself failed, so a tool can route "no such record"
+  // (INVALID_INPUT) apart from "I could not check" (TRANSIENT). Collapsing
+  // those two is how a broken read becomes a false absence claim.
+  //
+  // They are deliberately NOT reused from the sync helpers above: those fall
+  // back between entity paths and swallow errors to keep a nightly sync
+  // running, which is exactly the behaviour a verification read must not have.
+
+  /** One project by id. */
+  async getProjectById(projectId: number): Promise<AutotaskProject | null> {
+    const rows = await this.queryAll<AutotaskProject>('Projects', {
+      op: 'eq', field: 'id', value: projectId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /** One project task by id. Queried at the ROOT Tasks entity — see autotask-write.ts. */
+  async getTaskById(taskId: number): Promise<AutotaskTask | null> {
+    const rows = await this.queryAll<AutotaskTask>('Tasks', {
+      op: 'eq', field: 'id', value: taskId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /** One project phase by id. */
+  async getPhaseById(phaseId: number): Promise<AutotaskProjectPhase | null> {
+    const rows = await this.queryAll<AutotaskProjectPhase>('Phases', {
+      op: 'eq', field: 'id', value: phaseId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /** One task note by its OWN id (the task is read off the note). */
+  async getTaskNoteByNoteId(noteId: number): Promise<AutotaskTaskNote | null> {
+    const rows = await this.queryAll<AutotaskTaskNote>('TaskNotes', {
+      op: 'eq', field: 'id', value: noteId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /** One project note by its OWN id. */
+  async getProjectNoteByNoteId(noteId: number): Promise<AutotaskProjectNote | null> {
+    const rows = await this.queryAll<AutotaskProjectNote>('ProjectNotes', {
+      op: 'eq', field: 'id', value: noteId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /** One time entry by id. */
+  async getTimeEntryById(timeEntryId: number): Promise<AutotaskTimeEntry | null> {
+    const rows = await this.queryAll<AutotaskTimeEntry>('TimeEntries', {
+      op: 'eq', field: 'id', value: timeEntryId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /**
+   * One company by id, returning null rather than throwing when absent.
+   * getCompany() above GETs /Companies/{id} and is used by read tools; this
+   * query form is what a read-back needs, for the null-vs-throw split.
+   */
+  async getCompanyById(companyId: number): Promise<AutotaskCompany | null> {
+    const rows = await this.queryAll<AutotaskCompany>('Companies', {
+      op: 'eq', field: 'id', value: companyId,
+    });
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Companies whose name matches EXACTLY, used to refuse a duplicate create.
+   * Autotask reports Companies.canDelete false, so a company created by
+   * mistake cannot be removed — only deactivated. That asymmetry is why the
+   * check exists on create and nowhere else.
+   */
+  async findCompaniesByExactName(companyName: string): Promise<AutotaskCompany[]> {
+    return this.queryAll<AutotaskCompany>('Companies', {
+      op: 'eq', field: 'companyName', value: companyName,
+    });
+  }
+
+  /** Secondary resources currently attached to a task. */
+  async getTaskSecondaryResources(taskId: number): Promise<Array<{ id: number; taskID: number; resourceID: number; roleID: number }>> {
+    return this.queryAll('TaskSecondaryResources', {
+      op: 'eq', field: 'taskID', value: taskId,
+    });
+  }
+
+  /** Predecessor links whose SUCCESSOR is this task. */
+  async getTaskPredecessors(taskId: number): Promise<Array<{ id: number; predecessorTaskID: number; successorTaskID: number; lagDays?: number }>> {
+    return this.queryAll('TaskPredecessors', {
+      op: 'eq', field: 'successorTaskID', value: taskId,
+    });
+  }
+
+  /** Tasks belonging to a project, read at the ROOT Tasks entity with no fallback. */
+  async getTasksByProjectId(projectId: number): Promise<AutotaskTask[]> {
+    return this.queryAll<AutotaskTask>('Tasks', {
+      op: 'eq', field: 'projectID', value: projectId,
+    });
+  }
+
+  /** Notes on a task, read at the ROOT TaskNotes entity with no fallback. */
+  async getTaskNotesByTaskId(taskId: number): Promise<AutotaskTaskNote[]> {
+    return this.queryAll<AutotaskTaskNote>('TaskNotes', {
+      op: 'eq', field: 'taskID', value: taskId,
+    });
   }
 
   // ============================================

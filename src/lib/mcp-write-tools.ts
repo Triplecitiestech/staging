@@ -34,7 +34,12 @@ export async function resolveUserEmail(sub?: string, tokenEmail?: unknown): Prom
 
 // email -> Autotask resource id (cached). Reads use the existing read client.
 const resourceCache = new Map<string, number>()
-async function resolveResourceId(email?: string): Promise<number> {
+/**
+ * Exported so the project/task/CRM tools attribute writes the SAME way, rather
+ * than growing a second identity path. Behaviour is unchanged for every
+ * existing caller — this adds the keyword and nothing else.
+ */
+export async function resolveResourceId(email?: string): Promise<number> {
   if (!email) {
     throw new Error('Cannot attribute this action: no signed-in user email was available. Sign in to the connector so the write can be recorded under your name.')
   }
