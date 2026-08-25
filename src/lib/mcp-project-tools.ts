@@ -1014,7 +1014,7 @@ export function registerProjectTools(server: any) {
       title: 'Autotask: update project task',
       description:
         'WRITE. Update an EXISTING Autotask project task in place — status, title, description, dates, hours, assignment, phase — attributed to the signed-in technician. Supply taskId plus AT LEAST ONE field. ' +
-        'THIS WORKS. A previous connector note recorded task update as BLOCKED on a 404; that was wrong. Live entityInformation reports Tasks.canUpdate true, and the old failure came from a fallback chain that tried ProjectTasks — an entity which does not exist on this instance — and reported its 404 in place of the real error from the correct path. ' +
+        'A previous connector note recorded task update as BLOCKED on a 404. That claim is retracted: live entityInformation reports Tasks.canUpdate TRUE, and the evidence behind it was unsound — the old code tried three URLs, caught every error and rethrew only the LAST, and one of the three (ProjectTasks) is not an entity on this instance at all, so its 404 says nothing about task update. Which URL Autotask accepts is therefore resolved at call time, not assumed, and reported back as pathUsed. ' +
         TASK_STATUS_HELP + ' ' +
         'ASSIGNMENT: setting assignedResourceID without assignedResourceRoleID defaults the role to Engineer (29683355), because Autotask rejects the resource on its own. ' + ROLE_HELP + ' Passing assignedResourceID: null clears the assignment and deliberately does NOT acquire a role. ' +
         'ONLY the fields you pass are written; omitted fields are untouched. ' + VERIFY_NOTE + ' ' + PATH_NOTE + ' Confirm the change with the user before calling.',
