@@ -251,6 +251,21 @@ Autotask UI immediately, and are correctable there. Putting a task status behind
 a human approval would make the connector useless for the work it exists to do
 and would devalue the gate for the changes that need it.
 
+**The capability layer had to learn what "implemented" means.**
+`autotask_capability_check` derived `implemented` from `CONFIG_WRITE_AREAS`
+alone — the staged-approval surface. Correct while every Autotask write went
+through the gate; wrong the moment these tools shipped as DIRECT writes. It
+answered `SUPPORTED_NOT_IMPLEMENTED` for `Tasks.update` with the remediation
+"add a write area … report it to Kurtis as a build task" **for a tool that was
+live and working**. A capability layer that tells you to BUILD what exists is the
+mirror image of one that tells you the vendor CAN'T — both route the owner to
+the wrong person with confidence. Fixed with `DIRECT_WRITE_TOOLS` in
+`autotask-drift.ts` (reviewed data, like TOOL_FACTS), which also flips
+`requiresStagedApproval` to false for those operations and names the tool to
+call. `autotask-drift.test.ts` asserts the map against TOOL_FACTS in both
+directions, so a renamed tool or an unmapped new direct write fails the build
+rather than resurfacing as a phantom gap months later.
+
 **Side fix**: `post()`/`patch()` in `autotask-write.ts` had no
 `AbortSignal.timeout()` — the last external fetches in the connector without one.
 They now carry 30s, per the critical gotcha. Thrown error messages are
