@@ -458,7 +458,7 @@ export function registerProjectTools(server: any) {
           return noSuchRecord('project', projectId, 'autotask_project_detail', 'Check the id. Find a company\'s projects with autotask_company_projects({ companyId }), or all active ones with autotask_active_projects.')
         }
         const [phases, tasks, notes] = await Promise.all([
-          c.getProjectPhases(projectId),
+          c.getPhasesByProjectId(projectId),
           c.getTasksByProjectId(projectId),
           includeNotes ? c.getProjectNotes(projectId) : Promise.resolve([]),
         ])
