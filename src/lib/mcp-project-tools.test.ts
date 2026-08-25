@@ -30,7 +30,8 @@ vi.hoisted(() => {
 })
 
 import { writeAtFirstWorkingPath, createTask, updateTask } from '@/lib/autotask-write'
-import { datesMatch, valueMatches, verifyWrittenFields, definedFields } from '@/lib/mcp-project-tools'
+import { datesMatch, valueMatches, verifyWrittenFields, definedFields, splitByQueryability } from '@/lib/mcp-project-tools'
+import { __setCapabilityFetcher, clearCapabilityCache } from '@/lib/connector/autotask-capability'
 
 const jsonResponse = (status: number, body: unknown) =>
   ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) }) as unknown as Response
@@ -242,5 +243,55 @@ describe('verifyWrittenFields', () => {
 describe('definedFields', () => {
   it('drops undefined so a PATCH carries only what was supplied', () => {
     expect(definedFields({ a: 1, b: undefined, c: null })).toEqual({ a: 1, c: null })
+  })
+})
+
+describe('splitByQueryability — a writable field a read can never see', () => {
+  // Tasks.remainingHours is isRequired false, isReadOnly FALSE (so it is
+  // writable) and isQueryable FALSE. A fail-closed verifier that did not know
+  // this would return PRECONDITION_FAILED on a write that landed perfectly —
+  // and a verification flag that cries wolf is worse than none, because the
+  // reader learns to ignore it.
+  const snapshot = {
+    entity: 'Tasks',
+    capabilities: { canQuery: true, canCreate: true, canUpdate: true, canDelete: false },
+    fields: [
+      { name: 'title', isRequired: true, isReadOnly: false, isQueryable: true },
+      { name: 'status', isRequired: true, isReadOnly: false, isQueryable: true },
+      { name: 'remainingHours', isRequired: false, isReadOnly: false, isQueryable: false },
+    ],
+    fetchedAt: '2026-08-25T00:00:00.000Z',
+  }
+
+  beforeEach(() => clearCapabilityCache())
+  afterEach(() => {
+    __setCapabilityFetcher(null)
+    clearCapabilityCache()
+  })
+
+  it('separates the field no read can return, and says why', async () => {
+    __setCapabilityFetcher(async () => snapshot)
+    const res = await splitByQueryability('Tasks', ['title', 'status', 'remainingHours'])
+
+    expect(res.verifiable).toEqual(['title', 'status'])
+    expect(res.unverifiable).toEqual(['remainingHours'])
+    expect(res.reason).toMatch(/isQueryable false/)
+    // It must never imply the write failed — it was accepted, just unprovable.
+    expect(res.reason).toMatch(/accepted/)
+  })
+
+  it('reports nothing when every field is queryable', async () => {
+    __setCapabilityFetcher(async () => snapshot)
+    const res = await splitByQueryability('Tasks', ['title', 'status'])
+    expect(res.unverifiable).toEqual([])
+    expect(res.reason).toBeNull()
+  })
+
+  it('falls back to the STRICT path when the metadata lookup fails', async () => {
+    // A failed lookup must never silently widen what goes unverified.
+    __setCapabilityFetcher(async () => { throw new Error('entityInformation unreachable') })
+    const res = await splitByQueryability('Tasks', ['title', 'remainingHours'])
+    expect(res.verifiable).toEqual(['title', 'remainingHours'])
+    expect(res.unverifiable).toEqual([])
   })
 })

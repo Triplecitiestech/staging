@@ -31,6 +31,7 @@ import {
 import * as write from '@/lib/autotask-write'
 import { resolveResourceId } from '@/lib/mcp-write-tools'
 import { computeActivityGap, newestTimestamp } from '@/lib/autotask-activity'
+import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability'
 import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,73 @@ export function verifyWrittenFields(
   }
 
   return { mismatches, changedFields, unchangedFields }
+}
+
+/**
+ * Which of these fields can a read-back actually SEE?
+ *
+ * Some Autotask fields are writable but `isQueryable: false` —
+ * `Tasks.remainingHours` is the one this surface exposes. A query never returns
+ * them, so a fail-closed verifier would report PRECONDITION_FAILED on a write
+ * that landed perfectly. That is the "verifier that cries wolf" failure: it
+ * teaches the reader to ignore the flag, which is worse than having no flag.
+ *
+ * The answer is NOT to quietly skip them. It is to say which fields were
+ * verified and which could not be, and why. Queryability is read from LIVE
+ * entityInformation (30-minute cache) rather than a hardcoded list, so a Kaseya
+ * change is picked up instead of being frozen into this file.
+ *
+ * If the metadata lookup FAILS, every field is treated as verifiable — the
+ * strict path. A failed lookup must never silently widen what goes unchecked.
+ */
+export async function splitByQueryability(
+  entity: string,
+  fields: string[],
+): Promise<{ verifiable: string[]; unverifiable: string[]; reason: string | null }> {
+  try {
+    const { snapshot } = await getEntityCapabilitySnapshot(entity)
+    const notQueryable = new Set(
+      snapshot.fields.filter((f) => f.isQueryable === false).map((f) => f.name.toLowerCase()),
+    )
+    const unverifiable = fields.filter((f) => notQueryable.has(f.toLowerCase()))
+    return {
+      verifiable: fields.filter((f) => !notQueryable.has(f.toLowerCase())),
+      unverifiable,
+      reason: unverifiable.length
+        ? `Autotask reports ${unverifiable.map((f) => `${entity}.${f}`).join(', ')} as isQueryable false, so no read can return ${unverifiable.length === 1 ? 'it' : 'them'}. ${unverifiable.length === 1 ? 'It was' : 'They were'} sent to Autotask and accepted, but this tool CANNOT confirm the stored value — check it in the Autotask UI if it matters.`
+        : null,
+    }
+  } catch {
+    return { verifiable: fields, unverifiable: [], reason: null }
+  }
+}
+
+/**
+ * Verify a write against the record Autotask now holds.
+ *
+ * This is what every tool calls. It splits the requested fields by live
+ * queryability first, verifies the ones a read can actually see, and reports
+ * the rest as EXPLICITLY UNVERIFIED rather than either failing them (a lie in
+ * one direction) or omitting them (a lie in the other).
+ *
+ * `report` is spread straight into a success payload, so a response can never
+ * claim more confidence than the API allowed.
+ */
+async function verifyWriteAgainst(
+  entity: string,
+  requested: Record<string, unknown>,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): Promise<VerifyResult & { report: Record<string, unknown> }> {
+  const { verifiable, unverifiable, reason } = await splitByQueryability(entity, Object.keys(requested))
+  const checked = Object.fromEntries(verifiable.map((f) => [f, requested[f]]))
+  const result = verifyWrittenFields(checked, before, after)
+  return {
+    ...result,
+    report: unverifiable.length
+      ? { unverifiableFields: unverifiable, unverifiableNote: reason }
+      : {},
+  }
 }
 
 /**
@@ -577,7 +645,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getProjectById(newId)
         if (!after) return readBackFailed('project', newId, TOOL, res.pathUsed, getAutotaskProjectUrl(String(newId)))
 
-        const { mismatches } = verifyWrittenFields({ ...fields, companyID: companyId }, null, after as unknown as Record<string, unknown>)
+        const { mismatches, report } = await verifyWriteAgainst('Projects', { ...fields, companyID: companyId }, null, after as unknown as Record<string, unknown>)
         if (mismatches.length) {
           return notVerified({ kind: 'project', id: newId, tool: TOOL, mismatches, changedFields: [], pathUsed: res.pathUsed, attempts: res.attempts, url: getAutotaskProjectUrl(String(newId)) })
         }
@@ -587,6 +655,7 @@ export function registerProjectTools(server: any) {
           companyId, companyName: company.companyName ?? null,
           project: after, writeVerified: true,
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The project was re-read by id after the create and every supplied field matched the stored value, including the company the URL supplied.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -644,7 +713,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getProjectById(projectId)
         if (!after) return readBackFailed('project', projectId, TOOL, res.pathUsed, getAutotaskProjectUrl(String(projectId)))
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Projects', 
           requested,
           before as unknown as Record<string, unknown>,
           after as unknown as Record<string, unknown>,
@@ -658,6 +727,7 @@ export function registerProjectTools(server: any) {
           writeVerified: true, requestedFields: Object.keys(requested), changedFields, unchangedFields,
           ...(unchangedFields.length ? { unchangedNote: `${unchangedFields.join(' and ')} already held the requested value, so ${unchangedFields.length === 1 ? 'that field' : 'those fields'} did not actually change. Do not describe ${unchangedFields.length === 1 ? 'it' : 'them'} as edited.` } : {}),
           project: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The project was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -763,7 +833,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getPhaseById(newId)
         if (!after) return readBackFailed('phase', newId, TOOL, res.pathUsed, getAutotaskProjectUrl(String(projectId)))
 
-        const { mismatches } = verifyWrittenFields({ ...fields, projectID: projectId }, null, after as unknown as Record<string, unknown>)
+        const { mismatches, report } = await verifyWriteAgainst('Phases', { ...fields, projectID: projectId }, null, after as unknown as Record<string, unknown>)
         if (mismatches.length) {
           return notVerified({ kind: 'phase', id: newId, tool: TOOL, mismatches, changedFields: [], pathUsed: res.pathUsed, attempts: res.attempts, url: getAutotaskProjectUrl(String(projectId)) })
         }
@@ -772,6 +842,7 @@ export function registerProjectTools(server: any) {
           created: true, phaseId: newId, projectId, phase: after, writeVerified: true,
           projectUrl: getAutotaskProjectUrl(String(projectId)),
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The phase was re-read by id after the create and every supplied field matched, including the project the URL supplied.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -813,7 +884,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getPhaseById(phaseId)
         if (!after) return readBackFailed('phase', phaseId, TOOL, res.pathUsed)
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Phases', 
           requested, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -824,6 +895,7 @@ export function registerProjectTools(server: any) {
           requestedFields: Object.keys(requested), changedFields, unchangedFields,
           phase: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
           projectUrl: getAutotaskProjectUrl(String(before.projectID)),
+          ...report,
           verifiedBy: 'The phase was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -918,7 +990,7 @@ export function registerProjectTools(server: any) {
 
         const expected: Record<string, unknown> = { ...fields, projectID: projectId }
         if (roleDefaulted) expected.assignedResourceRoleID = write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
-        const { mismatches } = verifyWrittenFields(expected, null, after as unknown as Record<string, unknown>)
+        const { mismatches, report } = await verifyWriteAgainst('Tasks', expected, null, after as unknown as Record<string, unknown>)
         if (mismatches.length) {
           return notVerified({ kind: 'task', id: newId, tool: TOOL, mismatches, changedFields: [], pathUsed: res.pathUsed, attempts: res.attempts, url: getAutotaskTaskUrl(String(newId)) })
         }
@@ -929,6 +1001,7 @@ export function registerProjectTools(server: any) {
           task: after, writeVerified: true,
           ...(roleDefaulted ? { roleDefaulted: true, roleDefaultedNote: `assignedResourceRoleID was not supplied and defaulted to Engineer (${write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID}); Autotask rejects a resource without a role.` } : {}),
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The task was re-read by id after the create and every supplied field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1011,7 +1084,7 @@ export function registerProjectTools(server: any) {
 
         const expected: Record<string, unknown> = { ...requested }
         if (roleDefaulted) expected.assignedResourceRoleID = write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Tasks', 
           expected, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -1025,6 +1098,7 @@ export function registerProjectTools(server: any) {
           ...(unchangedFields.length ? { unchangedNote: `${unchangedFields.join(' and ')} already held the requested value, so ${unchangedFields.length === 1 ? 'that field' : 'those fields'} did not actually change. Do not describe ${unchangedFields.length === 1 ? 'it' : 'them'} as edited.` } : {}),
           ...(roleDefaulted ? { roleDefaulted: true } : {}),
           task: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The task was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1117,7 +1191,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getTaskNoteByNoteId(noteId)
         if (!after) return readBackFailed('task note', noteId, TOOL, res.pathUsed, getAutotaskTaskUrl(String(before.taskID)))
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('TaskNotes', 
           requested, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -1140,6 +1214,7 @@ export function registerProjectTools(server: any) {
             ? `VISIBILITY CHANGED: this note moved from publish ${before.publish ?? 'unset'} to ${after.publish ?? 'unset'}. TELL THE USER THIS NOTE IS NOW CUSTOMER-VISIBLE — customers with Client Portal access to the project can now read it.`
             : `VISIBILITY CHANGED: this note moved from publish ${before.publish ?? 'unset'} to ${after.publish ?? 'unset'}. TELL THE USER THIS NOTE IS NO LONGER CUSTOMER-VISIBLE.`,
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The note was re-read by id after the write and every requested field matched. Autotask records the editing technician in impersonatorUpdaterResourceID.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1220,7 +1295,7 @@ export function registerProjectTools(server: any) {
         if (!after) return readBackFailed('time entry', newId, TOOL, res.pathUsed, getAutotaskTaskUrl(String(taskId)))
 
         const stored = after as unknown as Record<string, unknown>
-        const { mismatches } = verifyWrittenFields(
+        const { mismatches, report } = await verifyWriteAgainst('TimeEntries', 
           definedFields({ taskID: taskId, resourceID: rid, summaryNotes: args.summaryNotes, hoursWorked }),
           null, stored,
         )
@@ -1234,6 +1309,7 @@ export function registerProjectTools(server: any) {
           hoursWorked: stored.hoursWorked ?? null, dateWorked: stored.dateWorked ?? null,
           timeEntry: after, writeVerified: true,
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The time entry was re-read by id after the create; the task, resource, hours and summary all matched what was requested.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1282,7 +1358,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getTimeEntryById(timeEntryId)
         if (!after) return readBackFailed('time entry', timeEntryId, TOOL, res.pathUsed)
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('TimeEntries', 
           requested, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -1298,6 +1374,7 @@ export function registerProjectTools(server: any) {
             ? { billingNote: `HOURS CHANGED from ${String(beforeHours)} to ${String(afterHours)}. If this entry is billable and not yet invoiced, what the customer is billed has changed — say so.` }
             : {}),
           timeEntry: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The time entry was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1628,7 +1705,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getCompanyById(newId)
         if (!after) return readBackFailed('company', newId, TOOL, res.pathUsed)
 
-        const { mismatches } = verifyWrittenFields(fields as unknown as Record<string, unknown>, null, after as unknown as Record<string, unknown>)
+        const { mismatches, report } = await verifyWriteAgainst('Companies', fields as unknown as Record<string, unknown>, null, after as unknown as Record<string, unknown>)
         if (mismatches.length) {
           return notVerified({ kind: 'company', id: newId, tool: TOOL, mismatches, changedFields: [], pathUsed: res.pathUsed, attempts: res.attempts })
         }
@@ -1636,6 +1713,7 @@ export function registerProjectTools(server: any) {
           created: true, companyId: newId, company: after, writeVerified: true,
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
           permanenceNote: 'Autotask cannot delete companies (canDelete false). If this was a mistake, the only remedy is autotask_update_company with isActive: false.',
+          ...report,
           verifiedBy: 'The company was re-read by id after the create and every supplied field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1698,7 +1776,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getCompanyById(companyId)
         if (!after) return readBackFailed('company', companyId, TOOL, res.pathUsed)
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Companies', 
           requested, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -1712,6 +1790,7 @@ export function registerProjectTools(server: any) {
             ? { retiredNote: `Company ${companyId} is now INACTIVE. It has not been deleted — Autotask cannot delete companies — so it still exists and can be reactivated.` }
             : {}),
           company: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The company was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1792,7 +1871,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getContactById(newId)
         if (!after) return readBackFailed('contact', newId, TOOL, res.pathUsed)
 
-        const { mismatches } = verifyWrittenFields(
+        const { mismatches, report } = await verifyWriteAgainst('Contacts', 
           { ...(fields as unknown as Record<string, unknown>), companyID: companyId },
           null, after as unknown as Record<string, unknown>,
         )
@@ -1803,6 +1882,7 @@ export function registerProjectTools(server: any) {
           created: true, contactId: newId, companyId, companyName: company.companyName ?? null,
           contact: after, writeVerified: true,
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The contact was re-read by id after the create and every supplied field matched, including the company the URL supplied.',
         })
       } catch (e) { return fail(e, TOOL) }
@@ -1868,7 +1948,7 @@ export function registerProjectTools(server: any) {
         const after = await c.getContactById(contactId)
         if (!after) return readBackFailed('contact', contactId, TOOL, res.pathUsed)
 
-        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(
+        const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Contacts', 
           requested, beforeRow, after as unknown as Record<string, unknown>,
         )
         if (mismatches.length) {
@@ -1884,6 +1964,7 @@ export function registerProjectTools(server: any) {
             ? { retiredNote: `Contact ${contactId} is now INACTIVE. The record and its ticket history are preserved; it was not deleted.` }
             : {}),
           contact: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
+          ...report,
           verifiedBy: 'The contact was re-read by id after the write and every requested field matched the stored value.',
         })
       } catch (e) { return fail(e, TOOL) }
