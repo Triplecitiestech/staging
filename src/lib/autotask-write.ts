@@ -32,18 +32,150 @@ function writeHeaders(impersonationResourceId?: number): Record<string, string> 
   return h
 }
 
-async function post<T = unknown>(path: string, body: unknown, imp?: number): Promise<T> {
-  const res = await fetch(`${baseUrl()}/v1.0/${path}`, { method: 'POST', headers: writeHeaders(imp), body: JSON.stringify(body) })
+type WriteMethod = 'POST' | 'PATCH' | 'DELETE'
+
+interface RawWriteResponse {
+  ok: boolean
+  status: number
+  text: string
+}
+
+/**
+ * One write request, returning the STATUS rather than only throwing.
+ *
+ * The status is what lets writeAtFirstWorkingPath() below distinguish "this URL
+ * does not exist" from "this URL exists and rejected the payload" — a
+ * distinction whose absence manufactured the stale "task PATCH is BLOCKED"
+ * claim. post()/patch() keep throwing exactly the message they always did, so
+ * every existing caller and every error classifier is unaffected.
+ *
+ * The AbortSignal.timeout is new as of 2026-08-25 and deliberate: these helpers
+ * were the last external fetches in the connector without one, and a hung
+ * Autotask write would otherwise block the whole serverless function (see the
+ * critical gotcha in CLAUDE.md). It changes nothing about a request that
+ * completes.
+ */
+async function request(method: WriteMethod, path: string, body: unknown, imp?: number): Promise<RawWriteResponse> {
+  const res = await fetch(`${baseUrl()}/v1.0/${path}`, {
+    method,
+    headers: writeHeaders(imp),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30_000),
+  })
   const text = await res.text()
-  if (!res.ok) throw new Error(`Autotask POST ${path} failed (${res.status}): ${text.slice(0, 500)}`)
+  return { ok: res.ok, status: res.status, text }
+}
+
+/** Byte-compatible with the error these helpers have always thrown. */
+function writeError(method: WriteMethod, path: string, res: RawWriteResponse): Error {
+  return new Error(`Autotask ${method} ${path} failed (${res.status}): ${res.text.slice(0, 500)}`)
+}
+
+function parseBody<T>(text: string): T {
   return (text ? JSON.parse(text) : {}) as T
 }
 
+async function post<T = unknown>(path: string, body: unknown, imp?: number): Promise<T> {
+  const res = await request('POST', path, body, imp)
+  if (!res.ok) throw writeError('POST', path, res)
+  return parseBody<T>(res.text)
+}
+
 async function patch<T = unknown>(path: string, body: unknown, imp?: number): Promise<T> {
-  const res = await fetch(`${baseUrl()}/v1.0/${path}`, { method: 'PATCH', headers: writeHeaders(imp), body: JSON.stringify(body) })
-  const text = await res.text()
-  if (!res.ok) throw new Error(`Autotask PATCH ${path} failed (${res.status}): ${text.slice(0, 500)}`)
-  return (text ? JSON.parse(text) : {}) as T
+  const res = await request('PATCH', path, body, imp)
+  if (!res.ok) throw writeError('PATCH', path, res)
+  return parseBody<T>(res.text)
+}
+
+// ---------------------------------------------------------------------------
+// Addressing an Autotask child entity: try paths, but NEVER swallow a rejection
+// ---------------------------------------------------------------------------
+//
+// Autotask exposes some entities only beneath their parent
+// (Companies/{id}/Projects, Projects/{id}/Tasks, Tasks/{id}/Notes) and some at
+// the root as well. Which form a given entity accepts for a given METHOD is not
+// derivable from entityInformation — the metadata is served at the root path for
+// child entities too — so the working path has to be established by trying.
+//
+// THE RULE THAT MATTERS, and the reason this helper exists at all:
+//
+//   A 404 means the PATH is wrong → try the next candidate.
+//   Any other failure means the path was RIGHT and the REQUEST was wrong
+//   → stop immediately and surface THAT error.
+//
+// The previous implementation (AutotaskClient.updateTaskStatus) fell through on
+// every error and threw only the LAST one. So a 500 "Data violation" from the
+// correct parent-scoped URL was discarded, and the 404 from a later candidate —
+// `ProjectTasks`, an entity that does not exist on this instance at all — became
+// the recorded symptom. That is how "task PATCH returns 404 on all 3 entity
+// paths" got written into CLAUDE.md as a vendor limitation when the API reports
+// Tasks.canUpdate true.
+//
+// Every attempt is returned either way, so the response can state which URL
+// actually worked instead of leaving the next reader to re-derive it.
+
+export interface WriteAttempt {
+  path: string
+  method: WriteMethod
+  status: number
+  /** ok = accepted · path-not-found = 404, moved on · rejected = the path exists and refused this payload */
+  outcome: 'ok' | 'path-not-found' | 'rejected'
+  error?: string
+}
+
+export interface PathResolvedWrite<T> {
+  result: T
+  /** The path Autotask accepted. Report it — it is the answer to "how is this entity addressed?" */
+  pathUsed: string
+  attempts: WriteAttempt[]
+}
+
+/** One candidate URL and the body to send to it (they differ: a parent-scoped path supplies the parent id). */
+export interface WriteCandidate {
+  path: string
+  body?: unknown
+}
+
+export async function writeAtFirstWorkingPath<T = unknown>(
+  method: WriteMethod,
+  candidates: WriteCandidate[],
+  imp?: number,
+): Promise<PathResolvedWrite<T>> {
+  const attempts: WriteAttempt[] = []
+
+  for (const candidate of candidates) {
+    const res = await request(method, candidate.path, candidate.body, imp)
+
+    if (res.ok) {
+      attempts.push({ path: candidate.path, method, status: res.status, outcome: 'ok' })
+      return { result: parseBody<T>(res.text), pathUsed: candidate.path, attempts }
+    }
+
+    if (res.status === 404) {
+      attempts.push({ path: candidate.path, method, status: 404, outcome: 'path-not-found' })
+      continue
+    }
+
+    // The path resolved and Autotask refused the payload. Falling through here
+    // would hide the only informative error in the whole exchange.
+    attempts.push({
+      path: candidate.path,
+      method,
+      status: res.status,
+      outcome: 'rejected',
+      error: res.text.slice(0, 500),
+    })
+    throw writeError(method, candidate.path, res)
+  }
+
+  // Every candidate 404'd. This is the ONLY circumstance in which a path-level
+  // 404 is the real answer, and the message names every URL tried so the claim
+  // can be checked rather than believed.
+  throw new Error(
+    `Autotask ${method} failed: none of the candidate paths exist (${attempts
+      .map((a) => `${a.path} → 404`)
+      .join(', ')}). Every attempt returned 404, so this is a path/entity problem, not a payload problem.`
+  )
 }
 
 export async function createTicketNote(
@@ -272,4 +404,611 @@ export async function createConfigEntity(entityPath: string, body: Record<string
 /** DELETE an entity by full path, e.g. HolidaySets/3/Holidays/17 */
 export async function deleteConfigEntity(entityPathWithId: string): Promise<unknown> {
   return del(entityPathWithId)
+}
+
+// ============================================
+// PROJECT / TASK / CRM WRITES (impersonated, direct — no staged gate)
+// ============================================
+//
+// GATING DECISION (2026-08-25). These are DIRECT writes, like the ticket tools
+// and unlike the config ones. The staged-approval gate exists for INSTANCE
+// CONFIGURATION — categories, holidays, service pricing, UDF list items — where
+// one change silently alters how every future record behaves. Everything below
+// touches exactly one operational record by id, is visible in the Autotask UI
+// immediately, and is corrigible there by the same technician. Putting a task
+// status behind a human approval would make the connector useless for the work
+// it is meant to do, and would devalue the gate for the changes that need it.
+//
+// The one exception is company CREATE, which carries a duplicate-name refusal:
+// entityInformation reports Companies.canDelete FALSE, so a company created by
+// mistake can never be removed, only deactivated. That asymmetry earns a guard
+// the other creates do not need.
+//
+// Every function here is impersonated, and every caller verifies by read-back.
+
+/**
+ * Fields a PROJECT can be created with.
+ *
+ * companyID is absent BY CONSTRUCTION: entityInformation reports
+ * Projects.companyID isRequired true AND isReadOnly true, i.e. the value is
+ * supplied by the parent path (Companies/{id}/Projects) rather than the body.
+ * It is passed to createProject separately, for the URL.
+ */
+export interface ProjectCreateFields {
+  projectName: string
+  projectType: number
+  status: number
+  startDateTime: string
+  endDateTime: string
+  description?: string
+  projectLeadResourceID?: number
+  contractID?: number
+  department?: number
+  extProjectNumber?: string
+  purchaseOrderNumber?: string
+  statusDetail?: string
+  estimatedSalesCost?: number
+  laborEstimatedCosts?: number
+  laborEstimatedRevenue?: number
+  originalEstimatedRevenue?: number
+  projectCostsBudget?: number
+  projectCostsRevenue?: number
+  opportunityID?: number
+}
+
+/** Fields a PROJECT can be updated with. companyID is immutable — see above. */
+export interface ProjectUpdateFields {
+  projectName?: string
+  projectType?: number
+  status?: number
+  startDateTime?: string
+  endDateTime?: string
+  completedDateTime?: string
+  description?: string
+  projectLeadResourceID?: number | null
+  contractID?: number | null
+  department?: number
+  extProjectNumber?: string
+  purchaseOrderNumber?: string
+  statusDetail?: string
+  estimatedSalesCost?: number
+  laborEstimatedCosts?: number
+  laborEstimatedRevenue?: number
+  originalEstimatedRevenue?: number
+  projectCostsBudget?: number
+  projectCostsRevenue?: number
+}
+
+export async function createProject(
+  companyID: number,
+  fields: ProjectCreateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      // Parent-scoped first: companyID is read-only in the body, so this is the
+      // form the metadata points at.
+      { path: `Companies/${companyID}/Projects`, body: fields },
+      // Root fallback carries companyID explicitly — if the root path turns out
+      // to accept the create, it has no other way to learn the company.
+      { path: 'Projects', body: { ...fields, companyID } },
+    ],
+    imp,
+  )
+}
+
+export async function updateProject(
+  projectID: number,
+  fields: ProjectUpdateFields,
+  companyID?: number,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  const body = { id: projectID, ...fields }
+  const candidates: WriteCandidate[] = [{ path: 'Projects', body }]
+  if (companyID) candidates.push({ path: `Companies/${companyID}/Projects`, body })
+  return writeAtFirstWorkingPath('PATCH', candidates, imp)
+}
+
+/**
+ * Fields a project TASK can be created with.
+ *
+ * Unlike Projects.companyID, Tasks.projectID is isRequired true and isReadOnly
+ * FALSE, so it is legal in the body — it is sent on both candidate paths.
+ */
+export interface TaskCreateFields {
+  title: string
+  status: number
+  taskType: number
+  phaseID?: number
+  description?: string
+  startDateTime?: string
+  endDateTime?: string
+  estimatedHours?: number
+  remainingHours?: number
+  assignedResourceID?: number
+  assignedResourceRoleID?: number
+  priorityLabel?: number
+  departmentID?: number
+  taskCategoryID?: number
+  billingCodeID?: number
+  companyLocationID?: number
+  purchaseOrderNumber?: string
+  externalID?: string
+  isVisibleInClientPortal?: boolean
+  canClientPortalUserCompleteTask?: boolean
+}
+
+export interface TaskUpdateFields {
+  title?: string
+  status?: number
+  taskType?: number
+  phaseID?: number | null
+  description?: string
+  startDateTime?: string
+  endDateTime?: string
+  estimatedHours?: number
+  remainingHours?: number
+  assignedResourceID?: number | null
+  assignedResourceRoleID?: number | null
+  priorityLabel?: number
+  departmentID?: number
+  taskCategoryID?: number
+  billingCodeID?: number
+  companyLocationID?: number
+  purchaseOrderNumber?: string
+  externalID?: string
+  isVisibleInClientPortal?: boolean
+  canClientPortalUserCompleteTask?: boolean
+}
+
+/**
+ * Create a project task.
+ *
+ * applyAssignedResourceRole is reused verbatim from the ticket path: Tasks
+ * carries the same assignedResourceID + assignedResourceRoleID pair, and
+ * enforcing it in the WRITER rather than the tool is what stops a future caller
+ * reintroducing a lone resource id.
+ */
+export async function createTask(
+  projectID: number,
+  fields: TaskCreateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body = applyAssignedResourceRole({ ...fields, projectID })
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: `Projects/${projectID}/Tasks`, body },
+      { path: 'Tasks', body },
+    ],
+    imp,
+  )
+}
+
+/**
+ * Update a project task.
+ *
+ * projectID is required for the parent-scoped URL, which is why every caller
+ * reads the task first — that read also proves the task exists and yields the
+ * before-values the verification compares against.
+ */
+export async function updateTask(
+  taskID: number,
+  projectID: number,
+  fields: TaskUpdateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  const body = applyAssignedResourceRole({ id: taskID, ...fields })
+  return writeAtFirstWorkingPath(
+    'PATCH',
+    [
+      { path: `Projects/${projectID}/Tasks`, body },
+      { path: 'Tasks', body },
+    ],
+    imp,
+  )
+}
+
+// --- Task notes -------------------------------------------------------------
+//
+// Root TaskNotes is tried FIRST here, unlike Tasks: AutotaskClient.createTaskNote
+// has been POSTing to the root entity in production for as long as the sync has
+// existed, so it is the known-good path and deserves the first round trip.
+
+export interface TaskNoteFields {
+  title: string
+  description: string
+  /** Live picklist: 1 Task Summary · 2 Task Detail · 3 Task Notes. */
+  noteType?: number
+  /** Live picklist: 1 All Autotask Users (CUSTOMER-VISIBLE) · 2 Internal Project Team · 4 Internal & Co-Managed. There is no 3. */
+  publish?: number
+}
+
+export async function createTaskNote(
+  taskID: number,
+  data: TaskNoteFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body = {
+    taskID,
+    title: data.title,
+    description: data.description,
+    noteType: data.noteType ?? 3,
+    publish: data.publish ?? 2,
+  }
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: 'TaskNotes', body },
+      { path: `Tasks/${taskID}/Notes`, body },
+    ],
+    imp,
+  )
+}
+
+/** Partial edit of an existing task note. Only the supplied fields are sent — never a GET-and-merge. */
+export interface TaskNoteEdit {
+  description?: string
+  title?: string
+  publish?: number
+  noteType?: number
+}
+
+export async function updateTaskNote(
+  taskID: number,
+  noteID: number,
+  fields: TaskNoteEdit,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  const body = { id: noteID, ...fields }
+  return writeAtFirstWorkingPath(
+    'PATCH',
+    [
+      { path: 'TaskNotes', body },
+      { path: `Tasks/${taskID}/Notes`, body },
+    ],
+    imp,
+  )
+}
+
+// --- Project notes ----------------------------------------------------------
+
+export interface ProjectNoteFields {
+  title: string
+  description: string
+  noteType?: number
+  publish?: number
+  /** isRequired true on ProjectNotes — defaulted false rather than omitted. */
+  isAnnouncement?: boolean
+}
+
+export async function createProjectNote(
+  projectID: number,
+  data: ProjectNoteFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body = {
+    projectID,
+    title: data.title,
+    description: data.description,
+    noteType: data.noteType ?? 3,
+    publish: data.publish ?? 2,
+    isAnnouncement: data.isAnnouncement ?? false,
+  }
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: 'ProjectNotes', body },
+      { path: `Projects/${projectID}/Notes`, body },
+    ],
+    imp,
+  )
+}
+
+// --- Phases -----------------------------------------------------------------
+//
+// Phases.projectID is isRequired true AND isReadOnly true — the same shape as
+// Projects.companyID — so the parent path supplies it and the body must not.
+
+export interface PhaseFields {
+  title: string
+  description?: string
+  startDate?: string
+  dueDate?: string
+  externalID?: string
+  parentPhaseID?: number
+}
+
+export async function createProjectPhase(
+  projectID: number,
+  fields: PhaseFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: `Projects/${projectID}/Phases`, body: fields },
+      { path: 'Phases', body: { ...fields, projectID } },
+    ],
+    imp,
+  )
+}
+
+export async function updateProjectPhase(
+  phaseID: number,
+  projectID: number,
+  fields: Partial<PhaseFields>,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  const body = { id: phaseID, ...fields }
+  return writeAtFirstWorkingPath(
+    'PATCH',
+    [
+      { path: `Projects/${projectID}/Phases`, body },
+      { path: 'Phases', body },
+    ],
+    imp,
+  )
+}
+
+// --- Task time entries ------------------------------------------------------
+
+/**
+ * Log time against a project TASK (not a ticket).
+ *
+ * Separate from createTicketTimeEntry deliberately: that function's
+ * service-ticket branch requires a start AND stop time, a Tickets rule that
+ * does not apply here, and merging the two would import a constraint tasks do
+ * not have. Both post to the same root TimeEntries entity.
+ */
+export async function createTaskTimeEntry(
+  data: {
+    taskID: number
+    resourceID: number
+    roleID?: number
+    hoursWorked?: number
+    dateWorked?: string
+    startDateTime?: string
+    stopDateTime?: string
+    summaryNotes?: string
+    internalNotes?: string
+    billingCodeID?: number
+    isNonBillable?: boolean
+    showOnInvoice?: boolean
+  },
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body: Record<string, unknown> = {
+    taskID: data.taskID,
+    resourceID: data.resourceID,
+    summaryNotes: data.summaryNotes ?? '',
+    internalNotes: data.internalNotes ?? '',
+  }
+  if (data.roleID != null) body.roleID = data.roleID
+  if (data.startDateTime && data.stopDateTime) {
+    body.startDateTime = data.startDateTime
+    body.endDateTime = data.stopDateTime
+    body.dateWorked = data.dateWorked ?? data.startDateTime.slice(0, 10)
+    const derived = (new Date(data.stopDateTime).getTime() - new Date(data.startDateTime).getTime()) / 3_600_000
+    body.hoursWorked = data.hoursWorked ?? Math.round(derived * 100) / 100
+  } else {
+    body.dateWorked = data.dateWorked ?? new Date().toISOString().slice(0, 10)
+    if (data.hoursWorked != null) body.hoursWorked = data.hoursWorked
+  }
+  if (data.billingCodeID != null) body.billingCodeID = data.billingCodeID
+  if (data.isNonBillable != null) body.isNonBillable = data.isNonBillable
+  if (data.showOnInvoice != null) body.showOnInvoice = data.showOnInvoice
+  return writeAtFirstWorkingPath<{ itemId?: number }>('POST', [{ path: 'TimeEntries', body }], imp)
+}
+
+export interface TimeEntryEdit {
+  summaryNotes?: string
+  internalNotes?: string
+  hoursWorked?: number
+  dateWorked?: string
+  startDateTime?: string
+  endDateTime?: string
+  roleID?: number
+  billingCodeID?: number
+  isNonBillable?: boolean
+  showOnInvoice?: boolean
+}
+
+export async function updateTimeEntry(
+  timeEntryID: number,
+  fields: TimeEntryEdit,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  return writeAtFirstWorkingPath('PATCH', [{ path: 'TimeEntries', body: { id: timeEntryID, ...fields } }], imp)
+}
+
+// --- Task secondary resources ----------------------------------------------
+//
+// entityInformation: canCreate true, canDelete true, canUpdate FALSE — so this
+// is add/remove only, and resourceID + roleID are BOTH isRequired, another pair
+// that must travel together.
+
+export async function addTaskSecondaryResource(
+  taskID: number,
+  resourceID: number,
+  roleID: number,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body = { taskID, resourceID, roleID }
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: 'TaskSecondaryResources', body },
+      { path: `Tasks/${taskID}/SecondaryResources`, body },
+    ],
+    imp,
+  )
+}
+
+export async function removeTaskSecondaryResource(
+  taskID: number,
+  secondaryResourceRowID: number,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  return writeAtFirstWorkingPath(
+    'DELETE',
+    [
+      { path: `TaskSecondaryResources/${secondaryResourceRowID}` },
+      { path: `Tasks/${taskID}/SecondaryResources/${secondaryResourceRowID}` },
+    ],
+    imp,
+  )
+}
+
+// --- Task predecessors ------------------------------------------------------
+//
+// Both task ids are isReadOnly true, so the LINK is create/delete only; lagDays
+// is the single mutable field.
+
+export async function addTaskPredecessor(
+  successorTaskID: number,
+  predecessorTaskID: number,
+  lagDays: number | undefined,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  const body: Record<string, unknown> = { successorTaskID, predecessorTaskID }
+  if (lagDays != null) body.lagDays = lagDays
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: 'TaskPredecessors', body },
+      { path: `Tasks/${successorTaskID}/Predecessors`, body },
+    ],
+    imp,
+  )
+}
+
+export async function removeTaskPredecessor(
+  successorTaskID: number,
+  predecessorRowID: number,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  return writeAtFirstWorkingPath(
+    'DELETE',
+    [
+      { path: `TaskPredecessors/${predecessorRowID}` },
+      { path: `Tasks/${successorTaskID}/Predecessors/${predecessorRowID}` },
+    ],
+    imp,
+  )
+}
+
+// --- Companies --------------------------------------------------------------
+
+export interface CompanyCreateFields {
+  companyName: string
+  companyType: number
+  ownerResourceID: number
+  phone: string
+  address1?: string
+  address2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  countryID?: number
+  webAddress?: string
+  fax?: string
+  alternatePhone1?: string
+  companyNumber?: string
+  parentCompanyID?: number
+  classification?: number
+  companyCategoryID?: number
+  marketSegmentID?: number
+  territoryID?: number
+  taxID?: string
+  taxRegionID?: number
+  isTaxExempt?: boolean
+  isActive?: boolean
+  isEnabledForComanaged?: boolean
+  invoiceMethod?: number
+  currencyID?: number
+}
+
+export type CompanyUpdateFields = Partial<CompanyCreateFields>
+
+export async function createCompany(
+  fields: CompanyCreateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  return writeAtFirstWorkingPath<{ itemId?: number }>('POST', [{ path: 'Companies', body: fields }], imp)
+}
+
+export async function updateCompany(
+  companyID: number,
+  fields: CompanyUpdateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  return writeAtFirstWorkingPath('PATCH', [{ path: 'Companies', body: { id: companyID, ...fields } }], imp)
+}
+
+// --- Contacts ---------------------------------------------------------------
+//
+// Contacts.companyID is isRequired true AND isReadOnly true — the Projects
+// pattern again — so the parent path supplies it on create and a contact can
+// never be moved between companies afterwards.
+
+export interface ContactCreateFields {
+  firstName: string
+  lastName: string
+  /** isRequired true. Autotask types this as an INTEGER, not a boolean: 1 active, 0 inactive. */
+  isActive: number
+  title?: string
+  emailAddress?: string
+  emailAddress2?: string
+  emailAddress3?: string
+  phone?: string
+  mobilePhone?: string
+  alternatePhone?: string
+  extension?: string
+  faxNumber?: string
+  addressLine?: string
+  addressLine1?: string
+  city?: string
+  state?: string
+  zipCode?: string
+  countryID?: number
+  companyLocationID?: number
+  namePrefix?: number
+  middleInitial?: string
+  note?: string
+  primaryContact?: boolean
+  billingContact?: boolean
+  receivesEmailNotifications?: boolean
+  externalID?: string
+  roomNumber?: string
+}
+
+export type ContactUpdateFields = Partial<ContactCreateFields>
+
+export async function createContact(
+  companyID: number,
+  fields: ContactCreateFields,
+  imp?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [
+      { path: `Companies/${companyID}/Contacts`, body: fields },
+      { path: 'Contacts', body: { ...fields, companyID } },
+    ],
+    imp,
+  )
+}
+
+export async function updateContact(
+  contactID: number,
+  fields: ContactUpdateFields,
+  companyID?: number,
+  imp?: number,
+): Promise<PathResolvedWrite<unknown>> {
+  const body = { id: contactID, ...fields }
+  const candidates: WriteCandidate[] = [{ path: 'Contacts', body }]
+  if (companyID) candidates.push({ path: `Companies/${companyID}/Contacts`, body })
+  return writeAtFirstWorkingPath('PATCH', candidates, imp)
 }

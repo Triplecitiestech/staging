@@ -44,6 +44,12 @@ const SPEC_AUDIT_PENDING =
 // ships a change, the live lookup reports the new truth and
 // autotask_surface_drift_report flags the difference, rather than this file
 // quietly continuing to assert a stale limitation.
+// Same contract as LIVE_VERIFIED_2026_07_28, for the project/task/CRM sweep
+// that shipped the project tools. Recorded because a dated check is auditable;
+// the verdict itself is still re-derived live on every call.
+const LIVE_VERIFIED_2026_08_25 =
+  'Confirmed against LIVE entityInformation on 2026-08-25 via autotask_entity_capabilities. Re-derived live on every call — never served from this row.'
+
 const LIVE_VERIFIED_2026_07_28 =
   'Confirmed against LIVE entityInformation on 2026-07-28 via autotask_entity_capabilities. Re-derived live on every call — never served from this row.'
 
@@ -126,11 +132,64 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       verifiedBy: SPEC_AUDIT_PENDING,
       notes: 'Queue membership IS readable via ResourceRoleQueues (autotask_list_queues).',
     },
+    // The row that used to sit here claimed "Update project tasks — BLOCKED,
+    // task PATCH returns 404 on all 3 entity paths". It was wrong, and it is
+    // replaced rather than softened: autotask_update_task ships and works.
+    // What the 404 actually was is recorded in docs/gotchas.md → Autotask.
     {
-      capability: 'Update project tasks (PATCH to task entities)',
-      reason: 'BLOCKED',
-      verifiedBy: 'Live 404 on task PATCH write-back, recorded in CLAUDE.md critical gotchas.',
-      failureMode: 'Task PATCH returns 404. Notes and time entries POST to tasks fine — it is specifically the task-record update that fails.',
+      capability: 'Delete a project, phase, task, task note or project note',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports canDelete FALSE on Projects, Phases, Tasks, TaskNotes and ProjectNotes (canQuery/canCreate/canUpdate all true on each). Read live on 2026-08-25 via autotask_entity_capabilities. ' + LIVE_VERIFIED_2026_08_25,
+      notes:
+        'UPDATE works on all five and is implemented — autotask_update_project / _project_phase / _task / _task_note. Retire a project by setting status 0 (Inactive) and a task by completing it; a note can be corrected in place but never removed. Do not offer a delete, and do not read a failed delete as a bug.',
+    },
+    {
+      capability: 'Move a project to a different company, a phase to a different project, or a contact to a different company',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports Projects.companyID, Phases.projectID and Contacts.companyID each isRequired TRUE and isReadOnly TRUE — the parent is supplied by the create URL and is immutable thereafter. Read live on 2026-08-25. ' + LIVE_VERIFIED_2026_08_25,
+      notes:
+        'Contrast Tasks.projectID, which is required but NOT read-only. The connector therefore offers no parameter for any of the three, rather than accepting one and silently dropping it — the failure mode that let the IT Glue folder-move defect survive twelve days.',
+    },
+    {
+      capability: 'Edit an existing task secondary-resource row (change its role in place)',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports TaskSecondaryResources canCreate true, canDelete true, canUpdate FALSE. Read live on 2026-08-25. ' + LIVE_VERIFIED_2026_08_25,
+      notes:
+        'Membership is add/remove only: change a secondary resource\'s role by removing the row and adding a new one. Both are implemented (autotask_add_task_secondary_resource / autotask_remove_task_secondary_resource). Same shape as ServiceBundleServices — do not generalise the other way, TaskPredecessors DOES support update.',
+    },
+    {
+      capability: 'Re-point an existing task dependency to a different task',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports TaskPredecessors.predecessorTaskID and .successorTaskID both isReadOnly true (the entity itself is canCreate/canUpdate/canDelete true — only lagDays is mutable). Read live on 2026-08-25. ' + LIVE_VERIFIED_2026_08_25,
+      notes: 'Remove the dependency and add the new one instead. Both are implemented.',
+    },
+    {
+      capability: 'Delete a company',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'entityInformation reports Companies.canDelete FALSE (canQuery/canCreate/canUpdate true). Read live on 2026-08-25. ' + LIVE_VERIFIED_2026_08_25,
+      notes:
+        'Deactivation (isActive false) via autotask_update_company is the only retirement path. This is why autotask_create_company REFUSES a duplicate company name by default — an accidental company is permanent.',
+    },
+    {
+      capability: 'Delete a contact, or delete a time entry',
+      reason: 'POLICY_GATED',
+      verifiedBy:
+        'NOT a vendor limit — entityInformation reports Contacts.canDelete TRUE and TimeEntries.canDelete TRUE (read live 2026-08-25). No connector tool calls either, deliberately.',
+      notes:
+        'Deleting a contact drops its association with the ticket history irrecoverably; deleting billable time silently changes what a customer owes. Both have a safe alternative that preserves the record — isActive false on a contact, autotask_update_time_entry on an entry — so the destructive form is withheld until someone asks for it with a concrete need. This is a blast-radius decision, not an API gap: say so rather than reporting it as impossible.',
+    },
+    {
+      capability: 'Read or write project CHARGES, expenses, or the project schedule/Gantt layout',
+      reason: 'NOT_BUILT',
+      verifiedBy:
+        'No such tool in the live registry. The REST write surface for ProjectCharges/ExpenseItems has NOT been assessed against entityInformation — this row is a scope statement, not a capability claim.',
+      priority: 'low',
+      notes: 'Task dependencies and phases ARE implemented; scheduling beyond that (baselines, resource levelling) has not been looked at.',
     },
     {
       capability: 'Contract, invoice, opportunity and quote WRITES',

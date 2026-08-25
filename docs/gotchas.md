@@ -118,7 +118,7 @@ Primary external data source for companies, projects, phases, and tasks. The own
 
 **Critical bugs fixed (do NOT reintroduce)**:
 - **Never silently catch phase/task API errors** — the original code had `try { } catch { /* no phases */ }` which hid all failures and made it look like projects had no data. Always report errors.
-- **Task status values must be distinct** — Autotask uses picklist values: 1=New, 4=In Progress, 5=Complete, 7=Waiting Customer. The old code had both IN_PROGRESS and COMPLETE mapped to `5`, so tasks never showed as complete.
+- **Task status values must be distinct, and they are PER-INSTANCE (corrected 2026-08-25)** — this entry previously read "1=New, 4=In Progress, 5=Complete, 7=Waiting Customer". **That was Autotask's DEFAULT picklist, not ours.** The live `Tasks.status` picklist on this instance has **no id 4 at all**; In Progress is **8**. The 18 live ids are 1 New, 5 Complete, 52 Complete - No Notify, 8 In Progress, 7 Waiting Customer, 50 Billing Reconciliation, 31 Corr./Bad Blocks(On hold), 19 Customer Note Added, 35 Escalated to Level 2, 11 Escalated to Level 3, 26 Need to Order Materials, 27 Needs Quote, 22 Re-open, 10 Scheduled, 9 Waiting Materials, 21 Waiting on Down Payment, 25 Waiting on Payment, 12 Waiting Vendor. `AT_TASK_STATUS_IN_PROGRESS` in `autotask.ts` was 4 until 2026-08-25, so every WORK_IN_PROGRESS write-back sent a nonexistent status and every task genuinely at 8 read back as NOT_STARTED. **Same bug on projects**: `AT_PROJECT_STATUS.ACTIVE` was 4, but live `Projects.status` 4 is **"Change Order"** — In Progress is **2**. Resolve these from `autotask_entity_picklist` before ever changing them; the original "both IN_PROGRESS and COMPLETE mapped to 5" bug is long fixed.
 - **company_contacts table may not exist** — the contacts sync auto-creates it via raw SQL if missing. Don't bail out with "run migration first".
 
 **Key files**: `src/lib/autotask.ts` (API client, types, status mappers), `src/app/api/autotask/trigger/route.ts` (multi-step sync endpoint), `src/app/api/autotask/status/route.ts` (sync history viewer).
@@ -133,7 +133,7 @@ Primary external data source for companies, projects, phases, and tasks. The own
 - **Client retry policy (2026-06-09)**: `AutotaskClient` wraps GET/query/PATCH in `withRetry` from `resilience.ts` (2 retries, 1s base backoff — retries 429/5xx/timeouts only; 404/400 surface immediately so entity-path fallback chains stay fast). **POST is deliberately NOT retried**: creates aren't idempotent and a retry after an ambiguous timeout would duplicate notes/time entries. Don't add retry loops on top in callers.
 - **Ticket queries use `includeFields`** (`TICKET_QUERY_FIELDS` in `autotask.ts`): without it Autotask returns ~80 fields + userDefinedFields per ticket. The list must stay in sync with the `AutotaskTicket` interface — if you add a field to the interface, add it to the constant or it will come back `undefined` at runtime while type-checking fine.
 - **Custom ticket statuses break ID-based closed checks (2026-06-09)**: the operator creates custom statuses in Autotask (e.g. "Complete - No Notify") which get NEW picklist IDs — the static resolved set `[5, 13, 29]` in `src/lib/tickets/utils.ts` undercounts closed tickets. `isResolvedStatus(status, statusLabel?)` is label-aware; ALWAYS pass the status label (live picklist for customer views, synced `statusLabel` for DB rows). The reporting layer (`updateStatusClassification`) was already label-driven and unaffected.
-- **Write-back: PATCH vs POST**: Task status PATCH returns 404 on all 3 entity paths for this Autotask instance. However, notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work fine. The task PATCH API (`/api/tasks/[id]`) returns `autotaskSyncFailed: true` when the write-back fails so the UI can warn the admin.
+- **Write-back: PATCH vs POST — the "task PATCH 404s" claim was WRONG (retracted 2026-08-25)**: this entry used to read "Task status PATCH returns 404 on all 3 entity paths for this Autotask instance", and `known-limits.ts` carried it as a `BLOCKED` row. Live `entityInformation` reports **`Tasks.canUpdate: true`**, and `autotask_capability_check(Tasks, update)` returns `SUPPORTED_NOT_IMPLEMENTED`. The connector now updates tasks (`autotask_update_task`). What actually happened: `AutotaskClient.updateTaskStatus()` tries three URLs in sequence, **catches every error and rethrows only the LAST one** — so (1) attempt 2 was `ProjectTasks`, which **does not exist as a REST entity on this instance at all** (`GET /v1.0/ProjectTasks/entityInformation/fields` → 404), and (2) any real rejection from the correct parent-scoped path (`Projects/{id}/Tasks`) was discarded and replaced by a later candidate's path-level 404. A 404 from a nonexistent entity got recorded as a vendor limitation on a capability the vendor supports. The `/api/tasks/[id]` `autotaskSyncFailed` flag is unchanged and still useful. Notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work at the ROOT entity, as before. **Lesson: a fallback chain that swallows errors cannot be used as evidence about an API. Never conclude "the vendor can't" from the last error in a fallback loop — 404 means the PATH was wrong, and only a non-404 tells you anything about the payload.**
 - **`?step=companies` only syncs Autotask companies that have projects**: Customers without an active project in AT won't be pulled in via that step. Use the `/admin/companies/new` "Import from Autotask" search + Import & Sync button, or the wizard's Step 1 search/link box, to import a project-less company. `/api/autotask/companies/import` is the single endpoint that sets `autotaskCompanyId` from a manual flow.
 - **`/api/companies` POST does NOT set autotaskCompanyId**: The manual New Company create endpoint creates a local-only row with no AT link. The form at `/admin/companies/new` hides the manual section when an AT company is selected so users can't accidentally bypass `/api/autotask/companies/import`. Don't add new entry points to `/api/companies` POST without also taking the AT path into account, or you'll regress the orphan-company trap.
 - **Contact sync is NOT in the Pipeline Status "Run All"**: `sync_contacts` is registered in `JOB_MAP` and visible in the Pipeline Status UI as a single button, but it's intentionally excluded from `PIPELINE_ORDER`. Iterating every Autotask-linked company nightly adds API cost for no benefit (contacts change rarely). Per-company sync via `POST /api/admin/companies/[id]/sync-contacts` is the recommended path for onboarding.
@@ -150,6 +150,107 @@ Primary external data source for companies, projects, phases, and tasks. The own
 - **Connector config writes are gated structurally (2026-07-03)**: MCP config-write tools can only STAGE changes (`connector_staged_writes` table: before/after snapshot + diff + audit); a human must approve on `/admin/connector/staged-writes` (staff session + `system_settings` permission — unreachable by the connector's OAuth token); `autotask_execute_staged_write` then re-reads the live record and ABORTS on drift, single-use, TTL-expired. Kill switch: `CONNECTOR_CONFIG_WRITES_ENABLED` must be `'true'`. Allowlisted areas + writable fields live in `src/lib/connector/staged-writes-core.ts` — extend the allowlist there, never bypass `stageConfigWrite`. The `status_sla_overlay` area writes the owner-maintained status→SLA-event mapping to OUR `connector_config_overlays` table (returned by `autotask_ticket_statuses` clearly labelled `manual_overlay` with lastVerifiedAt — never present it as API data).
 
 ---
+
+## Autotask projects, tasks and CRM — the connector write surface (2026-08-25)
+
+Everything here was read from LIVE `entityInformation` on 2026-08-25. Nothing in
+`src/lib/mcp-project-tools.ts` branches on a hardcoded capability; these notes
+record what a check found, they are not the mechanism.
+
+**Entity capability matrix** (`canQuery` is true on all of them):
+
+| Entity | create | update | delete |
+|---|---|---|---|
+| Projects | ✔ | ✔ | **✘** |
+| Phases | ✔ | ✔ | **✘** |
+| Tasks | ✔ | **✔** | **✘** |
+| TaskNotes | ✔ | ✔ | **✘** |
+| ProjectNotes | ✔ | ✔ | **✘** |
+| TimeEntries | ✔ | ✔ | ✔ (not exposed — policy) |
+| TaskSecondaryResources | ✔ | **✘** | ✔ |
+| TaskPredecessors | ✔ | ✔ (lagDays only) | ✔ |
+| Companies | ✔ | ✔ | **✘** |
+| Contacts | ✔ | ✔ | ✔ (not exposed — policy) |
+| **ProjectTasks** | — | — | — | **does not exist**: `entityInformation` 404s |
+
+**A required + read-only parent id means the URL supplies it.** `Projects.companyID`,
+`Phases.projectID` and `Contacts.companyID` are each `isRequired: true` AND
+`isReadOnly: true`. That is not "nobody can set it" — it is *the parent path sets
+it and it is immutable afterwards*: create at `Companies/{id}/Projects`,
+`Projects/{id}/Phases`, `Companies/{id}/Contacts`. Contrast **`Tasks.projectID`**,
+which is required but `isReadOnly: false`, so it travels in the body. This is the
+`periodType` / `parentIdField` family of traps again — `autotask_capability_check`
+still answers "cannot be written by anyone / do not offer to change this field"
+for `Projects.companyID`, because with no write area registered for Projects its
+`fieldSupplyRoutes()` has nothing to consult. **A read-only flag on a required
+field is a question, not a verdict.**
+
+**Writes resolve their path and never swallow a rejection.**
+`writeAtFirstWorkingPath()` in `autotask-write.ts` tries candidate URLs with one
+rule: **404 → try the next; anything else → stop and surface THAT error.** Every
+attempt (path, method, status, outcome) is returned as `pathAttempts` and the
+winner as `pathUsed`, so how an entity is addressed is observed and reported
+rather than re-derived by the next reader. This exists because the old
+swallow-everything chain manufactured the false "task PATCH is BLOCKED" claim
+above. Locked by `mcp-project-tools.test.ts`, whose central test asserts that a
+500 data violation from the first candidate stops the chain and that the second
+candidate is never tried.
+
+**Field pairs Autotask requires together.** `Tasks.assignedResourceID` +
+`assignedResourceRoleID` behave exactly like the Tickets pair, so
+`applyAssignedResourceRole()` is reused verbatim in the WRITER (defaults to
+Engineer 29683355; clearing an assignment deliberately does not acquire a role).
+`TaskSecondaryResources` marks **both** `resourceID` and `roleID` `isRequired`, so
+that tool takes both rather than defaulting one.
+
+**`TaskNotes.publish` has the same misleading labels as `TicketNotes`**: live
+picklist is `1 = "All Autotask Users"` (the **CUSTOMER-VISIBLE**, Internal-cleared
+state), `2 = "Internal Project Team"`, `4 = "Internal & Co-Managed"`. **There is no
+id 3.** Both note tools default to **2**, so a note is never accidentally exposed.
+`TaskNotes.noteType` is `1 Task Summary, 2 Task Detail, 3 Task Notes`.
+
+**Project and task notes cannot notify anyone either.** Same finding as
+TicketNotes (2026-07-30): the REST note entities carry no notification field of
+any kind. Both tools say so in their description and their response. Do not go
+looking for a field.
+
+**Companies cannot be deleted, so company create refuses a duplicate name.**
+`Companies.canDelete` is false — an accidental company is permanent and can only
+be deactivated. `autotask_create_company` therefore queries for an exact
+`companyName` match first and returns `PRECONDITION_FAILED` with the existing id
+unless `allowDuplicateName: true`. Required on create: `companyName`,
+`companyType`, `ownerResourceID`, **`phone`** (that last one surprises people).
+`companyType` live: 1 Customer, 2 Lead, 3 Prospect, 4 Dead, 6 Cancellation,
+7 Vendor, 8 Partner — no id 5.
+
+**`Contacts.isActive` is an INTEGER, not a boolean** (1/0). The tools take a
+boolean because that is what a caller means and convert at the boundary.
+
+**Contact delete and time-entry delete are POLICY_GATED, not vendor-limited.**
+Autotask permits both (`canDelete: true`). Neither is exposed: deleting a contact
+drops its ticket-history association irrecoverably, and deleting billable time
+silently changes what a customer owes. Both have a preserving alternative
+(`isActive: false`, `autotask_update_time_entry`). Say "we chose not to", never
+"Autotask can't".
+
+**Task reads carry the same false-absence guard as ticket reads.**
+`autotask_get_task` returns task FIELDS only and structurally excludes notes and
+time entries, so it publishes `activityGap` and an unconditional warning naming
+`autotask_task_activity` — which merges TaskNotes + TimeEntries. Same reasoning
+as ticket 34648: a missed gap costs an employee a false accusation, a spurious
+warning costs one tool call.
+
+**Gating decision.** All of these are DIRECT impersonated writes, not staged. The
+approval gate is for instance CONFIGURATION, where one change alters how every
+future record behaves; these touch one operational row by id, appear in the
+Autotask UI immediately, and are correctable there. Putting a task status behind
+a human approval would make the connector useless for the work it exists to do
+and would devalue the gate for the changes that need it.
+
+**Side fix**: `post()`/`patch()` in `autotask-write.ts` had no
+`AbortSignal.timeout()` — the last external fetches in the connector without one.
+They now carry 30s, per the critical gotcha. Thrown error messages are
+byte-identical, so no caller or classifier changed.
 
 ## Autotask ticket reads must never support a false absence claim (2026-07-30)
 

@@ -24,6 +24,7 @@ import {
 } from '@/lib/autotask-activity'
 import * as unifi from '@/lib/ubiquiti'
 import { registerWriteTools } from '@/lib/mcp-write-tools'
+import { registerProjectTools } from '@/lib/mcp-project-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
@@ -225,6 +226,12 @@ export function buildConnectorHandler(basePath: string) {
 
       // ── Autotask writes (impersonated as the signed-in tech) ───────────────
       registerWriteTools(server)
+
+      // ── Autotask PROJECTS / TASKS / CRM (impersonated, read-back verified) ─
+      // Operational records, so DIRECT writes like the ticket tools above —
+      // the staged gate below is for instance CONFIGURATION, not for a task
+      // status or a contact's phone number.
+      registerProjectTools(server)
 
       // ── Autotask CONFIG writes (structural human-approval gate) ────────────
       // stage → human approves on /admin/connector/staged-writes → execute.
