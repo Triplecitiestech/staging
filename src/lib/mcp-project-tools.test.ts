@@ -205,6 +205,14 @@ describe('valueMatches', () => {
     expect(valueMatches(null, '')).toBe(true)
     expect(valueMatches(null, 5)).toBe(false)
   })
+
+  it('treats an empty string as the same clear request — Autotask stores null', () => {
+    // Blanking a description sends '' and Autotask stores null. That is a
+    // successful clear; failing it would report a dropped write that landed.
+    expect(valueMatches('', null)).toBe(true)
+    expect(valueMatches('', '')).toBe(true)
+    expect(valueMatches('', 'still here')).toBe(false)
+  })
 })
 
 describe('verifyWrittenFields', () => {

@@ -117,7 +117,11 @@ export function datesMatch(a: string, b: string): boolean | null {
 /** Does the stored value match what was asked for? */
 export function valueMatches(requested: unknown, actual: unknown): boolean {
   // Clearing a field: Autotask may store null, undefined or an empty string.
-  if (requested === null) return actual === null || actual === undefined || actual === ''
+  // An empty STRING is the same request — a caller blanking a description sends
+  // '' and Autotask stores null, which is a successful clear, not a dropped
+  // write. Treating it as a mismatch would fail a write that did exactly what
+  // was asked.
+  if (requested === null || requested === '') return actual === null || actual === undefined || actual === ''
   if (requested === undefined) return true
 
   if (typeof requested === 'number') {
@@ -458,7 +462,7 @@ export function registerProjectTools(server: any) {
           return noSuchRecord('project', projectId, 'autotask_project_detail', 'Check the id. Find a company\'s projects with autotask_company_projects({ companyId }), or all active ones with autotask_active_projects.')
         }
         const [phases, tasks, notes] = await Promise.all([
-          c.getProjectPhases(projectId),
+          c.getPhasesByProjectId(projectId),
           c.getTasksByProjectId(projectId),
           includeNotes ? c.getProjectNotes(projectId) : Promise.resolve([]),
         ])

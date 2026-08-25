@@ -1219,6 +1219,19 @@ export class AutotaskClient {
     return rows[0] ?? null;
   }
 
+  /**
+   * Phases of a project, read at the ROOT Phases entity with NO fallback.
+   *
+   * getProjectPhases() above tries the child path first and falls back — right
+   * for a nightly sync, wrong for a connector read that must not present a
+   * fallback's result as the authoritative list. A failed query here raises.
+   */
+  async getPhasesByProjectId(projectId: number): Promise<AutotaskProjectPhase[]> {
+    return this.queryAll<AutotaskProjectPhase>('Phases', {
+      op: 'eq', field: 'projectID', value: projectId,
+    });
+  }
+
   /** One project phase by id. */
   async getPhaseById(phaseId: number): Promise<AutotaskProjectPhase | null> {
     const rows = await this.queryAll<AutotaskProjectPhase>('Phases', {
