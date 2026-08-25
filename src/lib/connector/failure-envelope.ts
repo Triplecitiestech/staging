@@ -479,15 +479,26 @@ export function classifyThrown(err: unknown, ctx: ClassifyContext): ConnectorFai
         remediation:
           'This is a permissions change, not a code change: tell Kurtis which vendor credential needs which right. Do NOT report this as a vendor limitation — the capability may well exist.',
       })
-    case 'validation':
+    case 'validation': {
+      // Two routes reach here: a plain 4xx, and a 5xx whose body carried a
+      // structured errors[] array. Autotask uses the second for every
+      // request-shape rejection, so the message must not assert a status range
+      // it may not have — and when the vendor enumerated the problems, its own
+      // sentences are the remediation. Paraphrasing loses the field names,
+      // which are the only part the caller can act on.
+      const rule = extractVendorRule(raw)
       return connectorFailure({
         ...base,
         reasonCode: 'INVALID_INPUT',
-        message: `The upstream API rejected the request as invalid (400/404/422). ${raw}`,
-        evidence: 'Upstream returned 400/404/422 (classified as validation by classifyError()).',
+        message: `The upstream API rejected this request as invalid. This is NOT transient — retrying it unchanged cannot succeed. ${raw}`,
+        evidence:
+          'Classified as validation by classifyError(): either a 4xx, or a 5xx whose body listed what is wrong with the request. A structured errors[] array means the vendor understood the request well enough to enumerate its problems, so the status code is not what decides this.',
         remediation:
-          'Check the arguments against the tool description. If every argument is right, the record may not exist — re-read current state before retrying.',
+          `${rule ? `The vendor's own message: "${rule}" — fix exactly what it names, then call again. ` : 'Check the arguments against the tool description. '}` +
+          'If a required field has no tool parameter, that is a connector gap for Claude Code, not a retry. If every argument is right, the record may not exist — re-read current state first.',
+        details: { ...ctx.details, retryable: false, ...(rule ? { vendorRule: rule } : {}) },
       })
+    }
     default: {
       const fallback = ctx.fallback ?? 'NOT_IMPLEMENTED'
       // UPSTREAM_UNSUPPORTED can never be a FALLBACK: an unrecognised error is

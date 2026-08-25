@@ -303,3 +303,202 @@ describe('splitByQueryability — a writable field a read can never see', () => 
     expect(res.unverifiable).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Defects found building Wilmar project 55 (2026-08-25)
+// ---------------------------------------------------------------------------
+//
+// 134 tasks through the connector surfaced three defects that cost failed
+// writes. These lock the fixes to the VERBATIM vendor payloads observed, so a
+// future refactor that reintroduces any of them fails here.
+
+import { planTaskAssignment } from '@/lib/mcp-project-tools'
+import { classifyError } from '@/lib/resilience'
+import { classifyThrown } from '@/lib/connector/failure-envelope'
+import { resolvePicklistId, __setPicklistFetcher, clearPicklistCache } from '@/lib/connector/autotask-picklists'
+
+describe('classifyError — a 500 carrying a structured errors[] body is a REQUEST problem', () => {
+  // Autotask answers request-shape rejections with HTTP 500. The bare '500'
+  // status test classified these as server_error → TRANSIENT → "wait briefly
+  // and retry", advice that can never succeed because the request is wrong.
+  const taskAssignment500 =
+    'Autotask POST Projects/55/Tasks failed (500): {"errors":[' +
+    '"The Task \\"Kickoff\\" has an invalid Resource and Role combination.",' +
+    '"billingCodeID is a required field when a Resource (primary/secondary) is assigned to a Task",' +
+    '"departmentID is a required field when a Resource (primary/secondary) is assigned to a Task"]}'
+
+  const picklist500 =
+    'Autotask POST Projects/55/Notes failed (500): {"errors":["Picklist value [3] does not exist for noteType. ; on record number [1]."]}'
+
+  it('classifies the verbatim task-assignment 500 as validation, not transient', () => {
+    const c = classifyError(new Error(taskAssignment500))
+    expect(c.category).toBe('validation')
+    expect(c.isTransient).toBe(false)
+  })
+
+  it('classifies the verbatim picklist 500 as validation, not transient', () => {
+    const c = classifyError(new Error(picklist500))
+    expect(c.category).toBe('validation')
+    expect(c.isTransient).toBe(false)
+  })
+
+  it('the envelope never tells the caller to retry either of them', () => {
+    for (const raw of [taskAssignment500, picklist500]) {
+      const env = classifyThrown(new Error(raw), { surface: 'autotask' })
+      expect(env.reasonCode).toBe('INVALID_INPUT')
+      expect(env.fixableBy).not.toBe('retry')
+      expect(env.remediation.toLowerCase()).not.toContain('wait briefly')
+      expect(env.remediation.toLowerCase()).not.toContain('report it as an outage')
+    }
+  })
+
+  it('quotes the vendor\'s own sentence back, because it names the field', () => {
+    const env = classifyThrown(new Error(taskAssignment500), { surface: 'autotask' })
+    expect(env.remediation).toContain('billingCodeID')
+  })
+
+  it('a 500 with NO structured body is still TRANSIENT', () => {
+    // A real outage must keep retrying. This is the half that would break if
+    // the fix were "treat every Autotask 500 as invalid input".
+    const c = classifyError(new Error('Autotask POST Tickets failed (500): <html>Server Error</html>'))
+    expect(c.category).toBe('server_error')
+    expect(c.isTransient).toBe(true)
+  })
+
+  it('a 500 whose errors[] is a GENERIC fault is still TRANSIENT', () => {
+    // The first version of this fix reclassified any errors[] array and broke
+    // two real retry tests using exactly this body. Recognition is an
+    // allowlist, so an unrecognised body keeps retrying: a needless retry
+    // costs a second, a suppressed one costs an outage recovery.
+    for (const body of [
+      'failed (500): {"errors":["internal error"]}',
+      'failed (500): {"errors":["Internal server error, please try again"]}',
+      'failed (500): {"errors":["Something went wrong"]}',
+    ]) {
+      expect(classifyError(new Error(body)).isTransient).toBe(true)
+    }
+  })
+
+  it('a state-dependent structured rejection is PRECONDITION_FAILED, not INVALID_INPUT', () => {
+    // Different fix, different owner: the caller cannot correct an argument
+    // to make an already-closed record accept a write.
+    const env = classifyThrown(
+      new Error('failed (500): {"errors":["The ticket has been closed and can no longer be edited."]}'),
+      { surface: 'autotask' },
+    )
+    expect(env.reasonCode).toBe('PRECONDITION_FAILED')
+  })
+
+  it('the original "Data violation" pairing error is unchanged', () => {
+    // The 2026-07-29 behaviour must survive this change.
+    const c = classifyError(new Error('failed (500): {"errors":["Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID."]}'))
+    expect(c.category).toBe('data_violation')
+    expect(c.isTransient).toBe(false)
+  })
+})
+
+describe('planTaskAssignment — the four-field group and the pairing Autotask enforces', () => {
+  // Live ResourceRoleDepartments, 2026-08-25. Ghenel holds Engineer; Kurtis
+  // does not — which is why defaulting everyone to Engineer failed.
+  const ghenel = [
+    { resourceID: 29682935, roleID: 29682834, departmentID: 2, isDefault: false },
+    { resourceID: 29682935, roleID: 29683355, departmentID: 29683478, isDefault: false },
+    { resourceID: 29682935, roleID: 29683460, departmentID: 29683478, isDefault: true },
+  ]
+  const kurtis = [{ resourceID: 29682885, roleID: 29682834, departmentID: 2, isDefault: true }]
+
+  it('defaults to the RESOURCE\'S OWN role, not a global Engineer', () => {
+    const plan = planTaskAssignment({ assignedResourceID: 29682935, billingCodeID: 7, rows: ghenel })
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.assignedResourceRoleID).toBe(29683460) // their isDefault row
+    expect(plan.departmentID).toBe(29683478) // department comes from the same row
+  })
+
+  it('refuses a role the resource does not hold, naming the ones they do', () => {
+    // The exact Wilmar failure: Engineer defaulted onto someone without it.
+    const plan = planTaskAssignment({ assignedResourceID: 29682885, assignedResourceRoleID: 29683355, billingCodeID: 7, rows: kurtis })
+    expect(plan.ok).toBe(false)
+    if (plan.ok) return
+    expect(plan.invalidPairing?.heldRoleIDs).toEqual([29682834])
+    expect(plan.message).toContain('29682834')
+  })
+
+  it('refuses when billingCodeID is missing — Autotask requires it and it cannot be guessed', () => {
+    const plan = planTaskAssignment({ assignedResourceID: 29682935, rows: ghenel })
+    expect(plan.ok).toBe(false)
+    if (plan.ok) return
+    expect(plan.missing).toContain('billingCodeID')
+  })
+
+  it('accepts an explicitly supplied role the resource DOES hold', () => {
+    const plan = planTaskAssignment({ assignedResourceID: 29682935, assignedResourceRoleID: 29683355, billingCodeID: 7, rows: ghenel })
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.departmentID).toBe(29683478)
+  })
+
+  it('refuses a resource with no active role rather than inventing one', () => {
+    const plan = planTaskAssignment({ assignedResourceID: 999, billingCodeID: 7, rows: [] })
+    expect(plan.ok).toBe(false)
+    if (plan.ok) return
+    expect(plan.message).toContain('holds no active role')
+  })
+
+  it('an explicit departmentID overrides the pairing default', () => {
+    const plan = planTaskAssignment({ assignedResourceID: 29682935, departmentID: 2, billingCodeID: 7, rows: ghenel })
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.departmentID).toBe(2)
+  })
+})
+
+describe('resolvePicklistId — the durable fix for five wrong hardcoded ids', () => {
+  const projectNoteTypes = [
+    { id: 8, label: 'Email' },
+    { id: 5, label: 'Project Notes' },
+    { id: 12, label: 'Project Status' },
+  ]
+
+  beforeEach(() => clearPicklistCache())
+  afterEach(() => {
+    __setPicklistFetcher(null)
+    clearPicklistCache()
+  })
+
+  it('resolves the live id by label, ignoring the fallback', () => {
+    __setPicklistFetcher(async () => projectNoteTypes)
+    return resolvePicklistId('ProjectNotes', 'noteType', 'Project Notes', 3).then((r) => {
+      expect(r.id).toBe(5)
+      expect(r.resolvedFrom).toBe('live')
+      expect(r.warning).toBeUndefined()
+    })
+  })
+
+  it('uses the fallback AND says so when the lookup fails', () => {
+    // Silently falling back is how a wrong id becomes invisible again.
+    __setPicklistFetcher(async () => { throw new Error('entityInformation unreachable') })
+    return resolvePicklistId('ProjectNotes', 'noteType', 'Project Notes', 5).then((r) => {
+      expect(r.id).toBe(5)
+      expect(r.resolvedFrom).toBe('fallback')
+      expect(r.warning).toMatch(/unverified/)
+    })
+  })
+
+  it('a successful lookup that lacks the label is a WARNING, not a silent fallback', () => {
+    __setPicklistFetcher(async () => projectNoteTypes)
+    return resolvePicklistId('ProjectNotes', 'noteType', 'Task Notes', 3).then((r) => {
+      expect(r.resolvedFrom).toBe('fallback')
+      expect(r.warning).toContain('5 Project Notes')
+    })
+  })
+
+  it('does not fuzzy-match a near-miss label', () => {
+    // "Project Notes" resolving to "Project Status" would write the wrong value.
+    __setPicklistFetcher(async () => projectNoteTypes)
+    return resolvePicklistId('ProjectNotes', 'noteType', 'Project Note', 99).then((r) => {
+      expect(r.resolvedFrom).toBe('fallback')
+      expect(r.id).toBe(99)
+    })
+  })
+})

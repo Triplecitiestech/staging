@@ -271,6 +271,95 @@ rather than resurfacing as a phantom gap months later.
 They now carry 30s, per the critical gotcha. Thrown error messages are
 byte-identical, so no caller or classifier changed.
 
+## Autotask task assignment, picklists and 500s — the Wilmar build (2026-08-25)
+
+Building Wilmar project 55 (10 phases, 134 tasks) through the connector surfaced
+three defects and, while fixing them, two more of the same kind. All live-verified.
+
+### A 500 carrying a structured `errors[]` array is a REQUEST rejection
+
+Autotask answers request-shape problems with **HTTP 500**, and the bare `'500'`
+substring test in `classifyError()` called them `server_error` → `TRANSIENT` →
+*"wait briefly and retry"*. That advice can never work. Observed verbatim:
+
+```
+Autotask POST Projects/55/Tasks failed (500): {"errors":[
+  "The Task \"...\" has an invalid Resource and Role combination.",
+  "billingCodeID is a required field when a Resource (primary/secondary) is assigned to a Task",
+  "departmentID is a required field when a Resource (primary/secondary) is assigned to a Task"]}
+```
+
+The 2026-07-29 `data_violation` matcher missed these — it keys on the literal
+phrases "Data violation" / "Missing Required Field", and none appears here.
+`classifyError()` now also inspects the **body**: a structured `errors[]` array
+means the vendor understood the request well enough to enumerate what is wrong
+with it. State-dependent messages → `data_violation` (PRECONDITION_FAILED);
+request-shape messages → `validation` (INVALID_INPUT, `fixableBy: caller`).
+
+**Recognition is an ALLOWLIST, and that is the important part.** The first
+version reclassified *any* `errors[]` body and broke two real retry tests using
+`{"errors":["internal error"]}` — which were right: a generic fault wrapped in
+an errors array is still an outage. An unrecognised body falls through and keeps
+retrying. The asymmetry decides it: a needless retry costs a second, a
+wrongly-suppressed retry costs an outage recovery.
+
+### Task assignment is a FOUR-field group, and the role must be one the resource HOLDS
+
+Not the two-field pair the Tickets path uses. Autotask requires
+`assignedResourceID` + `assignedResourceRoleID` + **`billingCodeID`** +
+**`departmentID`** together on a task, and enforces resource-to-role pairings.
+
+The old code defaulted the role to **Engineer 29683355**, copied from Tickets.
+Live `ResourceRoleDepartments`: Engineer is held by resources 29682929, 29682932,
+29682934 and 29682935 only. **Kurtis (29682885), James (29682927), Jhomar
+(29682933) and Benjamin (29682938) do not hold it** — so the default failed for
+most people it was applied to.
+
+Now: the role defaults to the **resource's own** `isDefault` row (and its
+`departmentID`), the pairing is validated **before** the HTTP call, and
+`billingCodeID` is refused rather than guessed — a guessed work type lands on
+the customer's invoice. Pre-flight matters more here than anywhere else because
+**`Tasks.canDelete` is false**: a trial-and-error write leaves a permanent
+record that can only be retitled or completed.
+
+New read `autotask_resource_roles` exposes the join. Nothing did before —
+`autotask_list_resources` returns people, `autotask_list_roles` returns roles.
+
+### Five wrong hardcoded picklist ids, one root cause
+
+Every one copied from Autotask's DEFAULT picklist instead of read from this
+instance:
+
+| Constant / default | Was | Live truth |
+|---|---|---|
+| `AT_TASK_STATUS_IN_PROGRESS` | 4 | **no `Tasks.status` id 4 exists**; In Progress is 8 |
+| `AT_PROJECT_STATUS.ACTIVE` | 4 | 4 is "Change Order"; In Progress is 2 |
+| `AT_TASK_PRIORITY.LOW` / `.HIGH` | 1 / 3 | **INVERTED** — live 1 is High, 3 is Low |
+| `autotask_add_project_note` `noteType` | 3 | `ProjectNotes.noteType` is 8 Email / 5 Project Notes / 12 Project Status — **no 3** |
+| shared note-`publish` help | "no id 3, use 4" | true of TaskNotes, **false of ProjectNotes**: it HAS 3 "Project Team" and has NO 4 |
+
+The priority inversion had been silently swapping High and Low on every synced
+task. The last two were found only by re-reading the picklists during this fix —
+the defect report named the `noteType` one; the `publish` one and the priority
+inversion came from the audit it asked for.
+
+**The durable fix is `src/lib/connector/autotask-picklists.ts`**: resolve by
+LABEL at runtime, cached 30 min. Its fallback is the delicate part — it returns
+the hardcoded id **and says `resolvedFrom: 'fallback'` with a warning**, because
+a silent fallback would reintroduce the invisible version of this bug. Never add
+a sixth constant; and never assume two entities share a picklist, as TaskNotes
+and ProjectNotes demonstrably do not.
+
+### Autotask recalculates a project's end date from its tasks
+
+Project 55 was created with `endDateTime` 2026-10-01 and read-back verified at
+create. After 134 tasks, a fresh read showed **2026-09-25** — Autotask moved it
+to the latest task date. Not a failed write, and per-write verification cannot
+catch it: nothing was wrong at the moment of the write, a later unrelated write
+moved the field. **After a bulk task build, re-read the project and re-set
+`endDateTime` if it matters.** Read-back proves a field stuck at write time, not
+that it is still correct after subsequent writes to related records.
+
 ## Autotask ticket reads must never support a false absence claim (2026-07-30)
 
 **The defect**: `autotask_ticket_notes` returns Autotask `TicketNotes` and **structurally excludes time entries**. On ticket 34648 technician Ghenel Bacalla logged 2.67 hours of completed provisioning work as **time entry 13188** (2026-07-29 12:05–14:45). It was invisible to the notes read, and the assistant told the owner there was no update from Ghenel showing the work finished. The ticket payload already carried the contradiction — `lastActivityDate` was `2026-07-29T14:48:47` while the newest returned note was `12:08:22` — and nothing compared the two. **This is a false-accusation risk against an employee, so it is a correctness bug, not a nicety.**

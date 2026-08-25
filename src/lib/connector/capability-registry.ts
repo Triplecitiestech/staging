@@ -437,6 +437,12 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'sourcesUnavailable names any source whose query failed, so a broken query never reads as an empty result',
   ),
 
+  autotask_resource_roles: r(
+    'The join between resources and roles — Autotask enforces resource-to-role pairings and nothing else exposes which roles a person actually holds',
+    'CALL BEFORE ASSIGNING ANYONE TO A TASK: there is no global safe role, and a wrong pairing is rejected with "invalid Resource and Role combination"',
+    'isDefault marks the role an assignment uses when the caller omits one',
+  ),
+
   // ── Autotask: project / task writes (impersonated, DIRECT) ───────────────
   // Direct rather than staged because these are operational records — one row,
   // by id, visible and correctable in the Autotask UI immediately. The staged
@@ -467,7 +473,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_create_task: atWrite(
     'REQUIRED: projectId, title, status, taskType',
     'Task status ids are PER-INSTANCE — this instance has NO id 4; In Progress is 8',
-    'assignedResourceID REQUIRES assignedResourceRoleID — the role defaults to Engineer (29683355) rather than failing the create',
+    'Assignment is a FOUR-field group: assignedResourceID + assignedResourceRoleID + billingCodeID + departmentID. Validated against live ResourceRoleDepartments BEFORE the write; the role and department default to the resource\'s OWN pairing, and billingCodeID must be supplied because it cannot be guessed',
     'A phaseID from a different project is refused BEFORE writing, with both project ids named',
     'No delete exists: entityInformation reports Tasks.canDelete false',
     'Read-back VERIFIED per field',
@@ -475,7 +481,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_update_task: atWrite(
     'The previous "task PATCH is BLOCKED on a 404" claim is RETRACTED — live entityInformation reports Tasks.canUpdate true, and the old evidence was a fallback chain that rethrew only its last error, one of whose three URLs (ProjectTasks) is not an entity here at all',
     'PATCHes ONLY the fields supplied',
-    'assignedResourceID + assignedResourceRoleID travel together; null clears the assignment and does NOT acquire a role',
+    'Assignment is the same FOUR-field group as create, validated before the write; null clears the assignment and acquires nothing',
     'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success',
   ),
   autotask_add_task_note: atWrite(
@@ -504,7 +510,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     risk: 'destructive',
   },
   autotask_add_task_secondary_resource: atWrite(
-    'resourceId AND roleId are BOTH required — entityInformation marks both isRequired on TaskSecondaryResources',
+    'resourceId AND roleId are BOTH required, and the pairing is validated against live ResourceRoleDepartments before the write — Autotask rejects a role the resource does not hold on a secondary resource just as on a primary one',
     'These rows cannot be edited (canUpdate false) — change a role by removing the row and adding a new one',
     'An identical existing row is reported as alreadyPresent rather than duplicated',
     'Verified by re-listing the task\'s secondary resources after the write',
