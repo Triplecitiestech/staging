@@ -32,6 +32,7 @@ import * as write from '@/lib/autotask-write'
 import { resolveResourceId } from '@/lib/mcp-write-tools'
 import { computeActivityGap, newestTimestamp } from '@/lib/autotask-activity'
 import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability'
+import { resolvePicklistId } from '@/lib/connector/autotask-picklists'
 import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
 
 // ---------------------------------------------------------------------------
@@ -265,6 +266,144 @@ export function definedFields<T extends Record<string, unknown>>(input: T): Reco
 }
 
 // ---------------------------------------------------------------------------
+// Task assignment: a FOUR-field group, and a pairing Autotask enforces
+// ---------------------------------------------------------------------------
+//
+// 2026-08-25, building Wilmar project 55. Assigning a resource to a Task is not
+// the two-field pair the Tickets path uses. Autotask rejects, with HTTP 500:
+//
+//   "The Task \"...\" has an invalid Resource and Role combination."
+//   "billingCodeID is a required field when a Resource (primary/secondary) is assigned to a Task"
+//   "departmentID is a required field when a Resource (primary/secondary) is assigned to a Task"
+//
+// So the group is assignedResourceID + assignedResourceRoleID + billingCodeID +
+// departmentID, and the role must be one the resource ACTUALLY HOLDS.
+//
+// The old behaviour defaulted the role to Engineer (29683355), copied from the
+// Tickets path. Live ResourceRoleDepartments shows Engineer is held by four of
+// the company's resources — Kurtis, James, Jhomar and Benjamin do not hold it —
+// so that default failed for most people it was applied to.
+//
+// Two changes follow. The role defaults to the RESOURCE'S OWN default role, not
+// a global one. And the whole group is validated BEFORE the HTTP call, because
+// Tasks.canDelete is false: a half-succeeded trial-and-error write leaves a
+// permanent record that can only be retitled or completed, never removed.
+
+export interface ResourceRoleRow {
+  resourceID: number
+  roleID: number
+  departmentID: number
+  isDefault: boolean
+}
+
+export interface AssignmentPlan {
+  ok: true
+  assignedResourceID: number
+  assignedResourceRoleID: number
+  departmentID: number
+  billingCodeID: number
+  /** Set when the role was not supplied and the resource's own default was used. */
+  roleDefaultedFrom?: { roleID: number; departmentID: number }
+}
+
+export interface AssignmentProblem {
+  ok: false
+  /** Fields the caller must supply, with what to call to resolve each. */
+  missing: string[]
+  /** Set when the requested role is not one this resource holds. */
+  invalidPairing?: { resourceID: number; requestedRoleID: number; heldRoleIDs: number[] }
+  message: string
+}
+
+/**
+ * Decide the four-field assignment group, or say exactly what is missing.
+ *
+ * Pure, and exported for the regression test: no network, no client. The caller
+ * supplies the resource's live rows so this stays testable and so one lookup
+ * serves both the validation and the defaulting.
+ */
+export function planTaskAssignment(input: {
+  assignedResourceID: number
+  assignedResourceRoleID?: number | null
+  departmentID?: number | null
+  billingCodeID?: number | null
+  rows: ResourceRoleRow[]
+}): AssignmentPlan | AssignmentProblem {
+  const { assignedResourceID, rows } = input
+  const held = rows.filter((r) => r.resourceID === assignedResourceID)
+
+  if (held.length === 0) {
+    return {
+      ok: false,
+      missing: ['assignedResourceRoleID', 'departmentID'],
+      message:
+        `Resource ${assignedResourceID} holds no active role in Autotask, so it cannot be assigned to a task. ` +
+        'Check the resource id, or have the role assigned in Autotask (Admin → Resources → the person → Roles). ' +
+        'Resolve valid resources and their roles with autotask_resource_roles.',
+    }
+  }
+
+  // The resource's OWN default row — never a global default role.
+  const preferred = held.find((r) => r.isDefault) ?? held[0]
+  const roleID = input.assignedResourceRoleID ?? preferred.roleID
+  const roleDefaulted = input.assignedResourceRoleID == null
+
+  const pairing = held.find((r) => r.roleID === roleID)
+  if (!pairing) {
+    return {
+      ok: false,
+      missing: [],
+      invalidPairing: { resourceID: assignedResourceID, requestedRoleID: roleID, heldRoleIDs: held.map((r) => r.roleID) },
+      message:
+        `Resource ${assignedResourceID} does not hold role ${roleID}, and Autotask rejects an invalid resource/role combination. ` +
+        `That resource holds: ${held.map((r) => `${r.roleID}${r.isDefault ? ' (their default)' : ''}`).join(', ')}. ` +
+        'Pass one of those as assignedResourceRoleID, or omit it to use their default. autotask_resource_roles resolves the labels.',
+    }
+  }
+
+  // departmentID comes from the pairing row when the caller did not name one —
+  // it is a property of the resource-in-that-role, not a free choice.
+  const departmentID = input.departmentID ?? pairing.departmentID
+
+  // billingCodeID has no per-resource default and cannot be guessed. Autotask
+  // requires it, so refusing here is the honest outcome: a guessed work type
+  // lands on the customer's invoice.
+  if (input.billingCodeID == null) {
+    return {
+      ok: false,
+      missing: ['billingCodeID'],
+      message:
+        'billingCodeID is REQUIRED by Autotask whenever a resource is assigned to a task, and it cannot be defaulted — a guessed work type would land on the customer\'s invoice. ' +
+        'Resolve one with autotask_list_billing_codes and pass it, or omit assignedResourceID to create the task unassigned.',
+    }
+  }
+
+  return {
+    ok: true,
+    assignedResourceID,
+    assignedResourceRoleID: roleID,
+    departmentID,
+    billingCodeID: input.billingCodeID,
+    ...(roleDefaulted ? { roleDefaultedFrom: { roleID: preferred.roleID, departmentID: preferred.departmentID } } : {}),
+  }
+}
+
+function assignmentRefusal(problem: AssignmentProblem, tool: string, details: Record<string, unknown>): McpToolResult {
+  return failureResult({
+    reasonCode: 'INVALID_INPUT',
+    message: `${problem.message} NOTHING was written.`,
+    evidence:
+      'Checked against live ResourceRoleDepartments BEFORE any HTTP call. Autotask answers these with HTTP 500 and a structured errors[] body, which is a request-shape rejection, not an outage — and Tasks.canDelete is false, so a rejected-but-partial write would leave a task that can never be deleted.',
+    remediation:
+      (problem.missing.length ? `Supply: ${problem.missing.join(', ')}. ` : '') +
+      'Autotask requires assignedResourceID, assignedResourceRoleID, billingCodeID and departmentID TOGETHER on an assigned task — all four, or none of them.',
+    surface: 'autotask',
+    tool,
+    details: { ...details, ...(problem.invalidPairing ? { invalidPairing: problem.invalidPairing } : {}), missing: problem.missing },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Shared failure shapes
 // ---------------------------------------------------------------------------
 
@@ -359,14 +498,24 @@ const PROJECT_STATUS_HELP =
 const PROJECT_TYPE_HELP =
   'Project type picklist ids (live 2026-08-25): 5 Client, 4 Internal, 2 Proposal, 3 Template, 8 Baseline. There is no id 1.'
 
-const NOTE_PUBLISH_HELP =
-  'publish controls WHO CAN SEE IT. Live picklist: 1 = "All Autotask Users" — which despite the label is the CUSTOMER-VISIBLE state (Internal-cleared, readable in the Client Portal) — 2 = "Internal Project Team", 4 = "Internal & Co-Managed". There is NO id 3. Defaults to 2 (internal) so a note is never accidentally exposed to the customer.'
+// TaskNotes and ProjectNotes have DIFFERENT publish picklists on this instance.
+// Sharing one help string across both told callers that ProjectNotes has no id
+// 3 and does have id 4 — the exact reverse of the truth. Verified live
+// 2026-08-25.
+const TASK_NOTE_PUBLISH_HELP =
+  'publish controls WHO CAN SEE IT. Live TaskNotes picklist: 1 = "All Autotask Users" — which despite the label is the CUSTOMER-VISIBLE state (Internal-cleared, readable in the Client Portal) — 2 = "Internal Project Team", 4 = "Internal & Co-Managed". There is NO id 3 on TaskNotes. Defaults to 2 (internal) so a note is never accidentally exposed to the customer.'
+
+const PROJECT_NOTE_PUBLISH_HELP =
+  'publish controls WHO CAN SEE IT. Live ProjectNotes picklist (DIFFERENT from TaskNotes): 1 = "All Autotask Users" (the CUSTOMER-VISIBLE, Internal-cleared state), 2 = "Internal Project Team", 3 = "Project Team". ProjectNotes HAS an id 3 and has NO id 4 — the opposite of TaskNotes, so do not carry ids across. Defaults to 2 (internal).'
 
 const TASK_NOTE_TYPE_HELP =
   'noteType picklist (live 2026-08-25): 1 Task Summary, 2 Task Detail, 3 Task Notes. Defaults to 3.'
 
 const ROLE_HELP =
-  'Role ids in this instance: Engineer 29683355 (the general-purpose delivery role), Help Desk 29683464, Network Engineer 29683460 — resolve others with autotask_list_roles. Do NOT use Low/High Voltage Technician (29683465) for delivery work; it is a cabling role with the wrong rate.'
+  'AUTOTASK ENFORCES RESOURCE-TO-ROLE PAIRINGS: a resource can only be assigned a role they actually hold, or the write is rejected with "invalid Resource and Role combination". Do NOT assume a global default — Engineer (29683355) is held by only some of the team. Call autotask_resource_roles({resourceId}) to see what a person actually holds; omit assignedResourceRoleID and their OWN default role is used.'
+
+const TASK_ASSIGNMENT_HELP =
+  'ASSIGNING SOMEONE TO A TASK NEEDS FOUR FIELDS TOGETHER, not two: assignedResourceID + assignedResourceRoleID + billingCodeID + departmentID. Autotask rejects an assignment missing any of them ("billingCodeID is a required field when a Resource ... is assigned to a Task"). This tool fills in assignedResourceRoleID (the resource\'s own default) and departmentID (from that pairing) when you omit them, and VALIDATES the pairing before writing — but billingCodeID cannot be guessed and must be supplied (autotask_list_billing_codes). Omit assignedResourceID entirely to create/leave the task unassigned. ' + ROLE_HELP
 
 const PATH_NOTE =
   'The response reports pathUsed (the URL Autotask accepted) and pathAttempts (every URL tried, with its status) — surface these if anything looks wrong, they are the record of how this entity is actually addressed.'
@@ -447,7 +596,8 @@ export function registerProjectTools(server: any) {
       description:
         'Full structure of ONE Autotask project: the project record, its phases, and its tasks (each tagged with the phase it belongs to, or none). ' +
         'This is the read that resolves project / phase / task ids before any write, and the only connector read that lists project tasks at all. ' +
-        'Reads Tasks and Phases at their root entities with NO silent fallback — a failed query raises rather than returning an empty list, so "this project has no tasks" can never be a broken query in disguise.',
+        'Reads Tasks and Phases at their root entities with NO silent fallback — a failed query raises rather than returning an empty list, so "this project has no tasks" can never be a broken query in disguise. ' +
+        'NOTE: Autotask RECALCULATES a project\'s endDateTime from its tasks. After a bulk task build the project end date may differ from what was set at create — observed live 2026-08-25 on project 55, where 2026-10-01 became 2026-09-25 once 134 tasks were added. That is vendor behaviour, not a failed write: per-write read-back cannot catch it because nothing was wrong at write time. Re-read the project after adding tasks and re-set endDateTime with autotask_update_project if it matters.',
       inputSchema: {
         projectId: z.number().int().describe('Autotask project id'),
         includeNotes: z.boolean().optional().describe('Also return the project notes (default false)'),
@@ -577,6 +727,73 @@ export function registerProjectTools(server: any) {
     }
   )
 
+  server.registerTool(
+    'autotask_resource_roles',
+    {
+      title: 'Autotask: which roles a resource can be assigned in',
+      description:
+        'Read. Resolves WHICH ROLES a technician actually holds, and in which department — the join between autotask_list_resources (people) and autotask_list_roles (roles) that nothing else exposes. ' +
+        'CALL THIS BEFORE ASSIGNING ANYONE TO A TASK. Autotask enforces resource-to-role pairings and rejects an invalid combination; there is no global "safe" role, because the general-purpose Engineer role is held by only part of the team. ' +
+        'Each row gives roleID + roleName, departmentID, whether it is that resource\'s DEFAULT role (what an assignment uses when you omit the role), and whether they lead the department. ' +
+        'Omit resourceId to list the pairings for every active resource. Read-only.',
+      inputSchema: {
+        resourceId: z.number().int().optional().describe('One Autotask resource id (from autotask_find_resource). Omit for all active resources.'),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ resourceId }: any) => {
+      const TOOL = 'autotask_resource_roles'
+      try {
+        const c = client()
+        const [rows, roles, resources] = await Promise.all([
+          c.getResourceRoleDepartments(resourceId != null ? [resourceId] : undefined),
+          c.getRoles().catch(() => []),
+          c.getResourcesList(true).catch(() => []),
+        ])
+
+        if (resourceId != null && rows.length === 0) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message: `Resource ${resourceId} holds no active role in Autotask, so it cannot be assigned to a task or a ticket.`,
+            evidence: `Queried live ResourceRoleDepartments filtered to resourceID ${resourceId} and isActive true; it returned no rows.`,
+            remediation: 'Check the resource id with autotask_find_resource. If the person is real, their roles need assigning in Autotask (Admin → Resources → the person → Roles) — that is a TCT admin action, not a connector gap.',
+            surface: 'autotask', tool: TOOL, details: { resourceId },
+          })
+        }
+
+        const roleName = new Map(roles.map((r) => [r.id, r.name ?? null]))
+        const person = new Map(
+          resources.map((r) => [r.id, { name: `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim() || null, email: r.email ?? null }]),
+        )
+        const byResource = new Map<number, typeof rows>()
+        for (const row of rows) {
+          const list = byResource.get(row.resourceID) ?? []
+          list.push(row)
+          byResource.set(row.resourceID, list)
+        }
+
+        return ok({
+          resourceCount: byResource.size,
+          resources: Array.from(byResource.entries()).map(([id, list]) => ({
+            resourceID: id,
+            name: person.get(id)?.name ?? null,
+            email: person.get(id)?.email ?? null,
+            defaultRoleID: list.find((r) => r.isDefault)?.roleID ?? null,
+            roles: list.map((r) => ({
+              roleID: r.roleID,
+              roleName: roleName.get(r.roleID) ?? null,
+              departmentID: r.departmentID,
+              isDefault: r.isDefault,
+              isDepartmentLead: r.isDepartmentLead,
+            })),
+          })),
+          assignmentNote:
+            'To assign one of these people to a TASK you need four fields together: assignedResourceID, assignedResourceRoleID (one of the roleIDs above), billingCodeID (autotask_list_billing_codes) and departmentID (the one paired with the role above). autotask_create_task and autotask_update_task fill in the role and department for you if you omit them, using the row marked isDefault.',
+        })
+      } catch (e) { return fail(e, TOOL) }
+    }
+  )
+
   // =========================================================================
   // PROJECT WRITES
   // =========================================================================
@@ -674,7 +891,9 @@ export function registerProjectTools(server: any) {
         'WRITE. Update an EXISTING Autotask project in place, attributed to the signed-in technician. Supply projectId plus AT LEAST ONE field; a call supplying none is rejected as INVALID_INPUT. ' +
         'ONLY the fields you pass are written — Autotask PATCH updates just the properties named and leaves every omitted field untouched, so there is no GET-and-merge here and an unsupplied field can never be blanked. ' +
         'companyID is deliberately NOT a parameter: entityInformation reports it read-only, so a project cannot be moved between companies by anyone, through any route. ' +
-        PROJECT_STATUS_HELP + ' ' + VERIFY_NOTE + ' ' + PATH_NOTE + ' Confirm the change with the user before calling.',
+        PROJECT_STATUS_HELP + ' ' +
+        'Use this to RE-SET endDateTime after a bulk task build: Autotask recalculates a project\'s end date from its tasks, so the value verified at create time can be moved later by unrelated task writes. ' +
+        VERIFY_NOTE + ' ' + PATH_NOTE + ' Confirm the change with the user before calling.',
       inputSchema: {
         projectId: z.number().int().describe('Autotask project id'),
         projectName: z.string().optional().describe('Replacement project name'),
@@ -744,7 +963,8 @@ export function registerProjectTools(server: any) {
       title: 'Autotask: add project note',
       description:
         'WRITE. Add a note to an Autotask PROJECT (not a task, not a ticket), attributed to the signed-in technician. ' +
-        NOTE_PUBLISH_HELP + ' ' +
+        PROJECT_NOTE_PUBLISH_HELP + ' ' +
+        'noteType defaults to "Project Notes", resolved from the LIVE picklist by label rather than a hardcoded id. Live ProjectNotes.noteType: 5 Project Notes, 8 Email, 12 Project Status — there is NO id 3, and a previous version of this tool defaulted to 3 and failed every call that omitted it. ' +
         'isAnnouncement is required by Autotask and defaults to false; setting it true pins the note as a project announcement. ' +
         'THIS TOOL DOES NOT NOTIFY ANYONE. As with ticket notes, the REST note entities carry no notification field of any kind — recipients are chosen in Autotask\'s UI-only Notification panel and delivery depends on an Event an admin configured. Never tell the user a note reached someone. ' +
         'The response reports the note READ BACK with its stored publish id, so its actual visibility is observed rather than assumed. ' + PATH_NOTE,
@@ -753,7 +973,7 @@ export function registerProjectTools(server: any) {
         title: z.string().describe('Note title'),
         description: z.string().describe('Note body'),
         publish: z.number().int().optional().describe('1 = customer-visible ("All Autotask Users"), 2 = Internal Project Team (DEFAULT), 4 = Internal & Co-Managed. There is no 3.'),
-        noteType: z.number().int().optional().describe('Note type picklist id; defaults to 3'),
+        noteType: z.number().int().optional().describe('Note type picklist id — 5 Project Notes (default), 8 Email, 12 Project Status. There is no id 3.'),
         isAnnouncement: z.boolean().optional().describe('Pin as a project announcement (default false)'),
       },
     },
@@ -766,7 +986,18 @@ export function registerProjectTools(server: any) {
         const project = await c.getProjectById(projectId)
         if (!project) return noSuchRecord('project', projectId, TOOL, 'Check the id with autotask_company_projects({ companyId }).')
 
-        const res = await write.createProjectNote(projectId, { title, description, publish, noteType, isAnnouncement }, rid)
+        // Resolve the default by LABEL, never a hardcoded id — this default was
+        // 3, which does not exist on ProjectNotes here, and every call that
+        // omitted noteType failed.
+        const resolvedNoteType = noteType != null
+          ? { id: noteType, resolvedFrom: 'live' as const, warning: undefined }
+          : await resolvePicklistId('ProjectNotes', 'noteType', 'Project Notes', 5)
+
+        const res = await write.createProjectNote(
+          projectId,
+          { title, description, publish, noteType: resolvedNoteType.id, isAnnouncement },
+          rid,
+        )
         const noteId = res.result?.itemId
         const after = noteId ? await c.getProjectNoteByNoteId(noteId).catch(() => null) : null
 
@@ -781,6 +1012,8 @@ export function registerProjectTools(server: any) {
           readBackNote: after
             ? null
             : 'The note was created but could not be read back, so its stored visibility is unconfirmed. Check the project in Autotask before describing who can see it.',
+          noteType: resolvedNoteType.id,
+          ...(resolvedNoteType.warning ? { noteTypeWarning: resolvedNoteType.warning } : {}),
           notificationNote:
             'This tool did not notify anyone and cannot: the REST project-note entity has no notification field. Posting a note is not the same as contacting a person.',
         })
@@ -918,7 +1151,7 @@ export function registerProjectTools(server: any) {
         'WRITE. Create a NEW task inside an Autotask project, attributed to the signed-in technician. ' +
         'REQUIRED: projectId, title, status, taskType. ' + TASK_STATUS_HELP + ' ' +
         'taskType picklist (live 2026-08-25): 1 FixedWork, 2 FixedDuration — there are only these two. ' +
-        'ASSIGNMENT: Autotask rejects a resource without a role ("Data violation: you must assign both a assignedResourceID and assignedResourceRoleID"), so passing assignedResourceID alone DEFAULTS the role to Engineer (29683355) rather than failing. ' + ROLE_HELP + ' ' +
+        TASK_ASSIGNMENT_HELP + ' ' +
         'phaseID is OPTIONAL — a task does not need a phase. If you pass one it must belong to the same project, which this tool checks before writing. ' +
         'Tasks.canDelete is false: a task created by mistake cannot be deleted, only completed or retitled. ' +
         VERIFY_NOTE + ' ' + PATH_NOTE + ' Confirm the details with the user before calling.',
@@ -933,12 +1166,12 @@ export function registerProjectTools(server: any) {
         endDateTime: z.string().optional().describe('Task end / due, ISO 8601'),
         estimatedHours: z.number().optional().describe('Estimated hours'),
         remainingHours: z.number().optional().describe('Remaining hours'),
-        assignedResourceID: z.number().int().optional().describe('Primary assigned resource id (from autotask_find_resource)'),
-        assignedResourceRoleID: z.number().int().optional().describe('Role for that resource — REQUIRED BY AUTOTASK whenever assignedResourceID is set; defaults to Engineer 29683355 if omitted'),
-        priorityLabel: z.number().int().optional().describe('Priority picklist id — resolve with autotask_entity_picklist({entity:"Tasks", field:"priorityLabel"})'),
-        departmentID: z.number().int().optional().describe('Department picklist id'),
+        assignedResourceID: z.number().int().optional().describe('Primary assigned resource id (from autotask_find_resource). Setting this REQUIRES billingCodeID too, and pulls in assignedResourceRoleID + departmentID (defaulted from the resource\'s own role if omitted).'),
+        assignedResourceRoleID: z.number().int().optional().describe('Role for that resource. Must be a role they actually HOLD — autotask_resource_roles lists them. Omit to use their own default role.'),
+        priorityLabel: z.number().int().optional().describe('Priority picklist id — live: 1 High, 2 Medium, 3 Low, 4 Critical (verified 2026-08-25; note 1 is HIGH, not Low)'),
+        departmentID: z.number().int().optional().describe('Department picklist id. REQUIRED by Autotask when a resource is assigned; defaulted from the resource\'s role pairing if omitted.'),
         taskCategoryID: z.number().int().optional().describe('Task category picklist id'),
-        billingCodeID: z.number().int().optional().describe('Billing code / work type id (from autotask_list_billing_codes)'),
+        billingCodeID: z.number().int().optional().describe('Billing code / work type id (from autotask_list_billing_codes). REQUIRED by Autotask whenever a resource is assigned — it cannot be defaulted.'),
         companyLocationID: z.number().int().optional().describe('Company location id'),
         purchaseOrderNumber: z.string().optional().describe('Customer PO number'),
         externalID: z.string().optional().describe('External id'),
@@ -974,8 +1207,34 @@ export function registerProjectTools(server: any) {
           }
         }
 
-        const fields = definedFields(rest) as unknown as write.TaskCreateFields
-        const roleDefaulted = rest.assignedResourceID != null && rest.assignedResourceRoleID == null
+        // Assignment pre-flight. Validating here rather than letting Autotask
+        // reject it matters more on Tasks than anywhere else: Tasks.canDelete
+        // is false, so a trial-and-error write leaves a permanent record.
+        let assignment: AssignmentPlan | null = null
+        if (rest.assignedResourceID != null) {
+          const rows = await c.getResourceRoleDepartments([rest.assignedResourceID])
+          const plan = planTaskAssignment({
+            assignedResourceID: rest.assignedResourceID,
+            assignedResourceRoleID: rest.assignedResourceRoleID,
+            departmentID: rest.departmentID,
+            billingCodeID: rest.billingCodeID,
+            rows,
+          })
+          if (!plan.ok) return assignmentRefusal(plan, TOOL, { projectId, resourceId: rest.assignedResourceID })
+          assignment = plan
+        }
+
+        const fields = {
+          ...definedFields(rest),
+          ...(assignment
+            ? {
+                assignedResourceID: assignment.assignedResourceID,
+                assignedResourceRoleID: assignment.assignedResourceRoleID,
+                departmentID: assignment.departmentID,
+                billingCodeID: assignment.billingCodeID,
+              }
+            : {}),
+        } as unknown as write.TaskCreateFields
         const res = await write.createTask(projectId, fields, rid)
         const newId = res.result?.itemId
         if (!newId) {
@@ -993,7 +1252,6 @@ export function registerProjectTools(server: any) {
         if (!after) return readBackFailed('task', newId, TOOL, res.pathUsed, getAutotaskTaskUrl(String(newId)))
 
         const expected: Record<string, unknown> = { ...fields, projectID: projectId }
-        if (roleDefaulted) expected.assignedResourceRoleID = write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
         const { mismatches, report } = await verifyWriteAgainst('Tasks', expected, null, after as unknown as Record<string, unknown>)
         if (mismatches.length) {
           return notVerified({ kind: 'task', id: newId, tool: TOOL, mismatches, changedFields: [], pathUsed: res.pathUsed, attempts: res.attempts, url: getAutotaskTaskUrl(String(newId)) })
@@ -1003,7 +1261,19 @@ export function registerProjectTools(server: any) {
           created: true, taskId: newId, projectId,
           taskUrl: getAutotaskTaskUrl(String(newId)), projectUrl: getAutotaskProjectUrl(String(projectId)),
           task: after, writeVerified: true,
-          ...(roleDefaulted ? { roleDefaulted: true, roleDefaultedNote: `assignedResourceRoleID was not supplied and defaulted to Engineer (${write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID}); Autotask rejects a resource without a role.` } : {}),
+          ...(assignment
+            ? {
+                assignment: {
+                  assignedResourceID: assignment.assignedResourceID,
+                  assignedResourceRoleID: assignment.assignedResourceRoleID,
+                  departmentID: assignment.departmentID,
+                  billingCodeID: assignment.billingCodeID,
+                },
+                ...(assignment.roleDefaultedFrom
+                  ? { roleDefaultedNote: `assignedResourceRoleID was not supplied, so this resource's OWN default role (${assignment.roleDefaultedFrom.roleID}) and its department (${assignment.roleDefaultedFrom.departmentID}) were used — not a global default. Autotask rejects a role the resource does not hold.` }
+                  : {}),
+              }
+            : {}),
           pathUsed: res.pathUsed, pathAttempts: res.attempts,
           ...report,
           verifiedBy: 'The task was re-read by id after the create and every supplied field matched the stored value.',
@@ -1020,7 +1290,7 @@ export function registerProjectTools(server: any) {
         'WRITE. Update an EXISTING Autotask project task in place — status, title, description, dates, hours, assignment, phase — attributed to the signed-in technician. Supply taskId plus AT LEAST ONE field. ' +
         'A previous connector note recorded task update as BLOCKED on a 404. That claim is retracted: live entityInformation reports Tasks.canUpdate TRUE, and the evidence behind it was unsound — the old code tried three URLs, caught every error and rethrew only the LAST, and one of the three (ProjectTasks) is not an entity on this instance at all, so its 404 says nothing about task update. Which URL Autotask accepts is therefore resolved at call time, not assumed, and reported back as pathUsed. ' +
         TASK_STATUS_HELP + ' ' +
-        'ASSIGNMENT: setting assignedResourceID without assignedResourceRoleID defaults the role to Engineer (29683355), because Autotask rejects the resource on its own. ' + ROLE_HELP + ' Passing assignedResourceID: null clears the assignment and deliberately does NOT acquire a role. ' +
+        TASK_ASSIGNMENT_HELP + ' Passing assignedResourceID: null clears the assignment and deliberately does NOT acquire a role, department or billing code. ' +
         'ONLY the fields you pass are written; omitted fields are untouched. ' + VERIFY_NOTE + ' ' + PATH_NOTE + ' Confirm the change with the user before calling.',
       inputSchema: {
         taskId: z.number().int().describe('Autotask task id (Tasks.id)'),
@@ -1033,12 +1303,12 @@ export function registerProjectTools(server: any) {
         endDateTime: z.string().optional().describe('Task end / due, ISO 8601'),
         estimatedHours: z.number().optional().describe('Estimated hours'),
         remainingHours: z.number().optional().describe('Remaining hours'),
-        assignedResourceID: z.number().int().nullable().optional().describe('Assigned resource id; null clears the assignment'),
-        assignedResourceRoleID: z.number().int().nullable().optional().describe('Role for that resource — required by Autotask alongside it; defaults to Engineer 29683355'),
-        priorityLabel: z.number().int().optional().describe('Priority picklist id'),
-        departmentID: z.number().int().optional().describe('Department picklist id'),
+        assignedResourceID: z.number().int().nullable().optional().describe('Assigned resource id; null clears the assignment. Setting it REQUIRES billingCodeID too.'),
+        assignedResourceRoleID: z.number().int().nullable().optional().describe('Role for that resource. Must be one they actually HOLD (autotask_resource_roles); omit to use their own default.'),
+        priorityLabel: z.number().int().optional().describe('Priority picklist id — live: 1 High, 2 Medium, 3 Low, 4 Critical'),
+        departmentID: z.number().int().optional().describe('Department picklist id; defaulted from the resource\'s role pairing when assigning'),
         taskCategoryID: z.number().int().optional().describe('Task category picklist id'),
-        billingCodeID: z.number().int().optional().describe('Billing code / work type id'),
+        billingCodeID: z.number().int().optional().describe('Billing code / work type id. REQUIRED by Autotask whenever a resource is assigned.'),
         companyLocationID: z.number().int().optional().describe('Company location id'),
         purchaseOrderNumber: z.string().optional().describe('Customer PO number'),
         externalID: z.string().optional().describe('External id'),
@@ -1080,14 +1350,34 @@ export function registerProjectTools(server: any) {
           }
         }
 
-        const roleDefaulted = typeof rest.assignedResourceID === 'number' && rest.assignedResourceID > 0 && rest.assignedResourceRoleID == null
+        // Same four-field group as create. Only when a resource is being SET —
+        // clearing one (null) must not acquire a role, department or billing code.
+        let assignment: AssignmentPlan | null = null
+        if (typeof rest.assignedResourceID === 'number' && rest.assignedResourceID > 0) {
+          const rows = await c.getResourceRoleDepartments([rest.assignedResourceID])
+          const plan = planTaskAssignment({
+            assignedResourceID: rest.assignedResourceID,
+            assignedResourceRoleID: rest.assignedResourceRoleID,
+            departmentID: rest.departmentID,
+            // An already-billable task carries a billing code; reuse it rather
+            // than demanding one the caller has no reason to restate.
+            billingCodeID: rest.billingCodeID ?? (before as unknown as Record<string, unknown>).billingCodeID as number | undefined ?? null,
+            rows,
+          })
+          if (!plan.ok) return assignmentRefusal(plan, TOOL, { taskId, resourceId: rest.assignedResourceID })
+          assignment = plan
+          requested.assignedResourceID = plan.assignedResourceID
+          requested.assignedResourceRoleID = plan.assignedResourceRoleID
+          requested.departmentID = plan.departmentID
+          requested.billingCodeID = plan.billingCodeID
+        }
+
         const res = await write.updateTask(taskId, before.projectID, requested as write.TaskUpdateFields, rid)
 
         const after = await c.getTaskById(taskId)
         if (!after) return readBackFailed('task', taskId, TOOL, res.pathUsed, getAutotaskTaskUrl(String(taskId)))
 
         const expected: Record<string, unknown> = { ...requested }
-        if (roleDefaulted) expected.assignedResourceRoleID = write.DEFAULT_ASSIGNED_RESOURCE_ROLE_ID
         const { mismatches, changedFields, unchangedFields, report } = await verifyWriteAgainst('Tasks', 
           expected, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>,
         )
@@ -1100,7 +1390,19 @@ export function registerProjectTools(server: any) {
           taskUrl: getAutotaskTaskUrl(String(taskId)),
           writeVerified: true, requestedFields: Object.keys(requested), changedFields, unchangedFields,
           ...(unchangedFields.length ? { unchangedNote: `${unchangedFields.join(' and ')} already held the requested value, so ${unchangedFields.length === 1 ? 'that field' : 'those fields'} did not actually change. Do not describe ${unchangedFields.length === 1 ? 'it' : 'them'} as edited.` } : {}),
-          ...(roleDefaulted ? { roleDefaulted: true } : {}),
+          ...(assignment
+            ? {
+                assignment: {
+                  assignedResourceID: assignment.assignedResourceID,
+                  assignedResourceRoleID: assignment.assignedResourceRoleID,
+                  departmentID: assignment.departmentID,
+                  billingCodeID: assignment.billingCodeID,
+                },
+                ...(assignment.roleDefaultedFrom
+                  ? { roleDefaultedNote: `assignedResourceRoleID was not supplied, so this resource's OWN default role (${assignment.roleDefaultedFrom.roleID}) was used — not a global default.` }
+                  : {}),
+              }
+            : {}),
           task: after, pathUsed: res.pathUsed, pathAttempts: res.attempts,
           ...report,
           verifiedBy: 'The task was re-read by id after the write and every requested field matched the stored value.',
@@ -1115,7 +1417,7 @@ export function registerProjectTools(server: any) {
       title: 'Autotask: add task note',
       description:
         'WRITE. Add a note to an Autotask project TASK, attributed to the signed-in technician. ' +
-        NOTE_PUBLISH_HELP + ' ' + TASK_NOTE_TYPE_HELP + ' ' +
+        TASK_NOTE_PUBLISH_HELP + ' ' + TASK_NOTE_TYPE_HELP + ' ' +
         'THIS TOOL DOES NOT NOTIFY ANYONE AND CANNOT. The REST note entities carry no notification field of any kind; recipients are chosen in Autotask\'s UI-only Notification panel and delivery depends on an Event an admin configured. Never report anyone as contacted because a note was posted. ' +
         'The response reports the note READ BACK with its stored publish id, so its visibility is observed rather than assumed — a POST\'s itemId proves a row exists, never that anyone can see it. ' +
         'There is no delete: TaskNotes.canDelete is false. Use autotask_update_task_note to correct a note instead of stacking a second one. ' + PATH_NOTE,
@@ -1412,6 +1714,24 @@ export function registerProjectTools(server: any) {
         const c = client()
         const task = await c.getTaskById(taskId)
         if (!task) return noSuchRecord('task', taskId, TOOL, 'Check the id with autotask_project_detail({ projectId }).')
+
+        // Same pairing rule as the primary assignment — the vendor error names
+        // "primary/secondary" explicitly.
+        const roleRows = await c.getResourceRoleDepartments([resourceId])
+        if (!roleRows.some((r) => r.roleID === roleId)) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message:
+              `Resource ${resourceId} does not hold role ${roleId}, and Autotask rejects an invalid resource/role combination on a secondary resource just as on a primary one. NOTHING was written. ` +
+              (roleRows.length
+                ? `That resource holds: ${roleRows.map((r) => `${r.roleID}${r.isDefault ? ' (their default)' : ''}`).join(', ')}.`
+                : 'That resource holds no active role at all — check the resource id.'),
+            evidence: `Checked against live ResourceRoleDepartments for resource ${resourceId} BEFORE the HTTP call.`,
+            remediation: 'Pass one of the roles that resource holds. autotask_resource_roles({ resourceId }) lists them with labels.',
+            surface: 'autotask', tool: TOOL,
+            details: { taskId, resourceId, requestedRoleId: roleId, heldRoleIds: roleRows.map((r) => r.roleID) },
+          })
+        }
 
         const existing = await c.getTaskSecondaryResources(taskId)
         const duplicate = existing.find((r) => r.resourceID === resourceId && r.roleID === roleId)

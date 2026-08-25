@@ -598,10 +598,22 @@ const AT_TASK_STATUS_COMPLETE = 5;
 const AT_TASK_STATUS_WAITING_CUSTOMER = 7;
 
 // Autotask task priority mappings
+// Autotask task priority ids, VERIFIED against this instance's live
+// Tasks.priorityLabel picklist on 2026-08-25: 4 Critical, 1 High, 2 Medium,
+// 3 Low.
+//
+// LOW and HIGH were INVERTED here until 2026-08-25 (LOW was 1, HIGH was 3),
+// so every synced task had its High and Low priorities swapped in the local
+// database — mapAtTaskPriority(1) said LOW where Autotask meant High. MEDIUM
+// and CRITICAL happened to be right, which is why it went unnoticed.
+//
+// Fifth wrong hardcoded picklist constant found in this file. Resolve values
+// from the live picklist (src/lib/connector/autotask-picklists.ts, or
+// autotask_entity_picklist) rather than adding another one.
 const AT_TASK_PRIORITY = {
-  LOW: 1,
+  HIGH: 1,
   MEDIUM: 2,
-  HIGH: 3,
+  LOW: 3,
   CRITICAL: 4,
 } as const;
 
@@ -1286,6 +1298,30 @@ export class AutotaskClient {
     return this.queryAll<AutotaskCompany>('Companies', {
       op: 'eq', field: 'companyName', value: companyName,
     });
+  }
+
+  /**
+   * Which ROLES a resource actually holds, and in which DEPARTMENT.
+   *
+   * Autotask enforces resource-to-role pairings on task assignment: assigning
+   * someone a role they do not hold is rejected with "The Task ... has an
+   * invalid Resource and Role combination." Nothing joined Resources to Roles
+   * before this, so the only way to find a valid pair was to guess and write —
+   * and Tasks.canDelete is false, so a wrong guess leaves a permanent record.
+   *
+   * `isDefault` marks the resource's own default role, which is what an
+   * assignment should use when the caller does not name one. departmentID
+   * comes along because Autotask requires it on the same write.
+   */
+  async getResourceRoleDepartments(resourceIds?: number[]): Promise<Array<{
+    id: number; resourceID: number; roleID: number; departmentID: number;
+    isActive: boolean; isDefault: boolean; isDepartmentLead: boolean;
+  }>> {
+    const filters: object[] = [{ op: 'eq', field: 'isActive', value: true }];
+    if (resourceIds?.length) {
+      filters.push({ op: 'in', field: 'resourceID', value: resourceIds });
+    }
+    return this.queryAll('ResourceRoleDepartments', filters);
   }
 
   /** Secondary resources currently attached to a task. */

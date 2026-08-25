@@ -80,6 +80,103 @@ const DATA_VIOLATION_PATTERNS = [
 ];
 
 /**
+ * A 5xx whose body is a STRUCTURED error list is the vendor rejecting the
+ * REQUEST, not reporting an outage.
+ *
+ * 2026-08-25, building Wilmar project 55: Autotask answered three different
+ * request-shape problems with HTTP 500 and a JSON `errors[]` array —
+ *
+ *   {"errors":["The Task \"...\" has an invalid Resource and Role combination.",
+ *              "billingCodeID is a required field when a Resource ... is assigned to a Task",
+ *              "departmentID is a required field when a Resource ... is assigned to a Task"]}
+ *   {"errors":["Picklist value [3] does not exist for noteType. ; on record number [1]."]}
+ *
+ * None matched DATA_VIOLATION_PATTERNS above, so they fell through to the bare
+ * '500' status test and classified as server_error → TRANSIENT → "wait briefly
+ * and retry". That advice can never work: the request is wrong, not the
+ * service. The same batch also classified identical failures inconsistently
+ * (some server_error, some connection) because the substring tests were
+ * competing over incidental words in the body.
+ *
+ * The rule: an errors[] array means the vendor UNDERSTOOD the request well
+ * enough to enumerate what is wrong with it. Deliberately narrow — a genuine
+ * outage returns HTML, an empty body, or a gateway page, never this shape —
+ * and messages that read as generic server failure are excluded below so a
+ * vendor wrapping "Internal server error" in an errors array still retries.
+ */
+const STRUCTURED_ERRORS_RE = /"errors"\s*:\s*\[/i;
+
+/**
+ * Phrases that positively identify a REQUEST-SHAPE complaint inside a
+ * structured errors[] body.
+ *
+ * This is an ALLOWLIST, and that direction is deliberate. The first version of
+ * this fix treated any errors[] array as a request rejection, which broke two
+ * existing retry tests using `{"errors":["internal error"]}` as a stand-in for
+ * a transient 500 — and they were right to break: a generic fault wrapped in an
+ * errors array is still an outage. An unrecognised body therefore falls through
+ * to the old status-based path and keeps retrying.
+ *
+ * The asymmetry that decides it: a needless retry costs a second, a
+ * wrongly-suppressed retry costs an outage recovery. So only reclassify what
+ * can be positively recognised as the caller's fault.
+ */
+const REQUEST_REJECTION_IN_BODY = [
+  'is a required field',
+  'required field when',
+  'does not exist for',
+  'picklist value',
+  'invalid resource and role',
+  'is not a valid',
+  'not a valid value',
+  'invalid combination',
+  'cannot be null',
+  'exceeds the maximum',
+  'is too long',
+  'must be one of',
+  'is not permitted in',
+];
+
+/**
+ * Within a structured rejection, does the body describe CURRENT STATE blocking
+ * the request rather than the request's shape? Those are two different fixes:
+ * a shape problem is caller-fixable (change the argument), a state problem is
+ * not (re-read, or a human resolves it).
+ */
+const STATE_DEPENDENT_IN_BODY = [
+  'already exists',
+  'already been',
+  'is currently',
+  'cannot be deleted',
+  'cannot be modified',
+  'is in use',
+  'has been closed',
+  'no longer',
+  'is locked',
+  'would create a circular',
+];
+
+/** Extract the messages from an Autotask-style `{"errors":[...]}` body. */
+function structuredErrorMessages(raw: string): string[] | null {
+  if (!STRUCTURED_ERRORS_RE.test(raw)) return null;
+  const start = raw.search(/[[{]/);
+  if (start < 0) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start)) as { errors?: unknown };
+    const errors = parsed?.errors;
+    if (!Array.isArray(errors)) return null;
+    const messages = errors
+      .map((e) => (typeof e === 'string' ? e : (e as { message?: unknown })?.message))
+      .filter((m): m is string => typeof m === 'string' && m.trim().length > 0);
+    return messages.length ? messages : null;
+  } catch {
+    // Truncated body (our client slices at 500 chars). The array opened, so the
+    // shape is still a structured rejection — fall back to the raw text.
+    return [raw];
+  }
+}
+
+/**
  * Classify an error to determine if it's transient (retryable) or permanent.
  */
 export function classifyError(err: unknown): ClassifiedError {
@@ -91,6 +188,24 @@ export function classifyError(err: unknown): ClassifiedError {
   // the phrases are specific enough that nothing transient matches them.
   if (DATA_VIOLATION_PATTERNS.some(p => lowerMessage.includes(p))) {
     return { category: 'data_violation', isTransient: false, message, original: err };
+  }
+
+  // Structured errors[] body — the vendor enumerated what is wrong with the
+  // REQUEST. Checked before every status test for the same reason as above:
+  // Autotask returns 500 for these, and the status is the misleading part.
+  const structured = structuredErrorMessages(message);
+  if (structured) {
+    const joined = structured.join(' ').toLowerCase();
+    // State first: "already closed" is not something a caller fixes by
+    // correcting an argument, so it routes to a different owner.
+    if (STATE_DEPENDENT_IN_BODY.some(p => joined.includes(p))) {
+      return { category: 'data_violation', isTransient: false, message, original: err };
+    }
+    if (REQUEST_REJECTION_IN_BODY.some(p => joined.includes(p))) {
+      return { category: 'validation', isTransient: false, message, original: err };
+    }
+    // Unrecognised structured body — fall through. Keeping the old behaviour
+    // here is what stops this change suppressing a legitimate retry.
   }
 
   // Rate limit
