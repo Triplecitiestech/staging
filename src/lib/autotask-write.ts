@@ -506,7 +506,9 @@ export async function updateProject(
 ): Promise<PathResolvedWrite<unknown>> {
   const body = { id: projectID, ...fields }
   const candidates: WriteCandidate[] = [{ path: 'Projects', body }]
-  if (companyID) candidates.push({ path: `Companies/${companyID}/Projects`, body })
+  // != null, not truthiness: Autotask company id 0 is REAL (it is TCT's own
+  // record), and a falsy check would silently drop the fallback candidate.
+  if (companyID != null) candidates.push({ path: `Companies/${companyID}/Projects`, body })
   return writeAtFirstWorkingPath('PATCH', candidates, imp)
 }
 
@@ -1009,6 +1011,7 @@ export async function updateContact(
 ): Promise<PathResolvedWrite<unknown>> {
   const body = { id: contactID, ...fields }
   const candidates: WriteCandidate[] = [{ path: 'Contacts', body }]
-  if (companyID) candidates.push({ path: `Companies/${companyID}/Contacts`, body })
+  // != null — company id 0 is a real Autotask company (TCT's own).
+  if (companyID != null) candidates.push({ path: `Companies/${companyID}/Contacts`, body })
   return writeAtFirstWorkingPath('PATCH', candidates, imp)
 }
