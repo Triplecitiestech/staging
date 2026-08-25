@@ -1,6 +1,7 @@
 # Session Summary
 
-> **Last updated**: 2026-08-20. Latest: **Gift-basket campaign landing page at `/welcome`** (branch `claude/tct-campaign-landing-3pcjrv`, merged PR #192). QR-code-only page where the visitor books a meeting or sends an inquiry without leaving the page. The substance was extracting the contact form and the Calendly embed into shared components so the page reuses them; `/contact` and `/schedule` render **byte-identical HTML** to before. No migration, no new dependencies, no reconnect. See section below.
+> **Last updated**: 2026-08-25. Latest: **Autotask PROJECT / TASK / CRM write support in the MCP connector — 22 tools** (branch `claude/autotask-project-task-support-91lozt`, PRs #194 + #195). Create/update projects, phases and tasks; task and project notes; task time entries; secondary resources and predecessors; companies and contacts. All DIRECT impersonated writes, read-back verified per field. **The headline is a retraction**: the "task PATCH returns 404 on all 3 entity paths" `BLOCKED` row was deleted — `Tasks.canUpdate` is true, `ProjectTasks` is not an entity on this instance, and the fallback chain that produced the claim rethrew only its last error. Two live picklist bugs fixed alongside (task status 4 does not exist here; project status 4 is "Change Order"). No migration. **Reconnect the connector after deploy** — the 22 tools are live but a session's tool list caches at connect time. See section below.
+> Previous (2026-08-20): **Gift-basket campaign landing page at `/welcome`** (branch `claude/tct-campaign-landing-3pcjrv`, merged PR #192). QR-code-only page where the visitor books a meeting or sends an inquiry without leaving the page. The substance was extracting the contact form and the Calendly embed into shared components so the page reuses them; `/contact` and `/schedule` render **byte-identical HTML** to before. No migration, no new dependencies, no reconnect. See section below.
 > Previous (2026-07-31): **The Employee Relations log gained an update path: `hr_er_log_update`** (branch `claude/hr-er-log-update-tool-c83fn8`). Patches ONE existing row located by Entry ID and can never append; Entry ID and Date Logged are unwritable by construction. Additive — no migration, no existing tool changed. **Reconnect the connector after deploy** so the new tool appears. See section below.
 > Previous (2026-07-29e): **Kaseya Quote Manager (Datto Commerce) wired into the MCP connector — read-only, 20 tools covering all 39 documented operations.** Step 2 of the work whose spec-retrieval step landed in `8b2f720`. Read-only twice over: the client exposes only `get()`, and the vendor API has no write surface at all. The tool surface is generated from one table and the coverage contract is enforced by test against the captured spec. **No live call has been made** — the auth mechanism is contradicted between Kaseya's spec and help page, and `kqm_probe_connection` settles it. See section below.
 > Previous (2026-07-29c): **three live-reproduced connector defects fixed** (branch `claude/tct-mcp-connector-fixes-lb7e5k`): IT Glue document folder moves are impossible through the API and now fail loudly instead of returning `moved:false`; Autotask resource assignment needed `assignedResourceRoleID` and never worked without it; and a 500 with a "Data violation" body was being classified as a retryable outage. No migration, no reconnect (no tool names or schemas removed). See section below.
@@ -10,6 +11,40 @@
 > Previous (2026-07-28): **MCP connector usage telemetry + owner dashboard** (branch `claude/connector-telemetry-dashboard-glcz62`). One row per tool call in raw-pg `connector_tool_calls`, captured by extending the existing `recordingServer()` proxy; dashboard at `/admin/connector/usage`. Arguments/responses/error messages are never persisted. **Operator step: POST `/api/migrations/run` once after deploy.** See section below.
 > Previous (2026-07-21): **SLA reporting = Autotask's own per-contract result, Fully-Managed only** (branch `claude/tct-automated-alerts-reporting-e4s0qr`). Follows the human-vs-automated split + first-response fix. Owner set two decisions: SLA numbers come from Autotask's native SLA determination (not our recompute), and only "TCT – Fully Managed IT Services" customers get an SLA section. New native SLA columns synced onto `tickets`; lifecycle reads Autotask's met/miss directly; business review omits SLA for non-Fully-Managed. See section below.
 > Previous (2026-07-20/21): **Human-vs-automated ticket classification** + first-response/FTR/median fixes (merged PRs #159, #162).
+
+## Autotask project / task / CRM connector surface (2026-08-25) — branch `claude/autotask-project-task-support-91lozt`, PRs #194 + #195
+
+**What shipped.** 22 tools in `src/lib/mcp-project-tools.ts`: three reads (`autotask_get_task`, `autotask_project_detail`, `autotask_task_activity` — nothing in the connector could previously list a project's tasks at all) and nineteen writes covering projects, phases, tasks, task and project notes, task time entries, secondary resources, predecessors, companies and contacts.
+
+**All direct, none staged.** The approval gate is for instance CONFIGURATION, where one change alters how every future record behaves. These touch one operational row by id and are correctable in the Autotask UI immediately. The single exception is a guard rather than a gate: `autotask_create_company` refuses a duplicate company name by default, because `Companies.canDelete` is false and an accidental company is permanent.
+
+**Every write is read-back verified per field** and returns `PRECONDITION_FAILED` — never success — when a value did not stick.
+
+### The retraction, and how a false vendor claim got recorded
+
+`known-limits.ts` carried "Update project tasks — BLOCKED, task PATCH returns 404 on all 3 entity paths", echoed in CLAUDE.md. Live `entityInformation` says `Tasks.canUpdate: true`.
+
+Be precise about what is established. **Proven:** `ProjectTasks` does not exist as a REST entity here (`entityInformation` 404s), so one of the three "paths" was never a path; and `updateTaskStatus()` catches every error and rethrows only the LAST, so the recorded symptom was never evidence about the other two. **Not proven:** what `PATCH Projects/{id}/Tasks` actually returned — the chain destroyed it. The row went because its evidence is unsound and the API contradicts its conclusion, not because a replacement story was confirmed.
+
+`writeAtFirstWorkingPath()` fixes the class: **404 → next candidate, any other status → stop and surface it**, with every attempt returned as `pathAttempts` and the winner as `pathUsed`. The first real call answers the addressing question permanently instead of leaving the next reader to re-derive it.
+
+### Two live picklist bugs found by comparing code against the live picklists
+
+- `AT_TASK_STATUS_IN_PROGRESS` was **4 — an id this instance's `Tasks.status` picklist does not contain**. In Progress is **8**. Every `WORK_IN_PROGRESS` write-back from the admin UI sent an invalid status, and every task genuinely at 8 read back as `NOT_STARTED`.
+- `AT_PROJECT_STATUS.ACTIVE` was **4**, which is **"Change Order"** here. In Progress is **2**.
+
+Both came from Autotask's *default* picklist, and `docs/gotchas.md` had recorded the task one as fact.
+
+### Four self-audit fixes worth remembering
+
+Each of these was my own code reproducing, in miniature, the failure the branch exists to remove:
+
+1. **A verifier that cries wolf.** `Tasks.remainingHours` is writable but `isQueryable: false`, so the fail-closed check would have failed a write that landed. Fields are now split by LIVE queryability and the unverifiable ones reported as such — neither failed nor silently skipped.
+2. **Company id 0 is real** (it is TCT's own), so `if (companyID)` dropped a candidate path for exactly the company most likely to host internal projects.
+3. **The retraction overclaimed**, asserting the 404 displaced "the real error from the correct path" when nobody knows what that path returned.
+4. **`autotask_capability_check` told callers to BUILD what exists.** It derived `implemented` from staged-write areas alone, so it answered `SUPPORTED_NOT_IMPLEMENTED` / "report it to Kurtis as a build task" for `Tasks.update` while the tool was live. A capability layer that sends you to rebuild something is the mirror of one claiming the vendor can't. Fixed with `DIRECT_WRITE_TOOLS`, guarded both directions by `autotask-drift.test.ts`.
+
+Full field notes: `docs/gotchas.md` → "Autotask projects, tasks and CRM".
 
 ## Campaign landing page `/welcome` (2026-08-20) — branch `claude/tct-campaign-landing-3pcjrv`, merged PR #192
 

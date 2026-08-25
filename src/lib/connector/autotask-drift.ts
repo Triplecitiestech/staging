@@ -97,6 +97,49 @@ export function connectorAutotaskEntities(): string[] {
   return Array.from(new Set([...fromAreas, ...CONFIG_QUERY_ENTITIES])).sort()
 }
 
+/**
+ * Entity + operation → the DIRECT (non-staged) tools that implement it.
+ *
+ * WHY THIS EXISTS: `implemented` used to be derived from CONFIG_WRITE_AREAS
+ * alone, i.e. from the staged-approval surface. That was correct while every
+ * Autotask write went through the gate. It stopped being correct on 2026-08-25,
+ * when the project/task/CRM tools shipped as direct impersonated writes — and
+ * the consequence was the exact failure this whole subsystem exists to prevent:
+ * autotask_capability_check answered "the connector does not expose it yet,
+ * report it to Kurtis as a build task" for Tasks.update, a tool that was live
+ * and working. A capability layer that tells you to build what already exists
+ * is as harmful as one that tells you the vendor can't.
+ *
+ * Reviewed DATA, not inference — the same reasoning as TOOL_FACTS and
+ * known-limits: which tool covers which entity operation is a judgement that
+ * belongs in a diff, not in a regex over tool names. Completeness against the
+ * live registry is asserted by autotask-drift.test.ts.
+ */
+export const DIRECT_WRITE_TOOLS: Record<string, Partial<Record<ConfigWriteOperation, string[]>>> = {
+  Tickets: {
+    create: ['autotask_create_ticket'],
+    update: ['autotask_set_ticket_status', 'autotask_assign_ticket', 'autotask_set_ticket_resolution'],
+  },
+  TicketNotes: { create: ['autotask_add_internal_note', 'autotask_add_customer_note'], update: ['autotask_update_ticket_note'] },
+  Projects: { create: ['autotask_create_project'], update: ['autotask_update_project'] },
+  Phases: { create: ['autotask_create_project_phase'], update: ['autotask_update_project_phase'] },
+  Tasks: { create: ['autotask_create_task'], update: ['autotask_update_task'] },
+  TaskNotes: { create: ['autotask_add_task_note'], update: ['autotask_update_task_note'] },
+  ProjectNotes: { create: ['autotask_add_project_note'] },
+  TimeEntries: { create: ['autotask_create_time_entry', 'autotask_create_task_time_entry'], update: ['autotask_update_time_entry'] },
+  TaskSecondaryResources: { create: ['autotask_add_task_secondary_resource'], delete: ['autotask_remove_task_secondary_resource'] },
+  TaskPredecessors: { create: ['autotask_add_task_predecessor'], delete: ['autotask_remove_task_predecessor'] },
+  Companies: { create: ['autotask_create_company'], update: ['autotask_update_company'] },
+  Contacts: { create: ['autotask_create_contact'], update: ['autotask_update_contact'] },
+}
+
+/** Direct tools implementing one entity operation, or [] when none do. */
+export function directToolsFor(entity: string, op: EntityOperation): string[] {
+  if (op === 'query') return []
+  const key = Object.keys(DIRECT_WRITE_TOOLS).find((e) => e.toLowerCase() === entity.toLowerCase())
+  return (key && DIRECT_WRITE_TOOLS[key][op as ConfigWriteOperation]) || []
+}
+
 function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): EntityDrift {
   const areas = Object.values(CONFIG_WRITE_AREAS).filter(
     (s) => s.targetSystem === 'autotask' && s.entity.toLowerCase() === entity.toLowerCase(),
@@ -231,6 +274,8 @@ export interface CapabilityCheckResult {
     implemented: boolean
     areas: string[]
     requiresStagedApproval: boolean
+    /** Direct (non-staged) tools implementing this operation, when any do. */
+    directTools?: string[]
     killSwitch?: { name: string; enabled: boolean }
   }
   message: string
@@ -453,7 +498,11 @@ export async function checkAutotaskCapability(input: {
   const capField = op === 'query' ? 'canQuery' : op === 'create' ? 'canCreate' : op === 'update' ? 'canUpdate' : 'canDelete'
   const offeringAreas = areas.filter((a) => op !== 'query' && a.operations.includes(op as ConfigWriteOperation))
   const readable = (CONFIG_QUERY_ENTITIES as readonly string[]).includes(snapshot.entity)
-  const implemented = op === 'query' ? readable : offeringAreas.length > 0
+  // A direct tool implements the operation just as truly as a staged area does.
+  // Counting only areas is what made this layer tell callers to build Tasks.update
+  // while autotask_update_task was live.
+  const directTools = directToolsFor(snapshot.entity, op)
+  const implemented = op === 'query' ? readable : offeringAreas.length > 0 || directTools.length > 0
 
   const base = {
     entity: snapshot.entity,
@@ -468,7 +517,9 @@ export async function checkAutotaskCapability(input: {
     connector: {
       implemented,
       areas: offeringAreas.map((a) => a.area),
-      requiresStagedApproval: op !== 'query' && offeringAreas.length > 0,
+      // A direct tool means the gate does NOT apply to this operation.
+      requiresStagedApproval: op !== 'query' && offeringAreas.length > 0 && directTools.length === 0,
+      ...(directTools.length ? { directTools } : {}),
       killSwitch,
     },
   }
@@ -495,6 +546,17 @@ export async function checkAutotaskCapability(input: {
       fixableBy: null,
       message: `Live metadata did not report ${capField} for ${snapshot.entity}, so whether ${op} is permitted is genuinely unknown.`,
       remediation: 'Say UNKNOWN rather than unsupported. Re-check with autotask_entity_capabilities, or try the operation and read the reason code.',
+    }
+  }
+  // Direct-write path: implemented, no gate, name the tool rather than a build task.
+  if (op !== 'query' && directTools.length > 0) {
+    return {
+      ...base,
+      verdict: 'SUPPORTED_AND_IMPLEMENTED',
+      reasonCodeIfAttempted: null,
+      fixableBy: null,
+      message: `The API permits ${op} on ${snapshot.entity} and the connector implements it as a DIRECT write (no staged approval): ${directTools.join(', ')}.`,
+      remediation: `Go ahead and call ${directTools[0]}. It is attributed to the signed-in technician and verified by read-back — a value that did not stick comes back as PRECONDITION_FAILED rather than success.`,
     }
   }
   if (!implemented) {
