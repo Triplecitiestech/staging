@@ -54,10 +54,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Task status PATCH returns 404 on all entity paths for this Autotask instance.
-    // Notes (POST TaskNotes) and time entries (POST TimeEntries) work fine.
-    // Task statuses are pulled from Autotask below as source of truth.
-    log.push(`Note: Task statuses are pulled from Autotask (task PATCH not supported by this instance). Notes & time entries push via POST.`)
+    // This sync deliberately treats Autotask as the source of truth for task
+    // status and pulls rather than pushes. It does NOT do so because task PATCH
+    // is impossible — that claim was retracted on 2026-08-25: live
+    // entityInformation reports Tasks.canUpdate true, and the connector writes
+    // tasks through autotask_update_task. Pulling is a sync-direction decision;
+    // do not restate it as an API limitation.
+    log.push(`Note: Task statuses are PULLED from Autotask (Autotask is source of truth for this sync). Notes & time entries push via POST.`)
     log.push('')
 
     // ========================================

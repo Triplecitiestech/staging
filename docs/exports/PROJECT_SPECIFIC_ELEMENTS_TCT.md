@@ -176,7 +176,7 @@ BROWSERBASE_PROJECT_ID=
 
 - Users run **Windows (PowerShell)** — all CLI instructions given in PowerShell syntax
 - **Vercel region**: `iad1` (US East / Virginia) — chosen for proximity to Autotask/Azure services
-- **Autotask API has instance-specific behavior**: Task PATCH returns 404, picklist values are unique
+- **Autotask API has instance-specific behavior**: picklist values are per-instance and must be read live (`autotask_entity_picklist`) — e.g. this instance has NO task status id 4. (An earlier line here said "Task PATCH returns 404"; that was retracted 2026-08-25 — `Tasks.canUpdate` is true.)
 - **30-second serverless timeout** for standard routes, 60 seconds for cron/sync
 - **No test database available** — `npm run build` and `npm run lint` are the primary quality gates alongside e2e
 
