@@ -10,6 +10,7 @@ import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import { classifyPublishVisibility, decideNotificationVerdict } from '@/lib/autotask-activity'
 import * as write from '@/lib/autotask-write'
 import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
+import { definedFields, splitByQueryability, verifyWrittenFields } from '@/lib/mcp-project-tools'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -649,6 +650,176 @@ export function registerWriteTools(server: any) {
         if (append === false) await write.updateTicket(ticketId, { resolution }, rid)
         else await appendResolution(ticketId, resolution, rid)
         return okTicket(ticketId, { resolutionUpdated: true })
+      } catch (e) { return fail(e) }
+    }
+  )
+
+  // -------------------------------------------------------------------------
+  // General ticket field update
+  // -------------------------------------------------------------------------
+  //
+  // 2026-08-27, ticket 35432 (T20260827.0018): an inbound email ticket landed
+  // with companyID 0 and could not be mapped to a customer. The connector could
+  // assign, set status, set resolution and add notes — but had no way to correct
+  // a ticket's core fields, so the fix had to be done by hand in the Autotask UI.
+  //
+  // Every field below reports isReadOnly false on this instance's live
+  // entityInformation (checked before this tool was written). A field the API
+  // reports read-only is deliberately absent from the schema rather than
+  // accepted-and-ignored: silently dropping a caller's value is the failure this
+  // connector keeps having to undo.
+  server.registerTool(
+    'autotask_update_ticket',
+    {
+      title: 'Autotask: update ticket fields',
+      description:
+        'WRITE. Corrects an EXISTING ticket\'s core fields in place — the tool to reach for when a ticket landed with the wrong company, contact, queue, priority, type, due date or contract, or needs its title/description fixed. ' +
+        'Takes ticketId plus AT LEAST ONE of companyID, contactID, title, description, queueID, priority, ticketType, dueDateTime, contractID. A call supplying none of them is rejected as INVALID_INPUT. ' +
+        'ONLY the fields you pass are written: Autotask\'s PATCH updates just the properties named and leaves every omitted field untouched, so there is NO GET-and-merge and an unsupplied field can never be blanked. ' +
+        'Every parameter here reports isReadOnly false on this instance\'s LIVE entityInformation — there is no parameter for a field Autotask will not accept. For assignment use autotask_assign_ticket (resource and role must move together), for status autotask_set_ticket_status, for resolution autotask_set_ticket_resolution. ' +
+        'Attributed to the signed-in technician via Autotask resource impersonation. ' +
+        'READ-BACK VERIFIED: the ticket is re-read after the write and every requested field compared against what Autotask actually stored. If a value did not stick you get PRECONDITION_FAILED — an accepted PATCH is never reported as success on its HTTP status alone. Re-sending a value the ticket already had succeeds but is listed in unchangedFields, so the response never implies an edit that did not happen. ' +
+        'VISIBILITY TRAP 1 — companyID RE-PARENTS THE TICKET: it moves the ticket to a different customer, which changes the contacts, contracts and notification recipients Autotask associates with it, and changes who can see it in the client portal. Tell the user before and after. A contactID or contractID belonging to the OLD company will not survive the move — set them in the same call, or expect Autotask to reject or clear them. ' +
+        'VISIBILITY TRAP 2 — contactID CHANGES WHO AUTOTASK EMAILS about this ticket. The new contact starts receiving ticket correspondence and the previous one stops. Confirm the person before calling. ' +
+        'Confirm the exact field values with the user before calling.',
+      inputSchema: {
+        ticketId: z.number().int().describe('Autotask ticket ID (the numeric id, not the T-number — resolve a T-number with autotask_get_ticket_by_number)'),
+        companyID: z.number().int().optional().describe('RE-PARENTS the ticket to this company id — changes notification recipients and portal visibility. Resolve with autotask_search_companies. A contact/contract from the old company will not survive the move.'),
+        contactID: z.number().int().optional().describe('Ticket contact — CHANGES WHO AUTOTASK EMAILS about this ticket. Must belong to the ticket\'s company. Resolve with autotask_company_contacts.'),
+        title: z.string().optional().describe('Replacement ticket title. Replaces the existing title entirely.'),
+        description: z.string().optional().describe('Replacement ticket description. Replaces the existing text entirely — pass the full corrected description, not just the change.'),
+        queueID: z.number().int().optional().describe('Queue picklist value — resolve with autotask_list_queues. Moving a ticket between queues changes which technicians see it.'),
+        priority: z.number().int().optional().describe('Priority picklist value — resolve with autotask_list_priorities.'),
+        ticketType: z.number().int().optional().describe('Ticket type picklist value — resolve with autotask_entity_picklist({ entity: "Tickets", field: "ticketType" }).'),
+        dueDateTime: z.string().optional().describe('Due date/time, ISO 8601. Drives SLA and due-date reporting.'),
+        contractID: z.number().int().optional().describe('Contract id to bill this ticket against — resolve with autotask_list_contracts. Must belong to the ticket\'s company.'),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ ticketId, ...rest }: any, extra: any) => {
+      const TOOL = 'autotask_update_ticket'
+      try {
+        // Built from ONLY what the caller supplied, by explicit key, so an
+        // unrelated argument can never reach the PATCH body.
+        const requested = definedFields({
+          companyID: rest.companyID,
+          contactID: rest.contactID,
+          title: rest.title,
+          description: rest.description,
+          queueID: rest.queueID,
+          priority: rest.priority,
+          ticketType: rest.ticketType,
+          dueDateTime: rest.dueDateTime,
+          contractID: rest.contractID,
+        })
+
+        if (Object.keys(requested).length === 0) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message: `No change was requested for ticket ${ticketId}: at least one of companyID, contactID, title, description, queueID, priority, ticketType, dueDateTime or contractID must be supplied. Nothing was written.`,
+            evidence: 'The tool refuses an empty edit before contacting Autotask — a PATCH carrying only an id would be a pointless write against a ticket it might not even be able to prove it changed.',
+            remediation: `Call again with the field(s) you want to change. To read the ticket's current values first, use autotask_get_ticket({ ticketId: ${ticketId} }).`,
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ticketId },
+          })
+        }
+
+        const rid = await resolveResourceId(emailOf(extra))
+        const client = new AutotaskClient()
+
+        // Pre-read: proves the ticket EXISTS and captures the before values the
+        // verification compares against. A THROW here is a lookup failure and
+        // classifies as TRANSIENT/etc; only a clean null means "no such ticket".
+        const before = await client.getTicketCoreFields(ticketId)
+        if (!before) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message: `No Autotask ticket has id ${ticketId}, so there is nothing to update. Nothing was written.`,
+            evidence: `A Tickets query filtered on id ${ticketId} succeeded and returned no rows (a failed query would have raised a different error, so this is a genuine absence, not a broken lookup).`,
+            remediation: 'Check the ticket id — a ticket NUMBER (T20260827.0018) passed here will not match. Resolve one with autotask_get_ticket_by_number.',
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ticketId },
+          })
+        }
+
+        const result = await write.updateTicket(ticketId, requested, rid)
+
+        // Read back and prove it. Unlike the pre-read, a failure here means the
+        // write may well have landed — so this can never be reported as success.
+        const after = await client.getTicketCoreFields(ticketId)
+        if (!after) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `Autotask accepted the update to ticket ${ticketId}, but the ticket could not be read back afterwards, so nothing about the change is confirmed. Do NOT report the ticket as updated.`,
+            evidence: 'The post-write Tickets read returned no row for a ticket id that existed moments earlier, so the stored values could not be compared against what was requested.',
+            remediation: `Open the ticket in Autotask and check it before doing anything else: ${getAutotaskTicketUrl(String(ticketId))}. Do not retry blindly — the update may already have applied.`,
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ticketId, requestedFields: Object.keys(requested) },
+          })
+        }
+
+        // Split by LIVE queryability first so a field a read cannot see is
+        // reported as explicitly unverified rather than failed or silently
+        // omitted. All nine are isQueryable true today; this is not hardcoded
+        // so a Kaseya change is picked up instead of frozen into this file.
+        const { verifiable, unverifiable, reason } = await splitByQueryability('Tickets', Object.keys(requested))
+        const checked = Object.fromEntries(verifiable.map((f) => [f, requested[f]]))
+        const { mismatches, changedFields, unchangedFields } = verifyWrittenFields(checked, before, after)
+
+        if (mismatches.length) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message:
+              `Autotask accepted the PATCH for ticket ${ticketId} but the read-back does not show ${mismatches
+                .map((m) => `${m.field} (asked for ${JSON.stringify(m.requested)}, the ticket now reports ${JSON.stringify(m.actual)})`)
+                .join('; ')}. Do NOT report this ticket as updated.` +
+              (changedFields.length ? ` Note that ${changedFields.join(' and ')} DID change, so the ticket is now partially updated.` : ''),
+            evidence:
+              'Verified by re-reading the ticket by id after the write and comparing every requested field against the stored value, rather than trusting the PATCH\'s HTTP status.',
+            remediation:
+              `Read the ticket as it now stands (autotask_get_ticket({ ticketId: ${ticketId} })) and check it in Autotask before retrying: ${getAutotaskTicketUrl(String(ticketId))}. Retrying the identical call is unlikely to behave differently — a contact or contract that belongs to a different company, or a picklist value that is not valid for this ticket's category, is rejected or dropped no matter how many times it is sent.`,
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ticketId, mismatches, changedFields, unchangedFields },
+          })
+        }
+
+        const reparented = changedFields.includes('companyID')
+        const contactChanged = changedFields.includes('contactID')
+
+        return ok({
+          result,
+          ticketId,
+          ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+          updateVerified: true,
+          requestedFields: Object.keys(requested),
+          changedFields,
+          unchangedFields,
+          ...(unchangedFields.length
+            ? {
+                unchangedNote: `${unchangedFields.join(' and ')} already held the requested value, so ${
+                  unchangedFields.length === 1 ? 'that field' : 'those fields'
+                } did not actually change. Do not describe ${unchangedFields.length === 1 ? 'it' : 'them'} as edited.`,
+              }
+            : {}),
+          ...(reparented
+            ? {
+                reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. Check that contactID (${after.contactID ?? 'none'}) and contractID (${after.contractID ?? 'none'}) still belong to the new company.`,
+              }
+            : {}),
+          ...(contactChanged
+            ? {
+                contactChangeNote: `NOTIFICATION RECIPIENT CHANGED: the ticket contact moved from ${before.contactID ?? 'none'} to ${after.contactID ?? 'none'}. Autotask now emails the new contact about this ticket and stops emailing the previous one. TELL THE USER.`,
+              }
+            : {}),
+          ...(unverifiable.length ? { unverifiableFields: unverifiable, unverifiableNote: reason } : {}),
+          ticket: after,
+          verifiedBy:
+            'The ticket was re-read by id after the write and every requested field matched the stored value. Autotask records the updating technician via resource impersonation.',
+        })
       } catch (e) { return fail(e) }
     }
   )

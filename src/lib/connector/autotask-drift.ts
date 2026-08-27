@@ -118,7 +118,7 @@ export function connectorAutotaskEntities(): string[] {
 export const DIRECT_WRITE_TOOLS: Record<string, Partial<Record<ConfigWriteOperation, string[]>>> = {
   Tickets: {
     create: ['autotask_create_ticket'],
-    update: ['autotask_set_ticket_status', 'autotask_assign_ticket', 'autotask_set_ticket_resolution'],
+    update: ['autotask_update_ticket', 'autotask_set_ticket_status', 'autotask_assign_ticket', 'autotask_set_ticket_resolution'],
   },
   TicketNotes: { create: ['autotask_add_internal_note', 'autotask_add_customer_note'], update: ['autotask_update_ticket_note'] },
   Projects: { create: ['autotask_create_project'], update: ['autotask_update_project'] },

@@ -33,6 +33,7 @@ const getTicket = vi.fn()
 const getTicketAssignment = vi.fn()
 const getTicketResolution = vi.fn()
 const getTicketNoteByNoteId = vi.fn()
+const getTicketCoreFields = vi.fn()
 const picklistLabelMap = vi.fn()
 
 vi.mock('@/lib/autotask', () => ({
@@ -42,6 +43,7 @@ vi.mock('@/lib/autotask', () => ({
     getTicketAssignment = getTicketAssignment
     getTicketResolution = getTicketResolution
     getTicketNoteByNoteId = getTicketNoteByNoteId
+    getTicketCoreFields = getTicketCoreFields
     picklistLabelMap = picklistLabelMap
   },
   getAutotaskTicketUrl: (id: string) => `https://ww15.autotask.net/ticket/${id}`,
@@ -49,6 +51,7 @@ vi.mock('@/lib/autotask', () => ({
 
 import { registerWriteTools, verifyNoteEdit } from './mcp-write-tools'
 import { DEFAULT_ASSIGNED_RESOURCE_ROLE_ID, applyAssignedResourceRole } from './autotask-write'
+import { __setCapabilityFetcher, clearCapabilityCache } from '@/lib/connector/autotask-capability'
 
 const ENGINEER = 29683355
 const HELP_DESK = 29683464
@@ -118,6 +121,7 @@ beforeEach(() => {
   getTicket.mockReset().mockResolvedValue({ id: 555, ticketNumber: 'T20260729.0001' })
   getTicketAssignment.mockReset()
   getTicketNoteByNoteId.mockReset()
+  getTicketCoreFields.mockReset()
   // The live picklist on this instance: 1 is the CUSTOMER-VISIBLE state and
   // there is no id 3 — see the AutotaskTicketNote docblock.
   picklistLabelMap.mockReset().mockResolvedValue(
@@ -566,5 +570,226 @@ describe('autotask_update_ticket_note contract', () => {
     expect(d).toContain('canDelete false')
     expect(d).toMatch(/does NOT notify anyone and CANNOT/)
     expect(d).toMatch(/no GET-and-merge/i)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// autotask_update_ticket — general field correction
+// ---------------------------------------------------------------------------
+//
+// Built 2026-08-27 after ticket 35432 (T20260827.0018) arrived from inbound
+// email with companyID 0 and had to be re-parented by hand in the Autotask UI.
+//
+// The rule these tests define is the one the whole surface keeps re-learning:
+// an accepted PATCH is not a done PATCH. Every assertion below is about what
+// the READ-BACK reports, never about the HTTP status of the write.
+
+// Live entityInformation for the fields this tool exposes. All nine report
+// isReadOnly false and isQueryable true on this instance — pulled from the real
+// Tickets metadata before the tool was written.
+const TICKETS_SNAPSHOT = {
+  fields: [
+    { name: 'id', isQueryable: true, isReadOnly: true },
+    { name: 'companyID', isQueryable: true, isReadOnly: false },
+    { name: 'contactID', isQueryable: true, isReadOnly: false },
+    { name: 'title', isQueryable: true, isReadOnly: false },
+    { name: 'description', isQueryable: true, isReadOnly: false },
+    { name: 'queueID', isQueryable: true, isReadOnly: false },
+    { name: 'priority', isQueryable: true, isReadOnly: false },
+    { name: 'ticketType', isQueryable: true, isReadOnly: false },
+    { name: 'dueDateTime', isQueryable: true, isReadOnly: false },
+    { name: 'contractID', isQueryable: true, isReadOnly: false },
+    // Read-only on the live instance — deliberately NOT a parameter.
+    { name: 'completedDate', isQueryable: true, isReadOnly: true },
+    { name: 'lastActivityDate', isQueryable: true, isReadOnly: true },
+  ],
+}
+
+/** The state ticket 35432 actually arrived in: unmapped company. */
+const UNMAPPED = {
+  id: 35432, companyID: 0, contactID: null, title: 'Printer offline',
+  description: 'Sent from the front desk', queueID: 8, priority: 2,
+  ticketType: 1, dueDateTime: '2026-08-28T17:00:00Z', contractID: null,
+}
+
+describe('autotask_update_ticket', () => {
+  beforeEach(() => {
+    __setCapabilityFetcher(async () => TICKETS_SNAPSHOT)
+    clearCapabilityCache()
+  })
+  afterEach(() => {
+    __setCapabilityFetcher(null)
+    clearCapabilityCache()
+  })
+
+  it('re-parents a ticket and proves the stored companyID by read-back', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, { itemId: 35432 }))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(res.updateVerified).toBe(true)
+    expect(res.changedFields).toEqual(['companyID'])
+    expect(res.ticket.companyID).toBe(294)
+    // The PATCH carries ONLY what was asked for — no GET-and-merge.
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294 }])
+  })
+
+  it('FAILS the call when the write does not stick, instead of trusting the 200', async () => {
+    // Autotask accepts the PATCH and stores nothing — the exact shape that let
+    // the IT Glue folder-move defect survive twelve days reporting success.
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 0 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, { itemId: 35432 }))
+
+    const failure = await harness().failure('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toContain('does not show companyID')
+    expect(String(failure.message)).toContain('Do NOT report this ticket as updated')
+    expect((failure.details as Record<string, unknown>).mismatches).toEqual([
+      { field: 'companyID', requested: 294, actual: 0 },
+    ])
+  })
+
+  it('reports a partially applied write rather than a flat failure', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      // title landed, companyID did not.
+      .mockResolvedValueOnce({ ...UNMAPPED, title: 'Front desk printer offline' })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const failure = await harness().failure('autotask_update_ticket', {
+      ticketId: 35432, companyID: 294, title: 'Front desk printer offline',
+    })
+
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toContain('title DID change')
+    expect(String(failure.message)).toContain('partially updated')
+  })
+
+  it('rejects a call that supplies only ticketId, before contacting Autotask', async () => {
+    const failure = await harness().failure('autotask_update_ticket', { ticketId: 35432 })
+
+    expect(failure.reasonCode).toBe('INVALID_INPUT')
+    expect(String(failure.message)).toContain('Nothing was written')
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+    expect(getTicketCoreFields).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unknown ticket id without writing', async () => {
+    getTicketCoreFields.mockResolvedValueOnce(null)
+
+    const failure = await harness().failure('autotask_update_ticket', { ticketId: 999999, companyID: 294 })
+
+    expect(failure.reasonCode).toBe('INVALID_INPUT')
+    expect(String(failure.remediation)).toMatch(/ticket NUMBER/)
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+
+  it('does not claim an edit for a value the ticket already held', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(res.changedFields).toEqual([])
+    expect(res.unchangedFields).toEqual(['companyID'])
+    expect(res.unchangedNote).toMatch(/already held the requested value/)
+    // No re-parent warning fired, because nothing was re-parented.
+    expect(res.reparentedNote).toBeUndefined()
+  })
+
+  it('warns that a companyID change re-parents the ticket', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(res.reparentedNote).toMatch(/RE-PARENTED/)
+    expect(res.reparentedNote).toMatch(/notification recipients/)
+    expect(res.reparentedNote).toMatch(/TELL THE USER/)
+  })
+
+  it('warns that a contactID change moves who Autotask emails', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce({ ...UNMAPPED, contactID: 11 })
+      .mockResolvedValueOnce({ ...UNMAPPED, contactID: 22 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, contactID: 22 })
+
+    expect(res.contactChangeNote).toMatch(/NOTIFICATION RECIPIENT CHANGED/)
+    expect(res.contactChangeNote).toMatch(/stops emailing the previous one/)
+  })
+
+  it('fails closed when the ticket cannot be read back at all', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce(null)
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const failure = await harness().failure('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toContain('nothing about the change is confirmed')
+  })
+
+  it('sends every supplied field, and only those', async () => {
+    const after = {
+      ...UNMAPPED, companyID: 294, contactID: 22, title: 'x', description: 'y',
+      queueID: 9, priority: 1, ticketType: 2, dueDateTime: '2026-09-01T12:00:00Z', contractID: 77,
+    }
+    getTicketCoreFields.mockResolvedValueOnce(UNMAPPED).mockResolvedValueOnce(after)
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    await harness().ok('autotask_update_ticket', {
+      ticketId: 35432, companyID: 294, contactID: 22, title: 'x', description: 'y',
+      queueID: 9, priority: 1, ticketType: 2, dueDateTime: '2026-09-01T12:00:00Z', contractID: 77,
+    })
+
+    expect(writeBodies()).toEqual([{
+      id: 35432, companyID: 294, contactID: 22, title: 'x', description: 'y',
+      queueID: 9, priority: 1, ticketType: 2, dueDateTime: '2026-09-01T12:00:00Z', contractID: 77,
+    }])
+  })
+})
+
+describe('autotask_update_ticket contract', () => {
+  it('exposes ticketId plus exactly the nine live-writable fields', () => {
+    const schema = harness().schema('autotask_update_ticket')
+    expect(Object.keys(schema).sort()).toEqual([
+      'companyID', 'contactID', 'contractID', 'description', 'dueDateTime',
+      'priority', 'queueID', 'ticketId', 'ticketType', 'title',
+    ])
+  })
+
+  it('exposes NO parameter for a field the live entityInformation reports read-only', () => {
+    // These are isReadOnly true on the live instance. A parameter for one would
+    // be accepted from the caller and silently dropped by Autotask — the exact
+    // false-capability failure autotask_capability_check exists to prevent.
+    const schema = harness().schema('autotask_update_ticket')
+    for (const readOnly of [
+      'id', 'createDate', 'completedDate', 'lastActivityDate', 'creatorResourceID',
+      'firstResponseDateTime', 'resolvedDateTime', 'serviceLevelAgreementHasBeenMet',
+    ]) {
+      expect(schema, `${readOnly} is read-only and must not be settable`).not.toHaveProperty(readOnly)
+    }
+  })
+
+  it('carries both visibility warnings and the no-merge guarantee', () => {
+    const d = harness().description('autotask_update_ticket')
+    expect(d).toMatch(/companyID RE-PARENTS THE TICKET/)
+    expect(d).toMatch(/contactID CHANGES WHO AUTOTASK EMAILS/)
+    expect(d).toMatch(/NO GET-and-merge/i)
+    expect(d).toMatch(/PRECONDITION_FAILED/)
   })
 })
