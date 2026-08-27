@@ -1557,6 +1557,37 @@ export class AutotaskClient {
   }
 
   /**
+   * Fetch the core, caller-settable fields of a ticket.
+   *
+   * Narrow explicit-field query (same pattern as getTicketAssignment /
+   * getTicketResolution) rather than widening TICKET_QUERY_FIELDS, which the
+   * reporting sync also uses. Exists so autotask_update_ticket can VERIFY a
+   * field write by read-back instead of trusting the PATCH's HTTP status: an
+   * accepted PATCH whose value did not stick must never be reported as success.
+   *
+   * Returns the raw row so the verifier compares against exactly what Autotask
+   * stored — no normalisation happens here, deliberately.
+   */
+  async getTicketCoreFields(ticketId: number): Promise<Record<string, unknown> | null> {
+    const fields = [
+      'id',
+      'companyID',
+      'contactID',
+      'title',
+      'description',
+      'queueID',
+      'priority',
+      'ticketType',
+      'dueDateTime',
+      'contractID',
+    ];
+    const results = await this.queryAll<Record<string, unknown>>('Tickets', {
+      op: 'eq', field: 'id', value: ticketId,
+    }, fields);
+    return results[0] ?? null;
+  }
+
+  /**
    * Fetch a ticket's current Resolution text. `resolution` is NOT in
    * TICKET_QUERY_FIELDS (it's large and unused by the reporting sync), so this
    * queries it explicitly — used to append to the Resolution field on close.

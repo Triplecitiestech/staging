@@ -14,6 +14,17 @@
 // and never return a success shape when nothing happened.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// searchDocIndex talks to Postgres. Mocked so these tests exercise the tool's
+// own archived handling rather than the index, and so nothing opens a socket.
+// Returning null is the "org not indexed" branch, which is the path that does
+// the filtering in JS against live IT Glue rows.
+const searchDocIndex = vi.fn()
+vi.mock('@/lib/itglue-doc-index', () => ({
+  searchDocIndex: (...a: unknown[]) => searchDocIndex(...a),
+  TCT_ORG_ID: '2374967',
+}))
+
 import { registerItGlueTools } from './mcp-itglue-tools'
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: { text: string }[]; isError?: boolean }>
@@ -72,6 +83,7 @@ function writeCalls() {
 
 beforeEach(() => {
   process.env.IT_GLUE_CONNECTOR_API_KEY = 'test-key'
+  searchDocIndex.mockReset().mockResolvedValue(null)
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => {
@@ -212,4 +224,174 @@ describe('itglue_create_document is where folder placement has to happen', () =>
     const body = JSON.parse((writeCalls()[0][1] as RequestInit).body as string)
     expect(body.data.attributes.document_folder_id).toBe(6255494)
   })
+})
+
+
+// ---------------------------------------------------------------------------
+// Archived documents
+// ---------------------------------------------------------------------------
+//
+// IT Glue carries a native `archived` attribute. Before it was surfaced, an
+// archived SOP came back from search indistinguishable from a live one, so a
+// technician could open, follow or edit a stale procedure with nothing on
+// screen saying so.
+//
+// The contract these tests pin, on all three reads:
+//   · every returned document carries `archived`
+//   · archived documents are EXCLUDED by default
+//   · includeArchived:true returns them, tagged
+//
+// Exclusion-by-default is the half that matters most: it is the behaviour a
+// caller gets without knowing the flag exists.
+
+/** A document list page as IT Glue returns it, `archived` included. */
+function docPage(rows: { id: string; name: string; archived?: boolean }[], meta?: Record<string, unknown>) {
+  return {
+    data: rows.map((r) => ({
+      id: r.id,
+      type: 'documents',
+      attributes: {
+        name: r.name,
+        'document-folder-id': null,
+        'resource-url': `https://tct.itglue.com/docs/${r.id}`,
+        'updated-at': '2026-08-01T00:00:00Z',
+        archived: r.archived === true,
+      },
+    })),
+    meta: meta ?? { 'total-count': rows.length, 'total-pages': 1, 'current-page': 1 },
+  }
+}
+
+const MIXED = [
+  { id: '100', name: 'VPN Setup (current)' },
+  { id: '101', name: 'VPN Setup (old)', archived: true },
+]
+
+describe('itglue_org_documents — archived', () => {
+  it('excludes archived documents by default and says how many it dropped', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_org_documents', { organizationId: '6942365' })
+
+    expect(res.documents.map((d: { id: string }) => d.id)).toEqual(['100'])
+    expect(res.archivedExcluded).toBe(1)
+    expect(res.includeArchived).toBe(false)
+  })
+
+  it('returns archived documents tagged when asked', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_org_documents', { organizationId: '6942365', includeArchived: true })
+
+    expect(res.documents).toHaveLength(2)
+    expect(res.includeArchived).toBe(true)
+    expect(res.archivedExcluded).toBe(0)
+    // Every row carries the flag, so the archived one is identifiable.
+    const archived = res.documents.find((d: { id: string }) => d.id === '101')
+    expect(archived.attributes.archived).toBe(true)
+    const live = res.documents.find((d: { id: string }) => d.id === '100')
+    expect(live.attributes.archived).toBe(false)
+  })
+
+  it('warns that IT Glue meta counts still include archived rows', () => {
+    // A filtered page can return fewer than pageSize; without this the caller
+    // reads a short page as "end of results" and stops paging early.
+    const d = harness().description('itglue_org_documents')
+    expect(d).toMatch(/meta counts come from IT Glue and include archived/)
+  })
+})
+
+describe('itglue_search_documents — archived', () => {
+  it('excludes archived matches by default', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_search_documents', { organizationId: '6942365', query: 'VPN' })
+
+    expect(res.source).toBe('live-name')
+    expect(res.documents.map((d: { id: string }) => d.id)).toEqual(['100'])
+    expect(res.documents[0].archived).toBe(false)
+    expect(res.archivedExcluded).toBe(1)
+  })
+
+  it('includes and tags archived matches when asked', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_search_documents', {
+      organizationId: '6942365', query: 'VPN', includeArchived: true,
+    })
+
+    expect(res.matchCount).toBe(2)
+    expect(res.documents.find((d: { id: string }) => d.id === '101').archived).toBe(true)
+    expect(res.documents.find((d: { id: string }) => d.id === '100').archived).toBe(false)
+  })
+
+  it('passes includeArchived through to the index path rather than filtering after it', async () => {
+    // The indexed path filters in SQL. If the flag were dropped here, archived
+    // docs would leak for indexed orgs only — the subtlest version of this bug.
+    searchDocIndex.mockResolvedValueOnce([
+      { id: '100', name: 'VPN Setup (current)', documentFolderId: null, url: null, updatedAt: null, archived: false },
+    ])
+
+    const res = await harness().ok('itglue_search_documents', { organizationId: '6942365', query: 'VPN' })
+
+    expect(res.source).toBe('index')
+    expect(searchDocIndex).toHaveBeenCalledWith('6942365', 'VPN', { includeArchived: false })
+    expect(res.documents[0].archived).toBe(false)
+  })
+
+  it('asks the index for archived rows when includeArchived is true', async () => {
+    searchDocIndex.mockResolvedValueOnce([
+      { id: '101', name: 'VPN Setup (old)', documentFolderId: null, url: null, updatedAt: null, archived: true },
+    ])
+
+    const res = await harness().ok('itglue_search_documents', {
+      organizationId: '6942365', query: 'VPN', includeArchived: true,
+    })
+
+    expect(searchDocIndex).toHaveBeenCalledWith('6942365', 'VPN', { includeArchived: true })
+    expect(res.documents[0].archived).toBe(true)
+  })
+})
+
+describe('itglue_global_search — archived', () => {
+  it('excludes archived documents in every org it searches', async () => {
+    // TCT SOP org, then the customer org.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+      .mockResolvedValueOnce(jsonResponse(200, docPage([{ id: '200', name: 'VPN Notes', archived: true }])))
+
+    const res = await harness().ok('itglue_global_search', { query: 'VPN', organizationId: '6942365' })
+
+    expect(res.orgsSearched).toEqual(['2374967', '6942365'])
+    expect(res.results[0].documents.map((d: { id: string }) => d.id)).toEqual(['100'])
+    // The customer org's only match is archived, so it filters to empty rather
+    // than surfacing a stale doc as if it were current.
+    expect(res.results[1].documents).toEqual([])
+    expect(res.results[1].archivedExcluded).toBe(1)
+  })
+
+  it('includes and tags archived documents per org when asked', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+      .mockResolvedValueOnce(jsonResponse(200, docPage([{ id: '200', name: 'VPN Notes', archived: true }])))
+
+    const res = await harness().ok('itglue_global_search', {
+      query: 'VPN', organizationId: '6942365', includeArchived: true,
+    })
+
+    expect(res.results[0].documents).toHaveLength(2)
+    expect(res.results[1].documents[0].archived).toBe(true)
+  })
+})
+
+describe('all three document reads advertise the archived contract', () => {
+  it.each(['itglue_org_documents', 'itglue_search_documents', 'itglue_global_search'])(
+    '%s documents exclusion-by-default and the flag',
+    (tool) => {
+      const d = harness().description(tool)
+      expect(d).toMatch(/ARCHIVED documents are EXCLUDED by default/)
+      expect(d).toMatch(/includeArchived=true/)
+      expect(d).toMatch(/archived/)
+    },
+  )
 })
