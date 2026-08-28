@@ -617,6 +617,9 @@ const UNMAPPED = {
   ticketType: 1, dueDateTime: '2026-08-28T17:00:00Z', contractID: null,
 }
 
+/** The same ticket carrying the previous company's contact and contract. */
+const WITH_STALE_LINKS = { ...UNMAPPED, contactID: 30683671, contractID: 29683617 }
+
 /** Locations as CompanyLocations returns them for the company being moved TO. */
 const NEW_COMPANY_LOCATIONS = [
   { id: 900, name: 'Warehouse', isPrimary: false, isActive: true },
@@ -853,6 +856,85 @@ describe('autotask_update_ticket', () => {
     expect(res.updateVerified).toBe(true)
     expect(res.companyLocation.after).toBe(900)
     expect(res.companyLocation.divergedNote).toMatch(/Autotask set the location itself/)
+  })
+
+  // A stale CONTACT is the majority case, not an edge case: a mis-filed
+  // inbound ticket almost always has one. Live on 2026-08-28, re-parenting a
+  // ticket that carried one failed with
+  //   {"errors":["Data violation: contactID is not associated to the companyID
+  //    or its Parent Company.."]}
+  // and a stale contract failed the same way with
+  //   {"errors":["contractID [29683617] is not associated to companyID [423]
+  //    or its parent."]}
+  // — so fixing only the location would have left the re-parent broken for
+  // most of the tickets this tool exists to correct.
+
+  it('CLEARS a stale contact and contract in the same PATCH as the re-parent', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
+    getTicketCoreFields
+      .mockResolvedValueOnce(WITH_STALE_LINKS)
+      .mockResolvedValueOnce({ ...WITH_STALE_LINKS, companyID: 294, companyLocationID: 901, contactID: null, contractID: null })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    // One PATCH carrying all four: two separate calls would leave the first
+    // rejected, since Autotask refuses the company change while either is set.
+    expect(writeBodies()).toEqual([
+      { id: 35432, companyID: 294, companyLocationID: 901, contactID: null, contractID: null },
+    ])
+    expect(res.clearedOnReparent).toEqual([
+      { field: 'contactID', was: 30683671, why: expect.stringContaining('previous company') },
+      { field: 'contractID', was: 29683617, why: expect.stringContaining('previous company') },
+    ])
+    // Clearing a contact changes who gets emailed; that must not be silent.
+    expect(res.clearedOnReparentNote).toMatch(/who Autotask emails/)
+    expect(res.reparentedNote).toMatch(/contactID was CLEARED \(was 30683671\)/)
+    expect(res.reparentedNote).toMatch(/contractID was CLEARED \(was 29683617\)/)
+  })
+
+  it('does NOT clear a contact or contract the caller supplied for the new company', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
+    getTicketCoreFields
+      .mockResolvedValueOnce(WITH_STALE_LINKS)
+      .mockResolvedValueOnce({ ...WITH_STALE_LINKS, companyID: 294, companyLocationID: 901, contactID: 55, contractID: 66 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', {
+      ticketId: 35432, companyID: 294, contactID: 55, contractID: 66,
+    })
+
+    expect(writeBodies()).toEqual([
+      { id: 35432, companyID: 294, contactID: 55, contractID: 66, companyLocationID: 901 },
+    ])
+    expect(res.clearedOnReparent).toBeUndefined()
+    // Caller-supplied, so strictly verified rather than merely observed.
+    expect(res.changedFields).toEqual(expect.arrayContaining(['contactID', 'contractID']))
+  })
+
+  it('leaves contact and contract alone when the company is not changing', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(WITH_STALE_LINKS)
+      .mockResolvedValueOnce({ ...WITH_STALE_LINKS, title: 'Renamed' })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, title: 'Renamed' })
+
+    expect(writeBodies()).toEqual([{ id: 35432, title: 'Renamed' }])
+    expect(res.clearedOnReparent).toBeUndefined()
+  })
+
+  it('says nothing had to move when the ticket carries no contact or contract', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 901 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(res.reparentedNote).toMatch(/carries no contact or contract/)
+    expect(res.clearedOnReparent).toBeUndefined()
   })
 
   it('accepts an explicit null to clear the location on its own', async () => {

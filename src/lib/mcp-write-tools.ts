@@ -706,22 +706,22 @@ export function registerWriteTools(server: any) {
         'Every parameter here reports isReadOnly false on this instance\'s LIVE entityInformation — there is no parameter for a field Autotask will not accept. For assignment use autotask_assign_ticket (resource and role must move together), for status autotask_set_ticket_status, for resolution autotask_set_ticket_resolution. ' +
         'Attributed to the signed-in technician via Autotask resource impersonation. ' +
         'READ-BACK VERIFIED: the ticket is re-read after the write and every requested field compared against what Autotask actually stored. If a value did not stick you get PRECONDITION_FAILED — an accepted PATCH is never reported as success on its HTTP status alone. Re-sending a value the ticket already had succeeds but is listed in unchangedFields, so the response never implies an edit that did not happen. ' +
-        'VISIBILITY TRAP 1 — companyID RE-PARENTS THE TICKET: it moves the ticket to a different customer, which changes the contacts, contracts and notification recipients Autotask associates with it, and changes who can see it in the client portal. Tell the user before and after. A contactID or contractID belonging to the OLD company will not survive the move — set them in the same call, or expect Autotask to reject or clear them. ' +
-        'THE SITE LOCATION MOVES WITH IT: Autotask stamps every ticket with a companyLocationID and REJECTS the whole company change while that location still belongs to the old customer. So when you change companyID without naming a companyLocationID, this tool sets the NEW company\'s primary location in the same PATCH (or clears the field if that company declares no primary) and reports exactly which in companyLocation.source. Pass companyLocationID yourself to choose the site explicitly. ' +
+        'VISIBILITY TRAP 1 — companyID RE-PARENTS THE TICKET: it moves the ticket to a different customer, which changes the contacts, contracts and notification recipients Autotask associates with it, and changes who can see it in the client portal. Tell the user before and after. ' +
+        'A COMPANY CHANGE MOVES THREE OTHER FIELDS WITH IT, because Autotask REJECTS the whole PATCH while any record from the previous company is still attached (all three live-confirmed 2026-08-28). companyLocationID is set to the NEW company\'s primary location, or cleared if it declares none. contactID and contractID are CLEARED when the ticket carries ones from the old company — there is no non-arbitrary replacement for either, and an old contact left attached would keep receiving mail about a ticket that now belongs to somebody else. All of it is reported in companyLocation.source and clearedOnReparent, and named in reparentedNote. Pass companyLocationID, contactID or contractID yourself in the SAME call to set the new company\'s own records instead of clearing. ' +
         'VISIBILITY TRAP 2 — contactID CHANGES WHO AUTOTASK EMAILS about this ticket. The new contact starts receiving ticket correspondence and the previous one stops. Confirm the person before calling. ' +
         'Confirm the exact field values with the user before calling.',
       inputSchema: {
         ticketId: z.number().int().describe('Autotask ticket ID (the numeric id, not the T-number — resolve a T-number with autotask_get_ticket_by_number)'),
         companyID: z.number().int().optional().describe('RE-PARENTS the ticket to this company id — changes notification recipients and portal visibility. Resolve with autotask_search_companies. A contact/contract from the old company will not survive the move; the site location is handled for you (see companyLocationID).'),
         companyLocationID: z.number().int().nullable().optional().describe('Site location for the ticket, from the ticket\'s OWN company (Autotask rejects a location belonging to any other company). Pass null to clear it. Leave it out on a company change and the new company\'s primary location is used automatically — the response reports which location was applied and lists the company\'s locations so you can correct it in one follow-up call.'),
-        contactID: z.number().int().optional().describe('Ticket contact — CHANGES WHO AUTOTASK EMAILS about this ticket. Must belong to the ticket\'s company. Resolve with autotask_company_contacts.'),
+        contactID: z.number().int().nullable().optional().describe('Ticket contact — CHANGES WHO AUTOTASK EMAILS about this ticket. Must belong to the ticket\'s company (Autotask rejects one from any other company, which is why a company change clears a stale one). Pass null to clear it. Resolve with autotask_company_contacts.'),
         title: z.string().optional().describe('Replacement ticket title. Replaces the existing title entirely.'),
         description: z.string().optional().describe('Replacement ticket description. Replaces the existing text entirely — pass the full corrected description, not just the change.'),
         queueID: z.number().int().optional().describe('Queue picklist value — resolve with autotask_list_queues. Moving a ticket between queues changes which technicians see it.'),
         priority: z.number().int().optional().describe('Priority picklist value — resolve with autotask_list_priorities.'),
         ticketType: z.number().int().optional().describe('Ticket type picklist value — resolve with autotask_entity_picklist({ entity: "Tickets", field: "ticketType" }).'),
         dueDateTime: z.string().optional().describe('Due date/time, ISO 8601. Drives SLA and due-date reporting.'),
-        contractID: z.number().int().optional().describe('Contract id to bill this ticket against — resolve with autotask_list_contracts. Must belong to the ticket\'s company.'),
+        contractID: z.number().int().nullable().optional().describe('Contract id to bill this ticket against — resolve with autotask_list_contracts. Must belong to the ticket\'s company (Autotask rejects one from any other company, which is why a company change clears a stale one). Pass null to clear it.'),
       },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -796,12 +796,60 @@ export function registerWriteTools(server: any) {
           requested.companyLocationID !== undefined ? 'caller' : 'untouched'
         let companyLocations: Array<{ id: number; name: string | null; isPrimary: boolean; isActive: boolean }> = []
         const autoFields: Record<string, unknown> = {}
+        const clearedOnReparent: Array<{ field: string; was: number; why: string }> = []
 
         if (companyIsChanging && requested.companyLocationID === undefined) {
           companyLocations = await client.getCompanyLocations(Number(requested.companyID))
           const primary = companyLocations.find((l) => l.isPrimary && l.isActive)
           autoFields.companyLocationID = primary ? primary.id : null
           locationSource = primary ? 'new_company_primary' : 'cleared_no_primary'
+        }
+
+        // ------------------------------------------------------------------
+        // The OTHER two company-scoped references, both live-confirmed on
+        // 2026-08-28 to block a re-parent exactly like the location did:
+        //
+        //   {"errors":["Data violation: contactID is not associated to the
+        //    companyID or its Parent Company.."]}
+        //   {"errors":["contractID [29683617] is not associated to
+        //    companyID [423] or its parent."]}
+        //
+        // The contact case is the one that matters most: a mis-filed inbound
+        // ticket almost always HAS a contact, so handling only the location
+        // would have left the re-parent broken for the majority of the tickets
+        // this tool exists to correct.
+        //
+        // These are CLEARED, not re-resolved, and the asymmetry with the
+        // location is deliberate. A company's primary LOCATION is its own
+        // declared default — a fact to read. There is no equivalent for either
+        // of these: picking the new company's primary contact would put a
+        // stranger on the ticket and start emailing them, and a company can
+        // hold many contracts with no non-arbitrary "right" one. Clearing is
+        // also the safer half on its own terms — leaving the OLD customer's
+        // contact attached would keep mailing them about a ticket that now
+        // belongs to somebody else.
+        //
+        // Both are isRequired false, so an empty value is legal. A caller who
+        // knows the right contact or contract passes it in the same call and
+        // it is used instead — and strictly verified, because they asked for it.
+        // ------------------------------------------------------------------
+        if (companyIsChanging) {
+          if (requested.contactID === undefined && before.contactID != null) {
+            autoFields.contactID = null
+            clearedOnReparent.push({
+              field: 'contactID',
+              was: Number(before.contactID),
+              why: 'the contact belongs to the previous company; Autotask rejects the whole re-parent while it is attached, and leaving it would keep emailing the old customer about this ticket',
+            })
+          }
+          if (requested.contractID === undefined && before.contractID != null) {
+            autoFields.contractID = null
+            clearedOnReparent.push({
+              field: 'contractID',
+              was: Number(before.contractID),
+              why: 'the contract belongs to the previous company; Autotask rejects the whole re-parent while it is attached, and this ticket is no longer billable against it',
+            })
+          }
         }
 
         const result = await write.updateTicket(ticketId, { ...requested, ...autoFields }, rid)
@@ -879,7 +927,20 @@ export function registerWriteTools(server: any) {
             : {}),
           ...(reparented
             ? {
-                reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. The site location moved too — it had to, because Autotask rejects the whole change while the ticket still points at the old company's location: companyLocationID went from ${locationBefore ?? 'none'} to ${locationAfter ?? 'none'} (${LOCATION_SOURCE_TEXT[locationSource]}). Check that contactID (${after.contactID ?? 'none'}) and contractID (${after.contractID ?? 'none'}) still belong to the new company.`,
+                reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. The site location moved with it — it had to, because Autotask rejects the whole change while the ticket still points at the old company's records: companyLocationID went from ${locationBefore ?? 'none'} to ${locationAfter ?? 'none'} (${LOCATION_SOURCE_TEXT[locationSource]}).${
+                  clearedOnReparent.length
+                    ? ` ${clearedOnReparent
+                        .map((c) => `${c.field} was CLEARED (was ${c.was}) — ${c.why}`)
+                        .join('; ')}. Set ${clearedOnReparent.length === 1 ? 'it' : 'them'} to the new company's own record with another autotask_update_ticket call if this ticket needs ${clearedOnReparent.length === 1 ? 'one' : 'them'}.`
+                    : ` The ticket carries no contact or contract, so nothing else had to move.`
+                } The ticket now reports contactID ${after.contactID ?? 'none'} and contractID ${after.contractID ?? 'none'}.`,
+              }
+            : {}),
+          ...(clearedOnReparent.length
+            ? {
+                clearedOnReparent,
+                clearedOnReparentNote:
+                  'These fields were cleared by the re-parent, not by the caller. Autotask refuses a company change while a record from the previous company is still attached, and no non-arbitrary replacement exists for either — a contact is a person and a company can hold many contracts. SAY SO to the user: a cleared contact changes who Autotask emails, and a cleared contract changes what the ticket bills against.',
               }
             : {}),
           companyLocation: {

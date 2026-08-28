@@ -296,12 +296,11 @@ means the vendor understood the request well enough to enumerate what is wrong
 with it. State-dependent messages → `data_violation` (PRECONDITION_FAILED);
 request-shape messages → `validation` (INVALID_INPUT, `fixableBy: caller`).
 
-**Recognition is an ALLOWLIST, and that is the important part.** The first
-version reclassified *any* `errors[]` body and broke two real retry tests using
-`{"errors":["internal error"]}` — which were right: a generic fault wrapped in
-an errors array is still an outage. An unrecognised body falls through and keeps
-retrying. The asymmetry decides it: a needless retry costs a second, a
-wrongly-suppressed retry costs an outage recovery.
+**That allowlist was itself replaced on 2026-08-28 — see below.** It could only
+ever recognise the rejections someone had already met, and the vendor writes new
+ones whenever it likes. What survived the replacement is the DIRECTION: an
+unrecognised body still falls through and keeps retrying, because a needless
+retry costs a second and a wrongly-suppressed retry costs an outage recovery.
 
 ### Task assignment is a FOUR-field group, and the role must be one the resource HOLDS
 
@@ -364,10 +363,68 @@ that it is still correct after subsequent writes to related records.
 
 - **Why it exists**: ticket 35432 (T20260827.0018) arrived from inbound email with `companyID 0` and could not be mapped to a customer. The connector could assign, set status, set resolution and add notes, but had no way to correct a ticket's CORE fields, so every mis-landed inbound ticket was a manual UI fix.
 - **The nine exposed fields were confirmed writable against LIVE `entityInformation` before the tool was written** — `companyID`, `contactID`, `title`, `description`, `queueID`, `priority`, `ticketType`, `dueDateTime`, `contractID` all report `isReadOnly false` (and `isQueryable true`, so all nine are verifiable by read-back). **None was dropped.** A field the API reports read-only gets NO parameter rather than being accepted and ignored — a test asserts the absence of `id`, `createDate`, `completedDate`, `lastActivityDate`, `creatorResourceID`, `firstResponseDateTime`, `resolvedDateTime`, `serviceLevelAgreementHasBeenMet` from the schema. Silently dropping a caller's value is the failure this connector keeps having to undo (`periodType`, `parentIdField`).
-- **`companyID` RE-PARENTS the ticket.** Notification recipients, the available contacts and contracts, and client-portal visibility all follow the new company. A `contactID` or `contractID` belonging to the OLD company will not survive the move — set them in the same call or expect Autotask to reject or clear them. The tool emits `reparentedNote` with the before/after ids whenever it fires.
+- **`companyID` RE-PARENTS the ticket.** Notification recipients, the available contacts and contracts, and client-portal visibility all follow the new company. The tool emits `reparentedNote` with the before/after ids whenever it fires.
+- **A company change is NEVER only a company change, and the tool shipped unable to do one at all (fixed 2026-08-28).** Autotask refuses the entire PATCH while ANY record belonging to the previous company is still attached to the ticket. All three were reproduced live against test ticket 35437:
+
+  ```
+  {"errors":["The companyLocationID[285] cannot be associated with the Ticket. The
+   CompanyLocation must belong to the Ticket's, ConfigurationItem's, or the Contact's Company."]}
+  {"errors":["Data violation: contactID is not associated to the companyID or its Parent Company.."]}
+  {"errors":["contractID [29683617] is not associated to companyID [423] or its parent."]}
+  ```
+
+  Autotask stamps `companyLocationID` at create time, so EVERY ticket has one — which is why every real re-parent failed, the one case the tool exists for. All three fields report `isReadOnly false` / `isRequired false` on live `entityInformation`, so this was a connector gap, not a vendor limit.
+- **The three are handled differently, on purpose.** `companyLocationID` is RESOLVED to the new company's own `isPrimary` + `isActive` location (a fact read from `CompanyLocations`, and what Autotask's own ticket form defaults to), falling back to a clear when the company declares no active primary. `contactID` and `contractID` are CLEARED: a contact is a person and a company can hold many contracts, so there is no non-arbitrary replacement — and leaving the old customer's contact attached would keep emailing them about a ticket that now belongs to somebody else. Anything the caller passes in the same call wins over all of it.
+- **`contactID` is the common case, not an edge case.** A mis-filed inbound ticket almost always has a contact. The first version of this fix handled only the location and was still broken for the majority of tickets it exists to correct — found by testing the *other* fields after fixing the first, not by reasoning about them.
+- **Verification is deliberately split.** A field the CALLER supplied is strictly read-back verified and fails with `PRECONDITION_FAILED` if it did not stick. A field the TOOL chose (the resolved location) is reported as an OBSERVATION with a `divergedNote` if Autotask re-stamped it — failing a re-parent that landed, over a field nobody asked for, is the verifier crying wolf.
+- **NOT verified: whether Autotask accepts an explicit `null` for `companyLocationID`.** The `cleared_no_primary` fallback sends one, but both test companies declare a primary so the path never fired, and the MCP client's cached tool list prevented sending a literal JSON null by hand. `contactID: null` and `contractID: null` ARE confirmed accepted (the re-parent PATCH carries them). If the location clear turns out to be rejected, it surfaces as `PRECONDITION_FAILED` naming the field — not as a silent wrong value.
 - **`contactID` changes WHO AUTOTASK EMAILS** about the ticket: the new contact starts receiving correspondence, the previous one stops. Emitted as `contactChangeNote`.
 - **A new DIRECT write tool must be added to `DIRECT_WRITE_TOOLS` (`src/lib/connector/autotask-drift.ts`), not just `TOOL_FACTS`.** `autotask-drift.test.ts` caught this omission during the build and named the consequence exactly: without the entry, `autotask_capability_check` reports `Tickets.update` as an unbuilt gap and sends the next session to REBUILD a tool that is already live — the mirror of a false "the vendor can't". Both registries, every time.
 - Read-back verification reuses the existing pure helpers (`definedFields`, `verifyWrittenFields`, `splitByQueryability` from `mcp-project-tools.ts`) rather than a second implementation, and the read-back is a NARROW explicit-field query (`getTicketCoreFields`), matching `getTicketAssignment`/`getTicketResolution` — `TICKET_QUERY_FIELDS` is shared with the reporting sync and is deliberately never widened for a verification read.
+
+## An `errors[]` body is recognised by SHAPE, not by a phrase list (2026-08-28)
+
+The 2026-08-25 fix taught `classifyError()` that a 500 carrying a structured
+`errors[]` array is a request rejection — but recognition was an ALLOWLIST of
+thirteen sentences. Re-parenting ticket 35437 produced a fourteenth:
+
+```
+500 {"errors":["The companyLocationID[285] cannot be associated with the Ticket. ..."]}
+```
+
+It matched none of them, fell through to the bare `'500'` status test, and came
+back **`TRANSIENT` / `fixableBy: retry` / "Wait briefly and retry the same
+call."** — on a deterministic failure, and telling the caller to do exactly what
+this connector's own taxonomy says must never be done to a `PRECONDITION_FAILED`.
+
+**The cause was not a missing phrase.** An allowlist of sentences can only ever
+recognise the rejections someone has already met. The general rule now:
+
+> A REJECTION refers to the REQUEST — it names a field (a camelCase
+> identifier), quotes an id the request carried (`[285]`), states a rule it
+> broke (`must` / `cannot` / `is not valid` / `required`), or names the state
+> blocking it. A FAULT does not: it says something went wrong on the server and
+> nothing about what was sent.
+
+`{"errors":["internal error"]}`, `["Internal server error, please try again"]`
+and `["Something went wrong"]` match none of the three signals and stay
+transient, which is what the real-outage retry tests depend on. A TRUNCATED body
+(our client slices at 500 chars) suppresses the bracket signal specifically —
+`["` is the array literal, not an id the request carried, and a rejection
+verdict manufactured out of JSON punctuation is worse than a retry.
+
+Cross-record association conflicts (`cannot be associated`, `must belong to`,
+`does not belong to`) are STATE, not shape → `data_violation` →
+`PRECONDITION_FAILED` → `fixableBy: tct_human`. The caller cannot correct an
+argument they never sent. Where the caller DID send the offending value, the
+message names it and it classifies as `INVALID_INPUT` / `caller` — both live-
+confirmed on the same ticket.
+
+**Lesson**: this is the third time a lookup table has been the defect rather
+than its contents (`periodType`, `parentIdField`, now this). When a check is a
+list of things previously observed, the next unobserved case is not an edge
+case — it is the guaranteed next bug. Ask what the list is a proxy FOR, and
+test that instead.
 
 ## Autotask ticket reads must never support a false absence claim (2026-07-30)
 
