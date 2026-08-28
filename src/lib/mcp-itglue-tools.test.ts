@@ -293,6 +293,40 @@ describe('itglue_org_documents — archived', () => {
     expect(live.attributes.archived).toBe(false)
   })
 
+  it('puts archived at the TOP LEVEL too, where the search tools put it', async () => {
+    // The flag used to live only at attributes.archived here while the two
+    // search tools returned it top-level. A caller that learned `doc.archived`
+    // from a search read undefined here — falsy, i.e. "not archived" — which is
+    // a stale SOP reading as current, the failure this flag exists to prevent.
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_org_documents', { organizationId: '6942365', includeArchived: true })
+
+    for (const d of res.documents) {
+      expect(d, `document ${d.id} has no top-level archived flag`).toHaveProperty('archived')
+      // Both paths must agree — one value, two places to read it.
+      expect(d.archived).toBe(d.attributes.archived)
+    }
+    expect(res.documents.find((d: { id: string }) => d.id === '101').archived).toBe(true)
+    expect(res.documents.find((d: { id: string }) => d.id === '100').archived).toBe(false)
+  })
+
+  it('keeps the raw IT Glue attributes intact alongside the new flag', async () => {
+    // The normalisation is additive. Anything already reading attributes.* —
+    // including attributes.archived — must keep working unchanged.
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+
+    const res = await harness().ok('itglue_org_documents', { organizationId: '6942365' })
+
+    const doc = res.documents[0]
+    expect(doc.id).toBe('100')
+    expect(doc.type).toBe('documents')
+    expect(doc.attributes.name).toBe('VPN Setup (current)')
+    expect(doc.attributes['document-folder-id']).toBeNull()
+    expect(doc.attributes['resource-url']).toBe('https://tct.itglue.com/docs/100')
+    expect(doc.attributes.archived).toBe(false)
+  })
+
   it('warns that IT Glue meta counts still include archived rows', () => {
     // A filtered page can return fewer than pageSize; without this the caller
     // reads a short page as "end of results" and stops paging early.
@@ -394,4 +428,32 @@ describe('all three document reads advertise the archived contract', () => {
       expect(d).toMatch(/archived/)
     },
   )
+
+  it('returns the flag at the SAME path on all three, so one habit works everywhere', async () => {
+    // The uniformity itself is the contract. Reading `doc.archived` must work
+    // identically whichever of the three a caller reached for.
+    const h = harness()
+
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+    const org = await h.ok('itglue_org_documents', { organizationId: '6942365', includeArchived: true })
+
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+    const search = await h.ok('itglue_search_documents', {
+      organizationId: '6942365', query: 'VPN', includeArchived: true,
+    })
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, docPage(MIXED)))
+      .mockResolvedValueOnce(jsonResponse(200, docPage([])))
+    const global = await h.ok('itglue_global_search', {
+      query: 'VPN', organizationId: '6942365', includeArchived: true,
+    })
+
+    const archivedOf = (docs: { id: string; archived: boolean }[]) =>
+      docs.find((d) => d.id === '101')!.archived
+
+    expect(archivedOf(org.documents)).toBe(true)
+    expect(archivedOf(search.documents)).toBe(true)
+    expect(archivedOf(global.results[0].documents)).toBe(true)
+  })
 })
