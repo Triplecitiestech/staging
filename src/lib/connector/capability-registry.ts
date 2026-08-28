@@ -425,7 +425,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success. Re-sending an identical value succeeds but is reported in unchangedFields',
     'companyID RE-PARENTS the ticket — notification recipients, available contacts/contracts and client-portal visibility all follow the new company',
     'A company change MOVES TWO OTHER FIELDS: Autotask rejects the whole PATCH while the old customer\'s location or contact is attached, so companyLocationID becomes the new company\'s primary (or is cleared) and a stale contactID is CLEARED — every clear confirmed by read-back, never claimed from an accepted PATCH',
-    'A stale contractID SURVIVES a re-parent and CANNOT be cleared by this tool: it does not block the change and Autotask silently ignores a null contractID (both observed live 2026-08-28), so the ticket can end up billed against another company\'s contract — reported as staleContract for a human to fix',
+    'A stale contractID BLOCKS a re-parent and CANNOT be cleared by this tool — a null is accepted but not stored, which would leave the ticket holding another company\'s contract, so the call is REFUSED before any write with PRECONDITION_FAILED naming the contract; pass a contract belonging to the new company in the same call, or clear it in the Autotask UI first',
     'contactID changes WHO AUTOTASK EMAILS about the ticket',
     'Does NOT set assignment, status or resolution — those have their own tools',
   ),

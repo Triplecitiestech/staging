@@ -250,7 +250,14 @@ So a `companyID` change is never only a company change, and the tool handles bot
 
 `contactID` is **CLEARED** when the ticket carries one belonging to the old company, reported in `clearedOnReparent` with its previous value, and **confirmed against the read-back** rather than assumed from the PATCH. It is cleared rather than replaced because a contact is a person - the new company's primary contact is a stranger to this ticket - and because the old customer's contact left attached keeps being emailed about a ticket that is no longer theirs. **A cleared contact changes who Autotask emails: tell the user.**
 
-**THE CONTRACT DOES NOT MOVE, AND THIS TOOL CANNOT FIX IT.** A contract belonging to the old company does NOT block the re-parent, and Autotask **silently ignores** an attempt to clear `contractID` (both observed live). So a re-parented ticket can be left billed against another company's contract. The response reports this as `staleContract`. **Surface it as a real billing problem the human must close**: either pass `contractID` for a contract belonging to the NEW company in a follow-up call, or clear the field in the Autotask UI. Do not describe it as handled.
+**A CONTRACT BLOCKS THE MOVE, AND THIS TOOL CANNOT CLEAR IT.** If the ticket is attached to a contract belonging to the old company, Autotask rejects the whole change: `contractID [29683617] is not associated to companyID [423] or its parent.` And a null does NOT clear the field - Autotask accepts the PATCH and keeps the old contract, which would leave the ticket on the new company holding the old company's contract, so the tool never sends one.
+
+The call is therefore **REFUSED before anything is written**, with `PRECONDITION_FAILED` naming the blocking contract and the company it belongs to. The ticket is untouched. Two ways forward, and the choice is the technician's:
+
+1. Call again with `contractID` set to a contract belonging to the NEW company - resolve one with `autotask_list_contracts({ companyId })` - and it moves in the same call.
+2. If the ticket should carry no contract, clear the Contract field in the Autotask UI first, then re-run the call.
+
+Do not retry the refused call unchanged; it fails identically every time.
 
 If the ticket needs a specific contact or contract at its new company, pass `contactID` / `contractID` in the SAME call. Anything you pass yourself is strictly read-back verified.
 
