@@ -707,7 +707,9 @@ export function registerWriteTools(server: any) {
         'Attributed to the signed-in technician via Autotask resource impersonation. ' +
         'READ-BACK VERIFIED: the ticket is re-read after the write and every requested field compared against what Autotask actually stored. If a value did not stick you get PRECONDITION_FAILED — an accepted PATCH is never reported as success on its HTTP status alone. Re-sending a value the ticket already had succeeds but is listed in unchangedFields, so the response never implies an edit that did not happen. ' +
         'VISIBILITY TRAP 1 — companyID RE-PARENTS THE TICKET: it moves the ticket to a different customer, which changes the contacts, contracts and notification recipients Autotask associates with it, and changes who can see it in the client portal. Tell the user before and after. ' +
-        'A COMPANY CHANGE MOVES THREE OTHER FIELDS WITH IT, because Autotask REJECTS the whole PATCH while any record from the previous company is still attached (all three live-confirmed 2026-08-28). companyLocationID is set to the NEW company\'s primary location, or cleared if it declares none. contactID and contractID are CLEARED when the ticket carries ones from the old company — there is no non-arbitrary replacement for either, and an old contact left attached would keep receiving mail about a ticket that now belongs to somebody else. All of it is reported in companyLocation.source and clearedOnReparent, and named in reparentedNote. Pass companyLocationID, contactID or contractID yourself in the SAME call to set the new company\'s own records instead of clearing. ' +
+        'A COMPANY CHANGE MOVES TWO OTHER FIELDS WITH IT, because Autotask REJECTS the whole PATCH while the previous company\'s location or contact is still attached (both live-confirmed 2026-08-28). companyLocationID is set to the NEW company\'s primary location, or cleared if it declares none. contactID is CLEARED when the ticket carries one from the old company — a contact is a person, so there is no non-arbitrary replacement, and one left attached keeps receiving mail about a ticket that now belongs to somebody else. Every clear is CONFIRMED against the read-back before it is reported, never claimed from an accepted PATCH. ' +
+        'CONTRACTS ARE DIFFERENT AND THE TICKET KEEPS A STALE ONE: a contract belonging to the old company does NOT block the re-parent, and Autotask silently IGNORES a null sent for contractID, so this tool cannot clear it (both observed live). After a re-parent the ticket may be billed against another company\'s contract — reported as staleContract, and it is a real billing problem: pass contractID for a contract belonging to the NEW company in a follow-up call, or clear it in the Autotask UI. ' +
+        'All of it is reported in companyLocation.source, clearedOnReparent, failedToClear and staleContract, and named in reparentedNote. Pass companyLocationID, contactID or contractID yourself in the SAME call to set the new company\'s own records instead. ' +
         'VISIBILITY TRAP 2 — contactID CHANGES WHO AUTOTASK EMAILS about this ticket. The new contact starts receiving ticket correspondence and the previous one stops. Confirm the person before calling. ' +
         'Confirm the exact field values with the user before calling.',
       inputSchema: {
@@ -796,7 +798,7 @@ export function registerWriteTools(server: any) {
           requested.companyLocationID !== undefined ? 'caller' : 'untouched'
         let companyLocations: Array<{ id: number; name: string | null; isPrimary: boolean; isActive: boolean }> = []
         const autoFields: Record<string, unknown> = {}
-        const clearedOnReparent: Array<{ field: string; was: number; why: string }> = []
+        const attemptedClears: Array<{ field: string; was: number; why: string }> = []
 
         if (companyIsChanging && requested.companyLocationID === undefined) {
           companyLocations = await client.getCompanyLocations(Number(requested.companyID))
@@ -806,50 +808,37 @@ export function registerWriteTools(server: any) {
         }
 
         // ------------------------------------------------------------------
-        // The OTHER two company-scoped references, both live-confirmed on
-        // 2026-08-28 to block a re-parent exactly like the location did:
+        // The stale CONTACT. Live-confirmed 2026-08-28: it blocks the whole
+        // re-parent exactly like the location did —
         //
         //   {"errors":["Data violation: contactID is not associated to the
         //    companyID or its Parent Company.."]}
-        //   {"errors":["contractID [29683617] is not associated to
-        //    companyID [423] or its parent."]}
         //
-        // The contact case is the one that matters most: a mis-filed inbound
+        // and this is the majority case, not an edge case: a mis-filed inbound
         // ticket almost always HAS a contact, so handling only the location
-        // would have left the re-parent broken for the majority of the tickets
-        // this tool exists to correct.
+        // left the re-parent broken for most of the tickets this tool exists
+        // to correct.
         //
-        // These are CLEARED, not re-resolved, and the asymmetry with the
+        // It is CLEARED rather than re-resolved, and the asymmetry with the
         // location is deliberate. A company's primary LOCATION is its own
-        // declared default — a fact to read. There is no equivalent for either
-        // of these: picking the new company's primary contact would put a
-        // stranger on the ticket and start emailing them, and a company can
-        // hold many contracts with no non-arbitrary "right" one. Clearing is
-        // also the safer half on its own terms — leaving the OLD customer's
-        // contact attached would keep mailing them about a ticket that now
-        // belongs to somebody else.
+        // declared default — a fact to read. A contact is a person: the new
+        // company's primary contact is a stranger to this ticket and would
+        // start receiving mail about it. Clearing is also the safer half on its
+        // own terms, since the OLD customer's contact left attached keeps being
+        // emailed about a ticket that is no longer theirs. contactID is
+        // isRequired false and a null IS honoured (verified live), and a caller
+        // who knows the right contact passes it in the same call instead.
         //
-        // Both are isRequired false, so an empty value is legal. A caller who
-        // knows the right contact or contract passes it in the same call and
-        // it is used instead — and strictly verified, because they asked for it.
+        // contractID is NOT touched here, and the reason is a RETRACTION —
+        // see the stale-contract-warning block after the write.
         // ------------------------------------------------------------------
-        if (companyIsChanging) {
-          if (requested.contactID === undefined && before.contactID != null) {
-            autoFields.contactID = null
-            clearedOnReparent.push({
-              field: 'contactID',
-              was: Number(before.contactID),
-              why: 'the contact belongs to the previous company; Autotask rejects the whole re-parent while it is attached, and leaving it would keep emailing the old customer about this ticket',
-            })
-          }
-          if (requested.contractID === undefined && before.contractID != null) {
-            autoFields.contractID = null
-            clearedOnReparent.push({
-              field: 'contractID',
-              was: Number(before.contractID),
-              why: 'the contract belongs to the previous company; Autotask rejects the whole re-parent while it is attached, and this ticket is no longer billable against it',
-            })
-          }
+        if (companyIsChanging && requested.contactID === undefined && before.contactID != null) {
+          autoFields.contactID = null
+          attemptedClears.push({
+            field: 'contactID',
+            was: Number(before.contactID),
+            why: 'the contact belongs to the previous company; Autotask rejects the whole re-parent while it is attached, and leaving it would keep emailing the old customer about this ticket',
+          })
         }
 
         const result = await write.updateTicket(ticketId, { ...requested, ...autoFields }, rid)
@@ -905,6 +894,41 @@ export function registerWriteTools(server: any) {
         // caller actually asked for, and failing the whole re-parent over it
         // would be the verifier crying wolf. A location the CALLER supplied is
         // in `requested` and stays strictly verified like every other field.
+        // A clear is only reported once the READ-BACK shows it. The auto-applied
+        // fields are exempt from the strict verifier — failing a landed
+        // re-parent over a field nobody asked for is the verifier crying wolf —
+        // but that exemption applies to OBSERVING state, never to CLAIMING an
+        // action. Reporting "contractID was CLEARED" off the back of an
+        // accepted PATCH is exactly the success-shaped-output defect this
+        // connector keeps undoing, and this tool shipped it on 2026-08-28.
+        const clearedOnReparent = attemptedClears.filter((c) => after[c.field] == null)
+        const failedToClear = attemptedClears
+          .filter((c) => after[c.field] != null)
+          .map((c) => ({ field: c.field, was: c.was, stillReads: after[c.field] as number }))
+
+        // RETRACTION, 2026-08-28: this tool briefly cleared contractID too, on
+        // the belief that a stale contract blocks a re-parent the way a stale
+        // contact does. It does not. That belief came from a DIFFERENT test —
+        // setting a foreign contractID explicitly, which Autotask does reject
+        // ("contractID [29683617] is not associated to companyID [423] or its
+        // parent.") — and was never checked against the case it described.
+        // Re-parenting a ticket that already CARRIES a contract succeeds, with
+        // the contract left in place, and the null sent alongside is silently
+        // ignored. So the honest handling is to write nothing and say plainly
+        // that the ticket is now billed against another company's contract.
+        // Note the vendor asymmetry: a null contactID IS honoured, a null
+        // contractID is NOT. Neither was predictable from the other.
+        const staleContract =
+          companyIsChanging && requested.contractID === undefined && before.contractID != null
+            ? {
+                contractId: Number(before.contractID),
+                previousCompanyId: Number(before.companyID),
+                clearable: false as const,
+                evidence:
+                  'Observed live on 2026-08-28: the re-parent PATCH carried contractID null, Autotask returned success, and the read-back still showed the original contract.',
+              }
+            : null
+
         const locationBefore = (before.companyLocationID as number | null) ?? null
         const locationAfter = (after.companyLocationID as number | null) ?? null
         const locationApplied = 'companyLocationID' in autoFields ? (autoFields.companyLocationID as number | null) : undefined
@@ -930,9 +954,19 @@ export function registerWriteTools(server: any) {
                 reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. The site location moved with it — it had to, because Autotask rejects the whole change while the ticket still points at the old company's records: companyLocationID went from ${locationBefore ?? 'none'} to ${locationAfter ?? 'none'} (${LOCATION_SOURCE_TEXT[locationSource]}).${
                   clearedOnReparent.length
                     ? ` ${clearedOnReparent
-                        .map((c) => `${c.field} was CLEARED (was ${c.was}) — ${c.why}`)
+                        .map((c) => `${c.field} was CLEARED (was ${c.was}, confirmed by read-back) — ${c.why}`)
                         .join('; ')}. Set ${clearedOnReparent.length === 1 ? 'it' : 'them'} to the new company's own record with another autotask_update_ticket call if this ticket needs ${clearedOnReparent.length === 1 ? 'one' : 'them'}.`
-                    : ` The ticket carries no contact or contract, so nothing else had to move.`
+                    : ''
+                }${
+                  failedToClear.length
+                    ? ` ${failedToClear
+                        .map((c) => `${c.field} could NOT be cleared — Autotask kept ${c.stillReads}`)
+                        .join('; ')}. Fix that in the Autotask UI.`
+                    : ''
+                }${
+                  staleContract
+                    ? ` The ticket STILL CARRIES contract ${staleContract.contractId}, which belongs to company ${staleContract.previousCompanyId} — Autotask allows that on a company change and ignores an attempt to clear it, so this ticket is now billed against another company's contract until a human fixes it.`
+                    : ''
                 } The ticket now reports contactID ${after.contactID ?? 'none'} and contractID ${after.contractID ?? 'none'}.`,
               }
             : {}),
@@ -940,7 +974,20 @@ export function registerWriteTools(server: any) {
             ? {
                 clearedOnReparent,
                 clearedOnReparentNote:
-                  'These fields were cleared by the re-parent, not by the caller. Autotask refuses a company change while a record from the previous company is still attached, and no non-arbitrary replacement exists for either — a contact is a person and a company can hold many contracts. SAY SO to the user: a cleared contact changes who Autotask emails, and a cleared contract changes what the ticket bills against.',
+                  'These fields were cleared by the re-parent, not by the caller, and the clear is CONFIRMED against the read-back rather than assumed from the PATCH. Autotask refuses a company change while the previous company\'s contact is attached, and no non-arbitrary replacement exists — a contact is a person. SAY SO to the user: a cleared contact changes who Autotask emails.',
+              }
+            : {}),
+          ...(failedToClear.length
+            ? {
+                failedToClear,
+                failedToClearNote:
+                  'This tool sent a null for these fields and Autotask did NOT clear them — the read-back still shows the old value. They are reported as NOT cleared, because a clear claimed on the strength of an accepted PATCH is the success-shaped-output failure this connector keeps having to undo. Fix them in the Autotask UI, or pass a valid replacement for the new company.',
+              }
+            : {}),
+          ...(staleContract
+            ? {
+                staleContract,
+                staleContractNote: `THE TICKET STILL CARRIES THE PREVIOUS COMPANY'S CONTRACT (${staleContract.contractId}). Autotask permits this on a company change — it does NOT block the re-parent, and it silently IGNORES a null sent for contractID (both observed live 2026-08-28), so this tool cannot clear it. The ticket is now billed against a contract belonging to company ${staleContract.previousCompanyId}. TELL THE USER: pass contractID for a contract belonging to company ${after.companyID} in a follow-up autotask_update_ticket call, or clear the field in the Autotask UI.`,
               }
             : {}),
           companyLocation: {

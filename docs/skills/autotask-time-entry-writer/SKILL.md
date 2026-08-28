@@ -239,19 +239,20 @@ The case this exists for: a ticket arriving by inbound email with `companyID 0`,
 
 `companyID` RE-PARENTS the ticket. Notification recipients, the available contacts and contracts, and client-portal visibility all follow the new company. A `contactID` or `contractID` belonging to the OLD company will not survive the move - set them in the same call, or expect Autotask to reject or clear them.
 
-**A company change moves THREE other fields, and you must say so.** Autotask refuses the entire PATCH while any record from the previous company is still attached to the ticket. All three were confirmed live on 2026-08-28:
+**A company change moves two other fields, and leaves a third problem behind. Say all of it.** Autotask refuses the entire PATCH while the previous company's location or contact is still attached. Both confirmed live on 2026-08-28:
 
 - `companyLocationID` - `The companyLocationID[285] cannot be associated with the Ticket. The CompanyLocation must belong to the Ticket's, ConfigurationItem's, or the Contact's Company.` Autotask stamps this at create time, so every ticket has one.
 - `contactID` - `Data violation: contactID is not associated to the companyID or its Parent Company..` **This is the common case, not an edge case** - a mis-filed inbound ticket almost always has a contact.
-- `contractID` - `contractID [29683617] is not associated to companyID [423] or its parent.`
 
-So a `companyID` change is never only a company change, and the tool handles all three in the SAME call:
+So a `companyID` change is never only a company change, and the tool handles both in the SAME call:
 
 `companyLocationID` is set to the NEW company's own primary location, read live from `CompanyLocations`; if that company declares no active primary it is cleared instead, because the field is optional and an empty site is honest where a guessed one is not. Reported in `companyLocation.source` (`caller`, `new_company_primary`, `cleared_no_primary`, `untouched`).
 
-`contactID` and `contractID` are **CLEARED** when the ticket carries ones belonging to the old company, and reported in `clearedOnReparent` with their previous values. They are cleared rather than replaced because no non-arbitrary replacement exists - a contact is a person, and a company can hold many contracts - and because leaving the old customer's contact attached would keep emailing them about a ticket that now belongs to somebody else.
+`contactID` is **CLEARED** when the ticket carries one belonging to the old company, reported in `clearedOnReparent` with its previous value, and **confirmed against the read-back** rather than assumed from the PATCH. It is cleared rather than replaced because a contact is a person - the new company's primary contact is a stranger to this ticket - and because the old customer's contact left attached keeps being emailed about a ticket that is no longer theirs. **A cleared contact changes who Autotask emails: tell the user.**
 
-**Tell the user when either is cleared.** A cleared contact changes who Autotask emails; a cleared contract changes what the ticket bills against. If the ticket needs a contact or contract at its new company, pass `contactID` / `contractID` in the SAME call to set the right ones instead of clearing, or set them in a follow-up call. Anything you pass yourself is strictly read-back verified.
+**THE CONTRACT DOES NOT MOVE, AND THIS TOOL CANNOT FIX IT.** A contract belonging to the old company does NOT block the re-parent, and Autotask **silently ignores** an attempt to clear `contractID` (both observed live). So a re-parented ticket can be left billed against another company's contract. The response reports this as `staleContract`. **Surface it as a real billing problem the human must close**: either pass `contractID` for a contract belonging to the NEW company in a follow-up call, or clear the field in the Autotask UI. Do not describe it as handled.
+
+If the ticket needs a specific contact or contract at its new company, pass `contactID` / `contractID` in the SAME call. Anything you pass yourself is strictly read-back verified.
 
 `contactID` changes WHO AUTOTASK EMAILS about the ticket. The new contact begins receiving correspondence and the previous one stops.
 
