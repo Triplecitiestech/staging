@@ -107,35 +107,56 @@ const DATA_VIOLATION_PATTERNS = [
 const STRUCTURED_ERRORS_RE = /"errors"\s*:\s*\[/i;
 
 /**
- * Phrases that positively identify a REQUEST-SHAPE complaint inside a
- * structured errors[] body.
+ * Does a structured error message REFER TO THE REQUEST?
  *
- * This is an ALLOWLIST, and that direction is deliberate. The first version of
- * this fix treated any errors[] array as a request rejection, which broke two
- * existing retry tests using `{"errors":["internal error"]}` as a stand-in for
- * a transient 500 — and they were right to break: a generic fault wrapped in an
- * errors array is still an outage. An unrecognised body therefore falls through
- * to the old status-based path and keeps retrying.
+ * This is the general rule that decides whether an `errors[]` body is the
+ * vendor rejecting what was sent, or the vendor reporting its own fault. It
+ * replaced a PHRASE ALLOWLIST on 2026-08-28, and the reason it replaced it is
+ * the failure the allowlist caused:
  *
- * The asymmetry that decides it: a needless retry costs a second, a
- * wrongly-suppressed retry costs an outage recovery. So only reclassify what
- * can be positively recognised as the caller's fault.
+ *   PATCH Tickets 500 {"errors":["The companyLocationID[285] cannot be
+ *   associated with the Ticket. The CompanyLocation must belong to the
+ *   Ticket's, ConfigurationItem's, or the Contact's Company."]}
+ *
+ * matched none of the thirteen listed phrases, fell through to the bare '500'
+ * status test, and came back TRANSIENT / fixableBy: retry — telling the caller
+ * to retry a deterministic failure that this connector's own taxonomy says
+ * must never be retried unchanged. An allowlist of sentences can only ever
+ * recognise the rejections someone has already met; the vendor writes new ones
+ * whenever it likes.
+ *
+ * The general rule, and the only signal that actually separates the two cases:
+ * a REJECTION talks about the request — it names a field, quotes an id the
+ * request carried, or states a rule the request broke. A FAULT does not; it
+ * says something went wrong on the server and nothing about what was sent.
+ *
+ * So the three signals below are all "the message refers to the request":
+ *   1. a camelCase identifier  — companyLocationID, assignedResourceRoleID
+ *   2. a bracketed id or value — [285], [3]
+ *   3. a rule statement        — must / cannot / is not valid / required
+ *
+ * The direction of the original allowlist is preserved: this is still POSITIVE
+ * recognition, and an unrecognised body still falls through and keeps
+ * retrying. Only the recognition itself is general instead of enumerated.
+ * `{"errors":["internal error"]}`, `["Internal server error, please try
+ * again"]` and `["Something went wrong"]` match none of the three and stay
+ * transient, which is what the real-outage retry tests depend on.
  */
-const REQUEST_REJECTION_IN_BODY = [
-  'is a required field',
-  'required field when',
-  'does not exist for',
-  'picklist value',
-  'invalid resource and role',
-  'is not a valid',
-  'not a valid value',
-  'invalid combination',
-  'cannot be null',
-  'exceeds the maximum',
-  'is too long',
-  'must be one of',
-  'is not permitted in',
-];
+const CAMEL_CASE_IDENTIFIER = /\b[a-z]+[A-Z][A-Za-z]*\b/;
+const BRACKETED_VALUE = /\[[^\]]{1,60}\]/;
+const RULE_STATEMENT =
+  /\b(must|cannot|can ?not|may not|is not|are not|does not|do not|invalid|not valid|required|missing|not permitted|not allowed|already|exceeds|too long|out of range|belongs? to|associated with|duplicate)\b/;
+
+function describesTheRequest(text: string, options: { allowBrackets?: boolean } = {}): boolean {
+  const { allowBrackets = true } = options;
+  return (
+    // Case-SENSITIVE: a camelCase identifier is only a field name if the
+    // capitalisation survived, so this one must not see a lowercased string.
+    CAMEL_CASE_IDENTIFIER.test(text) ||
+    (allowBrackets && BRACKETED_VALUE.test(text)) ||
+    RULE_STATEMENT.test(text.toLowerCase())
+  );
+}
 
 /**
  * Within a structured rejection, does the body describe CURRENT STATE blocking
@@ -144,6 +165,15 @@ const REQUEST_REJECTION_IN_BODY = [
  * not (re-read, or a human resolves it).
  */
 const STATE_DEPENDENT_IN_BODY = [
+  // Cross-record ASSOCIATION conflicts. The blocking value is one the record
+  // already holds, or one that belongs to a different parent — so the fix is a
+  // change to state (clear it, or move the other record too), not a corrected
+  // argument. This is the family the 2026-08-28 companyLocationID re-parent
+  // failure belongs to: the caller never sent companyLocationID at all.
+  'cannot be associated',
+  'must belong to',
+  'does not belong to',
+  'belongs to a different',
   'already exists',
   'already been',
   'is currently',
@@ -156,8 +186,19 @@ const STATE_DEPENDENT_IN_BODY = [
   'would create a circular',
 ];
 
+interface StructuredErrorBody {
+  messages: string[];
+  /**
+   * The body could not be parsed (our client slices responses at 500 chars),
+   * so `messages` is raw text that still carries JSON punctuation. The bracket
+   * signal is suppressed for these: `["...` would otherwise look like a
+   * bracketed id the request carried, when it is only the array literal.
+   */
+  truncated: boolean;
+}
+
 /** Extract the messages from an Autotask-style `{"errors":[...]}` body. */
-function structuredErrorMessages(raw: string): string[] | null {
+function structuredErrorMessages(raw: string): StructuredErrorBody | null {
   if (!STRUCTURED_ERRORS_RE.test(raw)) return null;
   const start = raw.search(/[[{]/);
   if (start < 0) return null;
@@ -168,11 +209,14 @@ function structuredErrorMessages(raw: string): string[] | null {
     const messages = errors
       .map((e) => (typeof e === 'string' ? e : (e as { message?: unknown })?.message))
       .filter((m): m is string => typeof m === 'string' && m.trim().length > 0);
-    return messages.length ? messages : null;
+    return messages.length ? { messages, truncated: false } : null;
   } catch {
-    // Truncated body (our client slices at 500 chars). The array opened, so the
-    // shape is still a structured rejection — fall back to the raw text.
-    return [raw];
+    // Truncated body. The array opened, so the shape is still a structured
+    // rejection — fall back to the text after `"errors":[`, which is the
+    // message content rather than the wrapper.
+    const openedAt = raw.search(STRUCTURED_ERRORS_RE);
+    const afterArray = raw.slice(raw.indexOf('[', openedAt) + 1);
+    return { messages: [afterArray || raw], truncated: true };
   }
 }
 
@@ -195,17 +239,21 @@ export function classifyError(err: unknown): ClassifiedError {
   // Autotask returns 500 for these, and the status is the misleading part.
   const structured = structuredErrorMessages(message);
   if (structured) {
-    const joined = structured.join(' ').toLowerCase();
-    // State first: "already closed" is not something a caller fixes by
-    // correcting an argument, so it routes to a different owner.
-    if (STATE_DEPENDENT_IN_BODY.some(p => joined.includes(p))) {
+    const joined = structured.messages.join(' ');
+    // State FIRST, and as its own recognition route: naming the state that
+    // blocks the request ("has been closed", "cannot be associated") is a
+    // reference to the request just as much as naming a field is. It routes to
+    // a different owner than a malformed argument — the caller cannot correct
+    // an argument to make a closed record accept a write.
+    if (STATE_DEPENDENT_IN_BODY.some(p => joined.toLowerCase().includes(p))) {
       return { category: 'data_violation', isTransient: false, message, original: err };
     }
-    if (REQUEST_REJECTION_IN_BODY.some(p => joined.includes(p))) {
+    if (describesTheRequest(joined, { allowBrackets: !structured.truncated })) {
       return { category: 'validation', isTransient: false, message, original: err };
     }
-    // Unrecognised structured body — fall through. Keeping the old behaviour
-    // here is what stops this change suppressing a legitimate retry.
+    // The body named nothing about the request — an unexplained fault wrapped
+    // in an errors array. Fall through and keep retrying: a needless retry
+    // costs a second, a wrongly-suppressed one costs an outage recovery.
   }
 
   // Rate limit

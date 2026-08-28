@@ -668,6 +668,33 @@ export function registerWriteTools(server: any) {
   // reports read-only is deliberately absent from the schema rather than
   // accepted-and-ignored: silently dropping a caller's value is the failure this
   // connector keeps having to undo.
+  //
+  // 2026-08-28: the re-parent this tool was BUILT for did not work. Autotask
+  // stamps a companyLocationID on every ticket at create time, it belongs to
+  // the old company, and it does not survive a company change:
+  //
+  //   PATCH Tickets 500 {"errors":["The companyLocationID[285] cannot be
+  //   associated with the Ticket. The CompanyLocation must belong to the
+  //   Ticket's, ConfigurationItem's, or the Contact's Company."]}
+  //
+  // So every real re-parent failed — the exact case the tool exists for. The
+  // field is settable (live entityInformation: isReadOnly false, isRequired
+  // false, integer, reference to CompanyLocation), so this was a connector gap,
+  // not a vendor limit. It is now a parameter, and a company change carries the
+  // location with it rather than leaving a value from the previous customer:
+  // the NEW company's own primary location, which is what Autotask's own ticket
+  // form defaults to, or a clear when that company declares no primary.
+  // Plain-language meaning of each companyLocation.source, shipped with the
+  // response so a reader never has to guess what the connector did to a field
+  // they did not name.
+  const LOCATION_SOURCE_TEXT: Record<string, string> = {
+    caller: 'the location you supplied',
+    new_company_primary: "the new company's own primary location, read live from CompanyLocations",
+    cleared_no_primary:
+      'cleared, because the new company declares no active primary location — the field is optional, so an empty site is the honest answer rather than a guessed one',
+    untouched: 'unchanged — this call did not move the ticket between companies',
+  }
+
   server.registerTool(
     'autotask_update_ticket',
     {
@@ -680,11 +707,13 @@ export function registerWriteTools(server: any) {
         'Attributed to the signed-in technician via Autotask resource impersonation. ' +
         'READ-BACK VERIFIED: the ticket is re-read after the write and every requested field compared against what Autotask actually stored. If a value did not stick you get PRECONDITION_FAILED — an accepted PATCH is never reported as success on its HTTP status alone. Re-sending a value the ticket already had succeeds but is listed in unchangedFields, so the response never implies an edit that did not happen. ' +
         'VISIBILITY TRAP 1 — companyID RE-PARENTS THE TICKET: it moves the ticket to a different customer, which changes the contacts, contracts and notification recipients Autotask associates with it, and changes who can see it in the client portal. Tell the user before and after. A contactID or contractID belonging to the OLD company will not survive the move — set them in the same call, or expect Autotask to reject or clear them. ' +
+        'THE SITE LOCATION MOVES WITH IT: Autotask stamps every ticket with a companyLocationID and REJECTS the whole company change while that location still belongs to the old customer. So when you change companyID without naming a companyLocationID, this tool sets the NEW company\'s primary location in the same PATCH (or clears the field if that company declares no primary) and reports exactly which in companyLocation.source. Pass companyLocationID yourself to choose the site explicitly. ' +
         'VISIBILITY TRAP 2 — contactID CHANGES WHO AUTOTASK EMAILS about this ticket. The new contact starts receiving ticket correspondence and the previous one stops. Confirm the person before calling. ' +
         'Confirm the exact field values with the user before calling.',
       inputSchema: {
         ticketId: z.number().int().describe('Autotask ticket ID (the numeric id, not the T-number — resolve a T-number with autotask_get_ticket_by_number)'),
-        companyID: z.number().int().optional().describe('RE-PARENTS the ticket to this company id — changes notification recipients and portal visibility. Resolve with autotask_search_companies. A contact/contract from the old company will not survive the move.'),
+        companyID: z.number().int().optional().describe('RE-PARENTS the ticket to this company id — changes notification recipients and portal visibility. Resolve with autotask_search_companies. A contact/contract from the old company will not survive the move; the site location is handled for you (see companyLocationID).'),
+        companyLocationID: z.number().int().nullable().optional().describe('Site location for the ticket, from the ticket\'s OWN company (Autotask rejects a location belonging to any other company). Pass null to clear it. Leave it out on a company change and the new company\'s primary location is used automatically — the response reports which location was applied and lists the company\'s locations so you can correct it in one follow-up call.'),
         contactID: z.number().int().optional().describe('Ticket contact — CHANGES WHO AUTOTASK EMAILS about this ticket. Must belong to the ticket\'s company. Resolve with autotask_company_contacts.'),
         title: z.string().optional().describe('Replacement ticket title. Replaces the existing title entirely.'),
         description: z.string().optional().describe('Replacement ticket description. Replaces the existing text entirely — pass the full corrected description, not just the change.'),
@@ -703,6 +732,7 @@ export function registerWriteTools(server: any) {
         // unrelated argument can never reach the PATCH body.
         const requested = definedFields({
           companyID: rest.companyID,
+          companyLocationID: rest.companyLocationID,
           contactID: rest.contactID,
           title: rest.title,
           description: rest.description,
@@ -716,7 +746,7 @@ export function registerWriteTools(server: any) {
         if (Object.keys(requested).length === 0) {
           return failureResult({
             reasonCode: 'INVALID_INPUT',
-            message: `No change was requested for ticket ${ticketId}: at least one of companyID, contactID, title, description, queueID, priority, ticketType, dueDateTime or contractID must be supplied. Nothing was written.`,
+            message: `No change was requested for ticket ${ticketId}: at least one of companyID, companyLocationID, contactID, title, description, queueID, priority, ticketType, dueDateTime or contractID must be supplied. Nothing was written.`,
             evidence: 'The tool refuses an empty edit before contacting Autotask — a PATCH carrying only an id would be a pointless write against a ticket it might not even be able to prove it changed.',
             remediation: `Call again with the field(s) you want to change. To read the ticket's current values first, use autotask_get_ticket({ ticketId: ${ticketId} }).`,
             surface: 'autotask',
@@ -744,7 +774,37 @@ export function registerWriteTools(server: any) {
           })
         }
 
-        const result = await write.updateTicket(ticketId, requested, rid)
+        // ------------------------------------------------------------------
+        // The site location has to move with the company.
+        //
+        // Autotask stamps companyLocationID at create time and refuses the
+        // whole PATCH while it points at the previous customer's location, so
+        // leaving it alone is not an option — it breaks every re-parent. Two
+        // things are true and decide the default:
+        //   - the field is OPTIONAL, so clearing it is always legal, and
+        //   - the company's own isPrimary location is a fact read from the API,
+        //     not a guess, and is what Autotask's own ticket form defaults to.
+        // So: the caller's value wins; otherwise the new company's primary;
+        // otherwise a clear, which is the honest answer when the company
+        // declares no primary. This is applied ONLY when the company actually
+        // changes — a call that does not touch companyID never touches the
+        // location.
+        // ------------------------------------------------------------------
+        const companyIsChanging =
+          requested.companyID !== undefined && Number(requested.companyID) !== Number(before.companyID)
+        let locationSource: 'caller' | 'new_company_primary' | 'cleared_no_primary' | 'untouched' =
+          requested.companyLocationID !== undefined ? 'caller' : 'untouched'
+        let companyLocations: Array<{ id: number; name: string | null; isPrimary: boolean; isActive: boolean }> = []
+        const autoFields: Record<string, unknown> = {}
+
+        if (companyIsChanging && requested.companyLocationID === undefined) {
+          companyLocations = await client.getCompanyLocations(Number(requested.companyID))
+          const primary = companyLocations.find((l) => l.isPrimary && l.isActive)
+          autoFields.companyLocationID = primary ? primary.id : null
+          locationSource = primary ? 'new_company_primary' : 'cleared_no_primary'
+        }
+
+        const result = await write.updateTicket(ticketId, { ...requested, ...autoFields }, rid)
 
         // Read back and prove it. Unlike the pre-read, a failure here means the
         // write may well have landed — so this can never be reported as success.
@@ -790,6 +850,18 @@ export function registerWriteTools(server: any) {
         const reparented = changedFields.includes('companyID')
         const contactChanged = changedFields.includes('contactID')
 
+        // The location is reported as an OBSERVATION, not verified as a
+        // requested field, when this tool chose it rather than the caller. A
+        // read-back disagreement there means Autotask re-stamped the ticket
+        // itself — worth saying out loud, but it is not a failure of what the
+        // caller actually asked for, and failing the whole re-parent over it
+        // would be the verifier crying wolf. A location the CALLER supplied is
+        // in `requested` and stays strictly verified like every other field.
+        const locationBefore = (before.companyLocationID as number | null) ?? null
+        const locationAfter = (after.companyLocationID as number | null) ?? null
+        const locationApplied = 'companyLocationID' in autoFields ? (autoFields.companyLocationID as number | null) : undefined
+        const locationDiverged = locationApplied !== undefined && Number(locationApplied ?? -1) !== Number(locationAfter ?? -1)
+
         return ok({
           result,
           ticketId,
@@ -807,9 +879,21 @@ export function registerWriteTools(server: any) {
             : {}),
           ...(reparented
             ? {
-                reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. Check that contactID (${after.contactID ?? 'none'}) and contractID (${after.contractID ?? 'none'}) still belong to the new company.`,
+                reparentedNote: `TICKET RE-PARENTED: ticket ${ticketId} moved from company ${before.companyID ?? 'none'} to company ${after.companyID ?? 'none'}. Its notification recipients, available contacts and contracts, and client-portal visibility all follow the new company. TELL THE USER. The site location moved too — it had to, because Autotask rejects the whole change while the ticket still points at the old company's location: companyLocationID went from ${locationBefore ?? 'none'} to ${locationAfter ?? 'none'} (${LOCATION_SOURCE_TEXT[locationSource]}). Check that contactID (${after.contactID ?? 'none'}) and contractID (${after.contractID ?? 'none'}) still belong to the new company.`,
               }
             : {}),
+          companyLocation: {
+            before: locationBefore,
+            after: locationAfter,
+            source: locationSource,
+            sourceMeaning: LOCATION_SOURCE_TEXT[locationSource],
+            ...(companyLocations.length ? { companyLocations } : {}),
+            ...(locationDiverged
+              ? {
+                  divergedNote: `This tool sent companyLocationID ${locationApplied ?? 'null'} but the ticket reads back ${locationAfter ?? 'null'} — Autotask set the location itself. The company change is verified; the location is reported as observed, not as requested.`,
+                }
+              : {}),
+          },
           ...(contactChanged
             ? {
                 contactChangeNote: `NOTIFICATION RECIPIENT CHANGED: the ticket contact moved from ${before.contactID ?? 'none'} to ${after.contactID ?? 'none'}. Autotask now emails the new contact about this ticket and stops emailing the previous one. TELL THE USER.`,

@@ -419,11 +419,12 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_create_time_entry: atWrite('BILLABLE', 'roleId is required', 'Service tickets require start+stop times', 'summaryNotes does NOT populate the ticket Resolution field unless appendSummaryToResolution=true'),
   autotask_set_ticket_resolution: atWrite('Resolution drives the customer completion email', 'append=true by default; false OVERWRITES'),
   autotask_update_ticket: atWrite(
-    'Corrects an EXISTING ticket\'s core fields — companyID, contactID, title, description, queueID, priority, ticketType, dueDateTime, contractID',
+    'Corrects an EXISTING ticket\'s core fields — companyID, companyLocationID, contactID, title, description, queueID, priority, ticketType, dueDateTime, contractID',
     'Every exposed field reports isReadOnly false on live entityInformation; a field the API reports read-only has no parameter rather than being accepted and ignored',
     'PATCHes ONLY the fields supplied — Autotask PATCH leaves omitted fields untouched, so there is no GET-merge and an unsupplied field cannot be blanked',
     'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success. Re-sending an identical value succeeds but is reported in unchangedFields',
     'companyID RE-PARENTS the ticket — notification recipients, available contacts/contracts and client-portal visibility all follow the new company',
+    'A company change also MOVES THE SITE LOCATION: Autotask rejects the whole PATCH while companyLocationID still belongs to the old customer, so an unspecified location is set to the new company\'s primary (or cleared when it declares none) and reported in companyLocation.source',
     'contactID changes WHO AUTOTASK EMAILS about the ticket',
     'Does NOT set assignment, status or resolution — those have their own tools',
   ),

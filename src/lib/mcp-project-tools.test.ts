@@ -366,10 +366,10 @@ describe('classifyError — a 500 carrying a structured errors[] body is a REQUE
   })
 
   it('a 500 whose errors[] is a GENERIC fault is still TRANSIENT', () => {
-    // The first version of this fix reclassified any errors[] array and broke
-    // two real retry tests using exactly this body. Recognition is an
-    // allowlist, so an unrecognised body keeps retrying: a needless retry
-    // costs a second, a suppressed one costs an outage recovery.
+    // The half of the rule that must never move. These messages say something
+    // went wrong on the server and NOTHING about what was sent — no field name,
+    // no id, no rule — so they are faults, and a fault is retried. Two real
+    // retry tests use exactly the first body.
     for (const body of [
       'failed (500): {"errors":["internal error"]}',
       'failed (500): {"errors":["Internal server error, please try again"]}',
@@ -377,6 +377,65 @@ describe('classifyError — a 500 carrying a structured errors[] body is a REQUE
     ]) {
       expect(classifyError(new Error(body)).isTransient).toBe(true)
     }
+  })
+
+  // -------------------------------------------------------------------------
+  // 2026-08-28: the allowlist that could only recognise yesterday's rejections
+  // -------------------------------------------------------------------------
+  //
+  // Reproduced live re-parenting ticket 35437 from company 423 to 437. Autotask
+  // answered HTTP 500 with a body naming a field and the rule it broke, and the
+  // classifier called it server_error → TRANSIENT → fixableBy: retry →
+  // "Wait briefly and retry the same call." The failure is deterministic: the
+  // identical call fails identically every time, and the connector's own
+  // taxonomy says PRECONDITION_FAILED must never be retried unchanged.
+  //
+  // The cause was not a missing phrase. It was that recognition WAS a phrase
+  // list — thirteen sentences someone had already met — while the vendor writes
+  // new ones whenever it likes. The rule is now general: a rejection refers to
+  // the REQUEST (names a field, quotes an id, states a rule it broke); a fault
+  // does not.
+
+  const reparent500 =
+    'Autotask PATCH Tickets failed (500): {"errors":["The companyLocationID[285] cannot be associated with the Ticket. The CompanyLocation must belong to the Ticket\'s, ConfigurationItem\'s, or the Contact\'s Company."]}'
+
+  it('the live companyLocationID re-parent rejection is NOT transient', () => {
+    const c = classifyError(new Error(reparent500))
+    expect(c.isTransient).toBe(false)
+    expect(c.category).toBe('data_violation')
+  })
+
+  it('and its envelope is PRECONDITION_FAILED, never a retry instruction', () => {
+    const env = classifyThrown(new Error(reparent500), { surface: 'autotask', tool: 'autotask_update_ticket' })
+    expect(env.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(env.fixableBy).toBe('tct_human')
+    // The exact words the broken envelope gave the owner.
+    expect(env.remediation.toLowerCase()).not.toContain('wait briefly')
+    expect(env.remediation.toLowerCase()).not.toContain('report it as an outage')
+    expect(env.evidence).not.toContain('server_error')
+    // The vendor named the blocking field; losing that loses the only
+    // actionable part.
+    expect(env.remediation).toContain('companyLocationID')
+  })
+
+  it('recognises a rejection by its SHAPE, not by a phrase anyone listed', () => {
+    // None of these existed when the rule was written. Each names a field, an
+    // id, or a rule — which is the whole test.
+    for (const body of [
+      'failed (500): {"errors":["The purchaseOrderNumber may not exceed 50 characters."]}',
+      'failed (500): {"errors":["Value [77] is not associated with the selected contract."]}',
+      'failed (500): {"errors":["subIssueType is not valid for the selected issueType."]}',
+    ]) {
+      expect(classifyError(new Error(body)).isTransient, body).toBe(false)
+    }
+  })
+
+  it('a truncated body does not become a rejection on the array bracket alone', () => {
+    // Our client slices responses at 500 chars, so the JSON may not parse. The
+    // leading `["` would otherwise read as a bracketed id the request carried
+    // — a rejection verdict manufactured out of JSON punctuation.
+    const c = classifyError(new Error('failed (500): {"errors":["The server encountered a problem while'))
+    expect(c.isTransient).toBe(true)
   })
 
   it('a state-dependent structured rejection is PRECONDITION_FAILED, not INVALID_INPUT', () => {
