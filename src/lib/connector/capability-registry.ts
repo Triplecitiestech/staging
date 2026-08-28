@@ -424,7 +424,7 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'PATCHes ONLY the fields supplied — Autotask PATCH leaves omitted fields untouched, so there is no GET-merge and an unsupplied field cannot be blanked',
     'Read-back VERIFIED per field: a value that did not stick returns PRECONDITION_FAILED, never success. Re-sending an identical value succeeds but is reported in unchangedFields',
     'companyID RE-PARENTS the ticket — notification recipients, available contacts/contracts and client-portal visibility all follow the new company',
-    'A company change also MOVES THE SITE LOCATION: Autotask rejects the whole PATCH while companyLocationID still belongs to the old customer, so an unspecified location is set to the new company\'s primary (or cleared when it declares none) and reported in companyLocation.source',
+    'A company change MOVES THREE OTHER FIELDS: Autotask rejects the whole PATCH while any record from the old customer is attached, so companyLocationID becomes the new company\'s primary (or is cleared), and a stale contactID / contractID is CLEARED — reported in companyLocation.source and clearedOnReparent. Pass any of them in the same call to set the new company\'s own records instead',
     'contactID changes WHO AUTOTASK EMAILS about the ticket',
     'Does NOT set assignment, status or resolution — those have their own tools',
   ),
