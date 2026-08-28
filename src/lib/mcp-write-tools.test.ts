@@ -617,8 +617,8 @@ const UNMAPPED = {
   ticketType: 1, dueDateTime: '2026-08-28T17:00:00Z', contractID: null,
 }
 
-/** The same ticket carrying the previous company's contact and contract. */
-const WITH_STALE_LINKS = { ...UNMAPPED, contactID: 30683671, contractID: 29683617 }
+/** The same ticket carrying the previous company's contact. */
+const WITH_STALE_LINKS = { ...UNMAPPED, contactID: 30683671 }
 
 /** Locations as CompanyLocations returns them for the company being moved TO. */
 const NEW_COMPANY_LOCATIONS = [
@@ -901,25 +901,45 @@ describe('autotask_update_ticket', () => {
   // succeeds with the contract in place, and the null is silently ignored.
   // ---------------------------------------------------------------------
 
-  it('does NOT send a contractID on re-parent, and warns the ticket kept a stale one', async () => {
+  it('REFUSES the re-parent before writing when a contract is attached', async () => {
+    // Established by A/B on ticket 35437 — same source company, same
+    // destination, same contract, one variable:
+    //   with    contractID: null -> 200, company moved, contract NOT cleared
+    //   without contractID       -> 500 "contractID [29683617] is not
+    //                               associated to companyID [423] or its parent."
+    // So the null does not clear anything; it SUPPRESSES the check and leaves a
+    // silently corrupt cross-company state. Sending it is never right, which
+    // leaves the move genuinely blocked — so refuse, and say what unblocks it.
+    getTicketCoreFields.mockResolvedValueOnce({ ...UNMAPPED, companyID: 436, contractID: 29683617 })
+
+    const failure = await harness().failure('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toContain('NOTHING WAS WRITTEN')
+    // Refused BEFORE the write: no PATCH, and no location lookup either.
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+    expect(getCompanyLocations).not.toHaveBeenCalled()
+    // The remedy must be actionable, not "that did not work".
+    expect(String(failure.remediation)).toContain('autotask_list_contracts')
+    expect(String(failure.remediation)).toMatch(/clear the Contract field in the Autotask UI/)
+    // The null must never come back as a workaround.
+    expect(String(failure.evidence)).toMatch(/does NOT store the null/)
+    expect(failure.details).toMatchObject({ blockingContractId: 29683617, targetCompanyId: 294 })
+  })
+
+  it('proceeds when the caller supplies a contract for the new company', async () => {
+    // The documented way out of the refusal above.
     getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
     const before = { ...UNMAPPED, contractID: 29683617 }
     getTicketCoreFields
       .mockResolvedValueOnce(before)
-      // Autotask keeps the contract — this is what it actually did.
-      .mockResolvedValueOnce({ ...before, companyID: 294, companyLocationID: 901 })
+      .mockResolvedValueOnce({ ...before, companyID: 294, companyLocationID: 901, contractID: 700 })
     vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
 
-    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294, contractID: 700 })
 
-    // No futile write: a null here does nothing, and sending one implies an
-    // intent that silently fails.
-    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, companyLocationID: 901 }])
-    expect(res.staleContract).toMatchObject({ contractId: 29683617, previousCompanyId: 0, clearable: false })
-    expect(res.staleContractNote).toMatch(/STILL CARRIES THE PREVIOUS COMPANY'S CONTRACT/)
-    expect(res.staleContractNote).toMatch(/cannot clear it/)
-    // The retracted behaviour must not come back under another name.
-    expect(res.clearedOnReparent).toBeUndefined()
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, contractID: 700, companyLocationID: 901 }])
+    expect(res.changedFields).toEqual(expect.arrayContaining(['companyID', 'contractID']))
   })
 
   it('reports a clear that did NOT stick as failed, never as done', async () => {
@@ -955,10 +975,21 @@ describe('autotask_update_ticket', () => {
       { id: 35432, companyID: 294, contactID: 55, contractID: 66, companyLocationID: 901 },
     ])
     expect(res.clearedOnReparent).toBeUndefined()
-    // The caller gave the new company its own contract, so there is nothing stale.
-    expect(res.staleContract).toBeUndefined()
     // Caller-supplied, so strictly verified rather than merely observed.
     expect(res.changedFields).toEqual(expect.arrayContaining(['contactID', 'contractID']))
+  })
+
+  it('does not refuse a contract-carrying ticket when the company is not changing', async () => {
+    // The refusal is about the MOVE, not about having a contract.
+    getTicketCoreFields
+      .mockResolvedValueOnce({ ...UNMAPPED, contractID: 29683617 })
+      .mockResolvedValueOnce({ ...UNMAPPED, contractID: 29683617, title: 'Renamed' })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, title: 'Renamed' })
+
+    expect(res.changedFields).toEqual(['title'])
+    expect(writeBodies()).toEqual([{ id: 35432, title: 'Renamed' }])
   })
 
   it('leaves contact and contract alone when the company is not changing', async () => {
@@ -971,8 +1002,6 @@ describe('autotask_update_ticket', () => {
 
     expect(writeBodies()).toEqual([{ id: 35432, title: 'Renamed' }])
     expect(res.clearedOnReparent).toBeUndefined()
-    // No company change means no stale anything — the links are still correct.
-    expect(res.staleContract).toBeUndefined()
   })
 
   it('adds no clearing or contract wording when there was nothing stale', async () => {
@@ -985,8 +1014,7 @@ describe('autotask_update_ticket', () => {
     const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
 
     expect(res.clearedOnReparent).toBeUndefined()
-    expect(res.staleContract).toBeUndefined()
-    expect(res.reparentedNote).not.toMatch(/CLEARED|STILL CARRIES/)
+    expect(res.reparentedNote).not.toMatch(/CLEARED|could NOT be cleared/)
   })
 
   it('accepts an explicit null to clear the location on its own', async () => {

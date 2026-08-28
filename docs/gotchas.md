@@ -375,8 +375,15 @@ that it is still correct after subsequent writes to related records.
   Autotask stamps `companyLocationID` at create time, so EVERY ticket has one — which is why every real re-parent failed, the one case the tool exists for. Both fields report `isReadOnly false` / `isRequired false` on live `entityInformation`, so this was a connector gap, not a vendor limit.
 - **`contactID` is the common case, not an edge case.** A mis-filed inbound ticket almost always has a contact. The first version of this fix handled only the location and was still broken for the majority of tickets it exists to correct — found by testing the *other* fields after fixing the first, not by reasoning about them.
 - **The two are handled differently, on purpose.** `companyLocationID` is RESOLVED to the new company's own `isPrimary` + `isActive` location (a fact read from `CompanyLocations`, and what Autotask's own ticket form defaults to), falling back to a clear when the company declares no active primary. `contactID` is CLEARED: a contact is a person, so the new company's primary contact is a stranger to the ticket and would start receiving mail about it, and the old one left attached keeps being emailed about a ticket that is no longer theirs. Anything the caller passes in the same call wins over both.
-- **CONTRACTS ARE NOT LIKE EITHER, and the first version of this fix got that wrong — see the retraction below.** A stale `contractID` does NOT block a re-parent, and Autotask SILENTLY IGNORES a null sent for `contractID`. So the ticket keeps a contract belonging to the previous company and this tool cannot clear it: it reports `staleContract` and the human fixes it in the UI or passes a valid contract for the new company. Note the vendor asymmetry, which was not predictable from either side: **a null `contactID` IS honoured, a null `contractID` is NOT.**
-- **Autotask validates contract↔company on an explicit `contractID` write but NOT on a company change.** Setting a foreign contract is rejected (`contractID [29683617] is not associated to companyID [423] or its parent.`); moving the company out from under an existing contract is allowed, leaving the ticket billed against another company's contract. Both observed live on the same ticket within minutes.
+- **A stale `contractID` BLOCKS the move, and the tool CANNOT clear it — so the call is refused before any write.** Settled by an A/B on ticket 35437 with one variable (same source company, same destination, same contract):
+
+  | PATCH body | result |
+  |---|---|
+  | `{companyID, companyLocationID, contractID: null}` | **200.** Company moved. Contract **not** cleared — Autotask validated the SUBMITTED null and persisted the OLD value, leaving the ticket on one company holding another's contract. |
+  | `{companyID, companyLocationID}` | **500** `contractID [29683617] is not associated to companyID [423] or its parent.` |
+
+  So the null does not clear anything: it **suppresses the check** and produces a silently corrupt cross-company state, which is worse than the failure it hides. The tool therefore never sends one, and refuses the move up front with `PRECONDITION_FAILED` naming the blocking contract — Autotask's own error would route to the caller ("correct the argument") for an argument the caller never sent. The way through is to pass a `contractID` belonging to the NEW company in the same call, or clear the Contract field in the UI first.
+- **Vendor asymmetry, not predictable from either side: a null `contactID` IS honoured and clears the field; a null `contractID` is accepted and silently discarded.** Never assume one nullable reference field on Tickets behaves like another.
 - **Verification is deliberately split — but a CLEAR is always confirmed.** A field the CALLER supplied is strictly read-back verified and fails with `PRECONDITION_FAILED` if it did not stick. A field the TOOL chose (the resolved location) is reported as an OBSERVATION with a `divergedNote` if Autotask re-stamped it, because failing a landed re-parent over a field nobody asked for is the verifier crying wolf. **That exemption applies to OBSERVING state, never to CLAIMING an action**: `clearedOnReparent` is filtered against the read-back and a clear that did not stick is reported in `failedToClear`.
 - **NOT verified: whether Autotask accepts an explicit `null` for `companyLocationID`.** The `cleared_no_primary` fallback sends one, but every test company declares a primary so the path never fired, and the MCP client's cached tool list prevented sending a literal JSON null by hand. Given that a null `contractID` is ignored on the same entity, do NOT assume this one works. If it does not, it surfaces as a location that did not change — visible in `companyLocation`, not silent.
 - **`contactID` changes WHO AUTOTASK EMAILS** about the ticket: the new contact starts receiving correspondence, the previous one stops. Emitted as `contactChangeNote`.
@@ -427,45 +434,54 @@ list of things previously observed, the next unobserved case is not an edge
 case — it is the guaranteed next bug. Ask what the list is a proxy FOR, and
 test that instead.
 
-## RETRACTION: "a stale contract blocks a re-parent" (2026-08-28)
+## The contract claim, wrong twice, and what finally settled it (2026-08-28)
 
-Asserted in a shipped commit, a merged PR body and three Claude skills, on the
-strength of this live failure:
+Worth keeping in full, because the same error was made three times in one
+session and only the third method was sound.
 
-```
-{"errors":["contractID [29683617] is not associated to companyID [423] or its parent."]}
-```
+**Claim 1 (shipped): "a stale contract blocks a re-parent."** Evidence: a real
+500, `contractID [29683617] is not associated to companyID [423] or its
+parent.` — but produced by *setting a foreign contract explicitly* on a ticket
+whose company was not changing. Never checked against the operation it was used
+to describe.
 
-That error is real — but it came from **setting a foreign `contractID`
-explicitly** on a ticket whose company was not changing. It was never checked
-against the case it was used to describe: re-parenting a ticket that already
-CARRIES a contract. When that was finally tested, the re-parent **succeeded**,
-Autotask left the contract in place, and the `contractID: null` sent alongside
-it was **silently ignored** — leaving ticket 35437 on company 423 holding
-company 436's contract, a state Autotask itself permits.
+**Claim 2 (shipped as a retraction of claim 1): "it does NOT block a
+re-parent."** Evidence: a re-parent of a contract-carrying ticket that
+succeeded. But that PATCH also carried `contractID: null`, because claim 1 had
+put it there. The variable under test was confounded with one I controlled.
 
-Two defects followed from the one bad inference:
+**What settled it**: the same ticket, same source company, same destination,
+same contract, changing only whether the null was sent.
 
-1. The tool sent a null that does nothing, on every re-parent of a ticket with
-   a contract.
-2. Worse: it **reported the clear as done**. `clearedOnReparent` was built from
-   what the PATCH SENT, not from the read-back, so the response announced
-   `contractID was CLEARED (was 29683617)` in the same note that ended `The
-   ticket now reports ... contractID 29683617`. Success-shaped output on
-   failure — the exact defect this connector keeps undoing (IT Glue folder
-   move, twelve days), reintroduced inside the fix written to prevent it.
+| PATCH body | result |
+|---|---|
+| `{companyID, companyLocationID, contractID: null}` | 200; company moved; contract NOT cleared |
+| `{companyID, companyLocationID}` | 500 `contractID [...] is not associated to companyID [...]` |
 
-**The lesson is not "test more".** The location and contact findings were both
-verified against the exact operation they described. The contract claim was
-generalised from an *adjacent* observation because it fit the pattern the other
-two had established — and a pattern that has held twice is precisely when the
-third case stops being checked. An observation licenses a claim about the
-operation it was made on, and nothing else.
+Claim 1 was right about the block. Claim 2 was an artefact of the fix for claim
+1. And the null is not a workaround but a **corruption**: Autotask validates the
+submitted value and persists the old one, so the "success" leaves a ticket on
+one company holding another's contract.
 
-**Second-order rule now enforced in code**: an exemption from strict
-verification (granted so the verifier does not cry wolf over a field nobody
-asked for) applies to OBSERVING state, never to CLAIMING an action. Anything
-reported as *done* is filtered against the read-back.
+Three defects came out of it, each worth its own rule:
+
+1. **A claim is licensed by the operation it was tested on, and nothing else.**
+   The location and contact findings were each verified against the exact
+   operation they described; the contract claim was generalised from an
+   *adjacent* one because it fit the pattern the other two established. A
+   pattern that has held twice is precisely when the third case stops being
+   checked.
+2. **When a result surprises you, list what differed — all of it.** Claim 2 read
+   one difference (the operation) off a run that had two (the operation and the
+   null). The A/B that settled it took one extra call.
+3. **A verification exemption covers OBSERVING state, never CLAIMING an
+   action.** `clearedOnReparent` was built from what the PATCH SENT, so the
+   response announced `contractID was CLEARED (was 29683617)` in the same note
+   that ended `The ticket now reports ... contractID 29683617` — success-shaped
+   output on failure (the IT Glue folder move survived twelve days on it),
+   reintroduced inside the fix written to prevent it. Anything reported as
+   *done* is now filtered against the read-back, with `failedToClear` for the
+   rest.
 
 ## Autotask ticket reads must never support a false absence claim (2026-07-30)
 
