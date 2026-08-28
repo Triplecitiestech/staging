@@ -1572,6 +1572,13 @@ export class AutotaskClient {
     const fields = [
       'id',
       'companyID',
+      // companyLocationID is here for a reason that is not "it is settable":
+      // Autotask stamps it at create time from the company, it is NOT visible
+      // in TICKET_QUERY_FIELDS, and a stale one BLOCKS a company re-parent
+      // ("The companyLocationID[285] cannot be associated with the Ticket").
+      // The re-parent path cannot report what it did to this field without
+      // reading it.
+      'companyLocationID',
       'contactID',
       'title',
       'description',
@@ -1585,6 +1592,31 @@ export class AutotaskClient {
       op: 'eq', field: 'id', value: ticketId,
     }, fields);
     return results[0] ?? null;
+  }
+
+  /**
+   * Fetch a company's locations (id, name, isPrimary, isActive).
+   *
+   * Exists for ONE job: when autotask_update_ticket re-parents a ticket to a
+   * different company, the ticket's stamped companyLocationID belongs to the
+   * OLD company and Autotask rejects the whole PATCH until it is dealt with.
+   * The replacement must come from the NEW company, and `isPrimary` is that
+   * company's own declared answer to "which location by default" — read from
+   * the API, not inferred.
+   *
+   * Read-only, and deliberately not exposed as its own MCP tool: the only
+   * caller that needs it is the re-parent, which reports the list it read.
+   */
+  async getCompanyLocations(companyId: number): Promise<Array<{ id: number; name: string | null; isPrimary: boolean; isActive: boolean }>> {
+    const rows = await this.queryAll<Record<string, unknown>>('CompanyLocations', {
+      op: 'eq', field: 'companyID', value: companyId,
+    }, ['id', 'name', 'isPrimary', 'isActive']);
+    return rows.map((r) => ({
+      id: Number(r.id),
+      name: (r.name as string | null) ?? null,
+      isPrimary: r.isPrimary === true,
+      isActive: r.isActive === true,
+    }));
   }
 
   /**

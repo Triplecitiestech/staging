@@ -451,21 +451,28 @@ export function classifyThrown(err: unknown, ctx: ClassifyContext): ConnectorFai
         evidence: `Classified as ${classified.category} by classifyError().`,
       })
     case 'data_violation': {
-      // The upstream rejected the request's SHAPE: a required field was missing,
-      // or a pair that must travel together did not. Autotask returns HTTP 500
-      // for this, which used to classify as server_error → TRANSIENT → "wait
-      // briefly and retry" — advice that can never work and cost the owner a
-      // retry loop on 2026-07-29. The status is ignored here; the body decides.
+      // The upstream rejected the write against a DATA RULE. Two families reach
+      // here and both are permanent: a required field or field pair missing,
+      // and a value that conflicts with what the record (or a related record)
+      // currently holds — "the companyLocationID[285] cannot be associated with
+      // the Ticket", where the caller never sent that field at all.
+      //
+      // Autotask returns HTTP 500 for both, which used to classify as
+      // server_error → TRANSIENT → "wait briefly and retry": advice that can
+      // never work, and which this connector's own taxonomy forbids for
+      // PRECONDITION_FAILED. Cost a retry loop on 2026-07-29 and a broken
+      // ticket re-parent on 2026-08-28. The status is ignored here; the body
+      // decides.
       const rule = extractVendorRule(raw)
       return connectorFailure({
         ...base,
         reasonCode: 'PRECONDITION_FAILED',
         message:
-          `The upstream API rejected this write as a DATA VIOLATION — a required field, or a field pair that must be sent together, was missing. This is NOT transient: retrying the identical call can never succeed. ${raw}`,
+          `The upstream API rejected this write against a DATA RULE — either a required field (or a field pair that must travel together) was missing, or a value conflicts with what this record or a related record currently holds. This is NOT transient: retrying the identical call can never succeed. ${raw}`,
         evidence:
-          'Upstream body names a schema rule (classified as data_violation by classifyError()). The HTTP status may be 5xx — Autotask answers schema violations with 500 — but a status is not what makes this permanent; the rule in the body is.',
+          'Upstream body names a data rule and refers to the request (classified as data_violation by classifyError()). The HTTP status may be 5xx — Autotask answers data violations with 500 — but a status is not what makes this permanent; the rule in the body is.',
         remediation:
-          `${rule ? `The vendor's own message: "${rule}" — ` : ''}fix the SHAPE of the request, then call again: supply the named field, or send the missing half of the pair. If no tool parameter exposes it, that is a connector gap for Claude Code to close (a tool schema change), NOT a retry and NOT a permissions problem.`,
+          `${rule ? `The vendor's own message: "${rule}" — ` : ''}read it for WHICH field is blocking. If it names a field you sent, fix that value. If it names a field you did NOT send, the record is carrying a value that conflicts with your change: re-read current state and clear or move that field in the same call. If no tool parameter exposes it, that is a connector gap for Claude Code to close (a tool schema change), NOT a retry and NOT a permissions problem.`,
         details: { ...ctx.details, retryable: false, ...(rule ? { vendorRule: rule } : {}) },
       })
     }

@@ -34,6 +34,7 @@ const getTicketAssignment = vi.fn()
 const getTicketResolution = vi.fn()
 const getTicketNoteByNoteId = vi.fn()
 const getTicketCoreFields = vi.fn()
+const getCompanyLocations = vi.fn()
 const picklistLabelMap = vi.fn()
 
 vi.mock('@/lib/autotask', () => ({
@@ -44,6 +45,7 @@ vi.mock('@/lib/autotask', () => ({
     getTicketResolution = getTicketResolution
     getTicketNoteByNoteId = getTicketNoteByNoteId
     getTicketCoreFields = getTicketCoreFields
+    getCompanyLocations = getCompanyLocations
     picklistLabelMap = picklistLabelMap
   },
   getAutotaskTicketUrl: (id: string) => `https://ww15.autotask.net/ticket/${id}`,
@@ -122,6 +124,7 @@ beforeEach(() => {
   getTicketAssignment.mockReset()
   getTicketNoteByNoteId.mockReset()
   getTicketCoreFields.mockReset()
+  getCompanyLocations.mockReset().mockResolvedValue([])
   // The live picklist on this instance: 1 is the CUSTOMER-VISIBLE state and
   // there is no id 3 — see the AutotaskTicketNote docblock.
   picklistLabelMap.mockReset().mockResolvedValue(
@@ -600,6 +603,7 @@ const TICKETS_SNAPSHOT = {
     { name: 'ticketType', isQueryable: true, isReadOnly: false },
     { name: 'dueDateTime', isQueryable: true, isReadOnly: false },
     { name: 'contractID', isQueryable: true, isReadOnly: false },
+    { name: 'companyLocationID', isQueryable: true, isReadOnly: false },
     // Read-only on the live instance — deliberately NOT a parameter.
     { name: 'completedDate', isQueryable: true, isReadOnly: true },
     { name: 'lastActivityDate', isQueryable: true, isReadOnly: true },
@@ -608,10 +612,16 @@ const TICKETS_SNAPSHOT = {
 
 /** The state ticket 35432 actually arrived in: unmapped company. */
 const UNMAPPED = {
-  id: 35432, companyID: 0, contactID: null, title: 'Printer offline',
+  id: 35432, companyID: 0, companyLocationID: 285, contactID: null, title: 'Printer offline',
   description: 'Sent from the front desk', queueID: 8, priority: 2,
   ticketType: 1, dueDateTime: '2026-08-28T17:00:00Z', contractID: null,
 }
+
+/** Locations as CompanyLocations returns them for the company being moved TO. */
+const NEW_COMPANY_LOCATIONS = [
+  { id: 900, name: 'Warehouse', isPrimary: false, isActive: true },
+  { id: 901, name: 'Head office', isPrimary: true, isActive: true },
+]
 
 describe('autotask_update_ticket', () => {
   beforeEach(() => {
@@ -624,9 +634,10 @@ describe('autotask_update_ticket', () => {
   })
 
   it('re-parents a ticket and proves the stored companyID by read-back', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
     getTicketCoreFields
       .mockResolvedValueOnce(UNMAPPED)
-      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 901 })
     vi.mocked(fetch).mockResolvedValue(jsonResponse(200, { itemId: 35432 }))
 
     const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
@@ -634,13 +645,15 @@ describe('autotask_update_ticket', () => {
     expect(res.updateVerified).toBe(true)
     expect(res.changedFields).toEqual(['companyID'])
     expect(res.ticket.companyID).toBe(294)
-    // The PATCH carries ONLY what was asked for — no GET-and-merge.
-    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294 }])
+    // Only what was asked for, PLUS the location the company change requires —
+    // still no GET-and-merge: no title, description or queue appears here.
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, companyLocationID: 901 }])
   })
 
   it('FAILS the call when the write does not stick, instead of trusting the 200', async () => {
     // Autotask accepts the PATCH and stores nothing — the exact shape that let
     // the IT Glue folder-move defect survive twelve days reporting success.
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
     getTicketCoreFields
       .mockResolvedValueOnce(UNMAPPED)
       .mockResolvedValueOnce({ ...UNMAPPED, companyID: 0 })
@@ -657,6 +670,7 @@ describe('autotask_update_ticket', () => {
   })
 
   it('reports a partially applied write rather than a flat failure', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
     getTicketCoreFields
       .mockResolvedValueOnce(UNMAPPED)
       // title landed, companyID did not.
@@ -704,12 +718,17 @@ describe('autotask_update_ticket', () => {
     expect(res.unchangedNote).toMatch(/already held the requested value/)
     // No re-parent warning fired, because nothing was re-parented.
     expect(res.reparentedNote).toBeUndefined()
+    // And the location is left completely alone: no lookup, nothing in the PATCH.
+    expect(getCompanyLocations).not.toHaveBeenCalled()
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294 }])
+    expect(res.companyLocation.source).toBe('untouched')
   })
 
-  it('warns that a companyID change re-parents the ticket', async () => {
+  it('warns that a companyID change re-parents the ticket, and names the site move', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
     getTicketCoreFields
       .mockResolvedValueOnce(UNMAPPED)
-      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294 })
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 901 })
     vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
 
     const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
@@ -717,6 +736,9 @@ describe('autotask_update_ticket', () => {
     expect(res.reparentedNote).toMatch(/RE-PARENTED/)
     expect(res.reparentedNote).toMatch(/notification recipients/)
     expect(res.reparentedNote).toMatch(/TELL THE USER/)
+    // The location move is not a footnote: it is the reason the re-parent used
+    // to fail outright, so the note the technician reads verbatim must say it.
+    expect(res.reparentedNote).toMatch(/companyLocationID went from 285 to 901/)
   })
 
   it('warns that a contactID change moves who Autotask emails', async () => {
@@ -729,6 +751,120 @@ describe('autotask_update_ticket', () => {
 
     expect(res.contactChangeNote).toMatch(/NOTIFICATION RECIPIENT CHANGED/)
     expect(res.contactChangeNote).toMatch(/stops emailing the previous one/)
+  })
+
+  // -------------------------------------------------------------------------
+  // The site location, and why a re-parent could not work without it
+  // -------------------------------------------------------------------------
+  //
+  // Reproduced live on 2026-08-28 against ticket 35437 (company 423 → 437):
+  //
+  //   PATCH Tickets 500 {"errors":["The companyLocationID[285] cannot be
+  //   associated with the Ticket. The CompanyLocation must belong to the
+  //   Ticket's, ConfigurationItem's, or the Contact's Company."]}
+  //
+  // Autotask stamps companyLocationID at create time; it belongs to the old
+  // company and blocks the entire PATCH. So EVERY real re-parent failed — the
+  // one case this tool was built for. These lock the fix.
+
+  it('carries the new company\'s PRIMARY location in the same PATCH', async () => {
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 901 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    // One PATCH, both fields. Two calls would leave the ticket rejected on the
+    // first and the location orphaned if the second never ran.
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, companyLocationID: 901 }])
+    // The primary, not merely the first row — 900 comes back first.
+    expect(res.companyLocation).toMatchObject({ before: 285, after: 901, source: 'new_company_primary' })
+    expect(getCompanyLocations).toHaveBeenCalledWith(294)
+  })
+
+  it('CLEARS the location when the new company declares no active primary', async () => {
+    // The field is isRequired false on live entityInformation, so an empty site
+    // is legal. It is also the honest answer: picking a non-primary location
+    // would be a guess stamped on a customer record.
+    getCompanyLocations.mockResolvedValue([
+      { id: 900, name: 'Warehouse', isPrimary: false, isActive: true },
+      { id: 902, name: 'Closed office', isPrimary: true, isActive: false },
+    ])
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: null })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, companyLocationID: null }])
+    expect(res.companyLocation).toMatchObject({ after: null, source: 'cleared_no_primary' })
+    // An inactive primary is not a primary.
+    expect(res.companyLocation.sourceMeaning).toMatch(/no active primary/)
+  })
+
+  it('a location the CALLER supplied wins, and is strictly verified like any other field', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 900 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', {
+      ticketId: 35432, companyID: 294, companyLocationID: 900,
+    })
+
+    expect(writeBodies()).toEqual([{ id: 35432, companyID: 294, companyLocationID: 900 }])
+    // No lookup at all — the caller already answered the question.
+    expect(getCompanyLocations).not.toHaveBeenCalled()
+    expect(res.companyLocation.source).toBe('caller')
+    expect(res.changedFields).toEqual(expect.arrayContaining(['companyID', 'companyLocationID']))
+  })
+
+  it('FAILS when a caller-supplied location does not stick', async () => {
+    // The strict half of the split: what the caller asked for is verified, so a
+    // dropped location is a failure, not an observation.
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 285 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const failure = await harness().failure('autotask_update_ticket', {
+      ticketId: 35432, companyID: 294, companyLocationID: 900,
+    })
+
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toContain('companyLocationID')
+  })
+
+  it('reports a location Autotask re-stamped itself WITHOUT failing the re-parent', async () => {
+    // The soft half: this tool chose the location, the caller did not ask for
+    // it, and the company change — what was actually requested — did land.
+    // Failing the whole call here would be the verifier crying wolf.
+    getCompanyLocations.mockResolvedValue(NEW_COMPANY_LOCATIONS)
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyID: 294, companyLocationID: 900 })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyID: 294 })
+
+    expect(res.updateVerified).toBe(true)
+    expect(res.companyLocation.after).toBe(900)
+    expect(res.companyLocation.divergedNote).toMatch(/Autotask set the location itself/)
+  })
+
+  it('accepts an explicit null to clear the location on its own', async () => {
+    getTicketCoreFields
+      .mockResolvedValueOnce(UNMAPPED)
+      .mockResolvedValueOnce({ ...UNMAPPED, companyLocationID: null })
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, {}))
+
+    const res = await harness().ok('autotask_update_ticket', { ticketId: 35432, companyLocationID: null })
+
+    expect(writeBodies()).toEqual([{ id: 35432, companyLocationID: null }])
+    expect(res.changedFields).toEqual(['companyLocationID'])
   })
 
   it('fails closed when the ticket cannot be read back at all', async () => {
@@ -759,16 +895,19 @@ describe('autotask_update_ticket', () => {
     expect(writeBodies()).toEqual([{
       id: 35432, companyID: 294, contactID: 22, title: 'x', description: 'y',
       queueID: 9, priority: 1, ticketType: 2, dueDateTime: '2026-09-01T12:00:00Z', contractID: 77,
+      // Plus the one field the company change forces — the mocked company has
+      // no locations at all here, so it is a clear.
+      companyLocationID: null,
     }])
   })
 })
 
 describe('autotask_update_ticket contract', () => {
-  it('exposes ticketId plus exactly the nine live-writable fields', () => {
+  it('exposes ticketId plus exactly the ten live-writable fields', () => {
     const schema = harness().schema('autotask_update_ticket')
     expect(Object.keys(schema).sort()).toEqual([
-      'companyID', 'contactID', 'contractID', 'description', 'dueDateTime',
-      'priority', 'queueID', 'ticketId', 'ticketType', 'title',
+      'companyID', 'companyLocationID', 'contactID', 'contractID', 'description',
+      'dueDateTime', 'priority', 'queueID', 'ticketId', 'ticketType', 'title',
     ])
   })
 
