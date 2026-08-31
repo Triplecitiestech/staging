@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { cookies } from 'next/headers'
 import Image from 'next/image'
 import {
   getWilmarStatusData,
@@ -7,12 +8,16 @@ import {
   type WilmarPhaseCard,
   type WilmarStatusData,
 } from '@/lib/wilmar-status'
+import { WILMAR_STATUS_CODE_COOKIE, isWilmarStatusCodeCookieValid } from '@/lib/wilmar-status-code'
+import WilmarCodeGate from './CodeGate'
 
 // Public, unauthenticated onboarding status page for Wilmar, LLC. Access
-// control is the URL token alone (compared to WILMAR_STATUS_TOKEN below) —
-// no login, no session, no cookie, matching the URL-token gate already used
-// for other public-but-unlinked pages in this codebase. See layout.tsx for
-// the noindex metadata.
+// control is the URL token (compared to WILMAR_STATUS_TOKEN below) — no
+// login, no account, matching the URL-token gate already used for other
+// public-but-unlinked pages in this codebase — PLUS a second, lightweight
+// gate layered on top: a 6-digit code Neil types in once, remembered via a
+// plain marker cookie (see CodeGate.tsx and src/lib/wilmar-status-code.ts).
+// See layout.tsx for the noindex metadata.
 //
 // Must read Autotask live on every request (no static caching, no DB sync
 // step) — see src/lib/wilmar-status.ts for the data layer and rationale.
@@ -30,6 +35,14 @@ export default async function WilmarStatusPage({
   // is indistinguishable from a route that doesn't exist.
   if (!expectedToken || token !== expectedToken) {
     notFound()
+  }
+
+  // Second gate: the 6-digit code. Checked (and the Autotask fetch below
+  // skipped) until the code cookie is present and valid.
+  const cookieStore = await cookies()
+  const codeCookieValue = cookieStore.get(WILMAR_STATUS_CODE_COOKIE)?.value
+  if (!isWilmarStatusCodeCookieValid(codeCookieValue)) {
+    return <WilmarCodeGate token={token} />
   }
 
   const result = await getWilmarStatusData()
