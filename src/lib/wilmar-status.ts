@@ -52,6 +52,20 @@ export const WILMAR_ENGAGEMENT = {
 /** Contract-signature date. No Autotask field carries this — hardcode it. */
 export const WILMAR_AGREEMENT_ACCEPTED_DATE = '2026-08-24';
 
+/**
+ * Day 1 (contract/billing start, monitoring live, tools listen-only) and
+ * Day 14 (patching/Windows Update review meeting) are fixed contractual
+ * commitments, not derived from Autotask phase scheduling — Autotask's
+ * Phase 4/6 startDate fields are task-planning dates that drift from the
+ * date actually promised to the customer (owner-confirmed 2026-08-31: they
+ * had drifted to Sep 8 / Sep 22). Treat these the same way as the agreement
+ * date above rather than reading them live. Day 14 = Day 1 + 13 days
+ * (Sep 1 is Day 1, so Sep 14 is Day 14) — update by hand if either date is
+ * renegotiated, and keep Day 14 on a Mon-Fri workday when doing so.
+ */
+export const WILMAR_DAY1_DATE = '2026-09-01';
+export const WILMAR_DAY14_DATE = '2026-09-14';
+
 // ============================================================
 // Fixed, customer-safe phase copy (never pulled from Autotask descriptions)
 // ============================================================
@@ -109,7 +123,7 @@ export const WILMAR_PHASE_DEFINITIONS: WilmarPhaseDefinition[] = [
     number: 4,
     titlePrefix: 'Phase 4 -',
     eyebrow: 'Phase 4',
-    title: 'Security Monitoring, Day 0',
+    title: 'Security Monitoring, Day 1',
     description:
       'Email protection, dark web monitoring, tenant audit logging and SaaS alerting switched on immediately.',
   },
@@ -117,7 +131,7 @@ export const WILMAR_PHASE_DEFINITIONS: WilmarPhaseDefinition[] = [
     number: 5,
     titlePrefix: 'Phase 5 -',
     eyebrow: 'Phase 5',
-    title: 'Tool Deployment, Day 0 to 14, listen-only',
+    title: 'Tool Deployment, Day 1 to 14, listen-only',
     description:
       'Monitoring agents deployed in observe-only mode. Nothing changes on your machines during this window.',
     emphasize: 'Nothing changes on your machines during this window.',
@@ -194,16 +208,16 @@ export const WILMAR_MILESTONES: WilmarMilestoneDefinition[] = [
     alwaysReached: true,
   },
   {
-    key: 'day0',
-    label: 'Day 0: contract and billing start, security monitoring live, tools deploy in listen-only mode',
-    dateSource: 'phase-start',
-    phaseTitlePrefix: 'Phase 4 -',
+    key: 'day1',
+    label: 'Day 1: contract and billing start, security monitoring live, tools deploy in listen-only mode',
+    dateSource: 'fixed',
+    fixedDate: WILMAR_DAY1_DATE,
   },
   {
     key: 'day14',
-    label: 'Day 14: patching and Windows Update management activated',
-    dateSource: 'phase-start',
-    phaseTitlePrefix: 'Phase 6 -',
+    label: 'Day 14: meeting to review and confirm deployment of patching and Windows Update management',
+    dateSource: 'fixed',
+    fixedDate: WILMAR_DAY14_DATE,
   },
   {
     key: 'refine',
@@ -424,7 +438,7 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
   }));
 
   // ---- TODAY marker position: interpolate between the "project opens"
-  // (index 1) and "Day 0" (index 2) milestones, clamped to the full rail. ----
+  // (index 1) and "Day 1" (index 2) milestones, clamped to the full rail. ----
   const d1 = milestoneDates[1];
   const d2 = milestoneDates[2];
   let todayPositionPercent = MILESTONE_DOT_POSITIONS[1];
