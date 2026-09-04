@@ -693,10 +693,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const hrRequest = reqResult.rows[0]
 
     // 4. Guard against re-processing
-    if (hrRequest.status === 'completed' || hrRequest.status === 'running') {
+    //
+    // 'completed' is genuine idempotency — a duplicate submit for finished work
+    // is not an error, so it stays a 200.
+    //
+    // 'running' is NOT. It means either a run genuinely in flight, or a WEDGED
+    // request: one whose status write failed part-way, leaving a row the cron
+    // will never select (it selects status = 'scheduled') and this route will
+    // never re-drive. Answering 200 there reported success for a request that
+    // was permanently stuck and did nothing, which is how the future-dated
+    // onboarding/offboarding outage stayed invisible for four months. A 409
+    // makes the wedge visible to callers, logs and health monitoring instead.
+    // See docs/incidents/2026-09-03-tribros-scheduled-deletion-rca.md
+    if (hrRequest.status === 'completed') {
       return NextResponse.json(
         { message: `Request already in state: ${hrRequest.status}` },
         { status: 200 }
+      )
+    }
+    if (hrRequest.status === 'running') {
+      console.error(
+        `[hr/process] Refusing to re-drive request ${hrRequest.id} — already 'running'. ` +
+          `If this row is not actively processing it is WEDGED and needs manual review ` +
+          `(see /admin/hr/pending).`
+      )
+      return NextResponse.json(
+        {
+          error: `Request is already 'running' and cannot be re-driven.`,
+          requestId: hrRequest.id,
+          wedgedHint:
+            'If no run is actually in flight, this request is stuck and will never ' +
+            'execute on its own. Review it at /admin/hr/pending.',
+        },
+        { status: 409 }
       )
     }
     // Allow scheduled requests to be re-processed only when cron triggers them
@@ -1821,20 +1850,54 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             // Future-dated onboarding: set request status to 'scheduled' so cron will unlock on start date
             if (accountLocked && primaryActionSucceeded) {
-              await client.query(
-                `UPDATE hr_requests
-                 SET status = 'scheduled',
-                     updated_at = NOW()
-                 WHERE id = $1`,
-                [hrRequest.id]
-              )
+              // This write MUST NOT fail silently. When it did, the row stayed
+              // at 'running': the cron never selected it (it selects
+              // 'scheduled'), this route refused to re-drive it, and the
+              // account sat with sign-in blocked past the employee's start date
+              // with nothing to indicate why. Fail LOUDLY and leave the request
+              // in a status a human can find instead of a wedge.
+              try {
+                await client.query(
+                  `UPDATE hr_requests
+                   SET status = 'scheduled',
+                       updated_at = NOW()
+                   WHERE id = $1`,
+                  [hrRequest.id]
+                )
 
-              // Add internal note about scheduled unlock
-              await addTicketNote('Onboarding Scheduled',
-                `Account for ${fullName} (${upn}) is provisioned but LOCKED.\n\n` +
-                `The account will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.\n` +
-                `All groups, licenses, and SharePoint access have been configured.\n\n` +
-                `Status: Scheduled — awaiting start date`, 2)
+                // Add internal note about scheduled unlock
+                await addTicketNote('Onboarding Scheduled',
+                  `Account for ${fullName} (${upn}) is provisioned but LOCKED.\n\n` +
+                  `The account will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.\n` +
+                  `All groups, licenses, and SharePoint access have been configured.\n\n` +
+                  `Status: Scheduled — awaiting start date`, 2)
+              } catch (schedErr) {
+                const msg = schedErr instanceof Error ? schedErr.message : String(schedErr)
+                console.error(
+                  `[hr/process] CRITICAL: could not park onboarding ${hrRequest.id} at 'scheduled': ${msg}`
+                )
+                failedSteps.push('schedule_unlock')
+                await logStep(client, hrRequest.id, 'schedule_unlock', 'Schedule Account Unlock',
+                  'failed', new Date(), { startDate }, undefined, msg)
+                // Never leave the row at 'running' — that is the wedge. 'failed'
+                // is findable; 'running' is not.
+                await client.query(
+                  `UPDATE hr_requests
+                   SET status = 'failed',
+                       error_message = $2,
+                       updated_at = NOW()
+                   WHERE id = $1`,
+                  [hrRequest.id, `Could not schedule account unlock: ${msg}`]
+                ).catch(() => {})
+                await addTicketNote('ACTION REQUIRED — Scheduled Unlock Could Not Be Armed',
+                  `The account for ${fullName} (${upn}) was created with sign-in BLOCKED, ` +
+                  `but the platform could not schedule the automatic unlock.\n\n` +
+                  `Error: ${msg}\n\n` +
+                  `NOTHING WILL UNBLOCK THIS ACCOUNT AUTOMATICALLY. A technician must remove ` +
+                  `the sign-in block in the Microsoft 365 admin center on or before ` +
+                  `${startDateDisplay}, or the employee will not be able to sign in on their ` +
+                  `start date.`, 2)
+              }
             } else {
               // Close ticket only if no manual steps remain (status=5)
               if (manualSteps.length === 0) {
@@ -1881,14 +1944,66 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           `is scheduled to take effect on ${scheduledDateDisplay}.\n\n` +
           'You will receive an email confirmation once all actions have been completed.', 1)
 
-        // Set request status to scheduled
-        await client.query(
-          `UPDATE hr_requests
-           SET status = 'scheduled',
-               updated_at = NOW()
-           WHERE id = $1`,
-          [hrRequest.id]
-        )
+        // Set request status to scheduled.
+        //
+        // This write MUST NOT fail silently. When it did, the row stayed at
+        // 'running', the cron never selected it (it selects 'scheduled'), and
+        // the offboarding never ran on the last working day — while the
+        // customer had already been told in a customer-visible note that it
+        // would. A departed employee keeping access is the worst outcome this
+        // pipeline has, so a failure here escalates loudly rather than leaving
+        // a wedge that looks scheduled.
+        try {
+          await client.query(
+            `UPDATE hr_requests
+             SET status = 'scheduled',
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [hrRequest.id]
+          )
+        } catch (schedErr) {
+          const msg = schedErr instanceof Error ? schedErr.message : String(schedErr)
+          console.error(
+            `[hr/process] CRITICAL: could not park offboarding ${hrRequest.id} at 'scheduled': ${msg}`
+          )
+          await client.query(
+            `UPDATE hr_requests
+             SET status = 'failed',
+                 error_message = $2,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [hrRequest.id, `Could not schedule offboarding: ${msg}`]
+          ).catch(() => {})
+          await addTicketNote('ACTION REQUIRED — Scheduled Offboarding Could Not Be Armed',
+            `The offboarding for ${fullName || a.work_email || a.employee_to_offboard || 'the employee'} ` +
+            `could NOT be scheduled.\n\n` +
+            `Error: ${msg}\n\n` +
+            `NO OFFBOARDING ACTIONS WILL RUN AUTOMATICALLY on ${scheduledDateDisplay}. ` +
+            `This person keeps their access until a technician offboards them by hand. ` +
+            `Note that a customer-visible note on this ticket has already told the client ` +
+            `the offboarding is scheduled, so this must be completed manually on or before ` +
+            `that date.`, 2)
+          try {
+            await fetch(`${baseUrl}/V1.0/Tickets`, {
+              method: 'PATCH',
+              headers: autotaskHeaders,
+              body: JSON.stringify({ id: ticketId, priority: 4 }), // Critical
+              signal: AbortSignal.timeout(15_000),
+            })
+          } catch {
+            // Non-fatal — the note above is the durable record
+          }
+          return NextResponse.json(
+            {
+              error: 'Offboarding could not be scheduled — manual completion required',
+              requestId: hrRequest.id,
+              ticketId,
+              ticketNumber,
+              detail: msg,
+            },
+            { status: 500 }
+          )
+        }
 
         await client.query(
           `INSERT INTO hr_audit_logs

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 
 // ─── Flow step types ─────────────────────────────────────────────────────────
@@ -195,10 +196,26 @@ export default function HRFlowPage() {
       <AdminHeader />
       <div className="max-w-5xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold text-white mb-2">HR Automation Flow</h1>
-        <p className="text-slate-400 mb-6">
+        <p className="text-slate-400 mb-4">
           Visual map of all systems involved in employee onboarding and offboarding.
           Each step shows which system handles the action and what it does.
         </p>
+
+        <div className="mb-6">
+          <Link
+            href="/admin/hr/pending"
+            className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-300 transition-colors hover:bg-cyan-500/20"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            View pending actions &mdash; stuck requests and armed deletions
+          </Link>
+          <p className="mt-2 text-xs text-slate-500">
+            This page is a static diagram. The pending-actions view reads the live
+            request records.
+          </p>
+        </div>
 
         <SystemLegend />
 
