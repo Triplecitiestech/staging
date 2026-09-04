@@ -108,10 +108,44 @@ Not a deletion, so it does not trip the stop rule, but it is live and it is toda
 - **The status write that arms the schedule was rejected by the database.** Vercel aggregated runtime errors (`get_runtime_errors`, route `/api/hr/process`) record `error: new row for relation "hr_requests" violates check constraint "hr_requests_status_check"`, code `23514`, at **2026-09-01T16:52:14Z**. The error's `detail` names the failing row: request `94520e10-916c-422e-a8f7-0324929773b3`, `ecospect-287`, `offboarding`, `scheduled`, `jderedita@ecospect.com`, `{"last_day": "2026-09-04", ...}`, ticket `35513`, `amckinney@ecospect.com`, `target_user_id = null`.
 - The rejected statement is **`UPDATE hr_requests SET status = 'scheduled'`** at **`src/app/api/hr/process/route.ts:1886-1891`**. The cron selects on **`WHERE status = 'scheduled'`** (**`src/app/api/cron/process-scheduled-offboards/route.ts:69`**), so the row cannot match.
 - Corroboration: ticket 35513's `lastActivityDate` is **2026-09-03T21:19:39Z**. The cron ran at 05:01 UTC on 2026-09-04 (schedule `1 5 * * *`, **`vercel.json`** crons block). No execution note exists. The ticket was also set to Complete on 2026-09-03T21:04.
-- The constraint **`hr_requests_status_check` is defined nowhere in this repository** — not in the table DDL (**`src/app/api/hr/submit/route.ts:85-108`**, plain `status TEXT NOT NULL DEFAULT 'pending'`), not in **`prisma/schema.prisma:1380`** (plain `String @default("pending")`), and not in **`/api/migrations/run`**. It is a production-only artefact whose allowed-value list excludes `scheduled`.
+- The constraint **`hr_requests_status_check` is defined nowhere in this repository** — not in the table DDL (**`src/app/api/hr/submit/route.ts:85-108`**, plain `status TEXT NOT NULL DEFAULT 'pending'`), not in **`prisma/schema.prisma:1380`** (plain `String @default("pending")`), and not in **`/api/migrations/run`**. It has **never** appeared in the repository in any commit: `git log --all -S"hr_requests_status_check"` returns only this RCA's own commit [VERIFIED]. It is a production-only artefact.
+
+**The affected request is wedged, not merely un-armed.** Reading the failing row's column values against the DDL order (**`hr/submit/route.ts:85-113`**) gives `started_at = 2026-09-01 16:52:06`, `completed_at = null`, `updated_at = 16:52:10`, and `scheduled_deletion_date = null`. A populated `started_at` means the **`UPDATE hr_requests SET status = 'running'`** at **`hr/process/route.ts:712`** succeeded; the `'scheduled'` write was then rejected at 16:52:14, so the status never moved off `running`. Three consequences compound:
+
+| Consequence | Mechanism |
+|---|---|
+| The cron will never pick it up | It selects `WHERE status = 'scheduled'` — **`cron/.../route.ts:69`** |
+| A manual retry does nothing | The re-process guard returns early on `running` — **`hr/process/route.ts:696-701`** |
+| …and reports success while doing nothing | That early return is **HTTP 200** with `{ message: "Request already in state: running" }` — **`:697-700`**. Any caller or monitor sees a 200 |
+
+That third row is the same defect family as the rest of this RCA: **success-shaped output on failure**. Note also that fixing the constraint does **not** unwedge existing rows — they stay at `running` and stay refused. Unsticking them is a separate data change, and one nobody should make without knowing how many rows are affected.
+
+**What the constraint permits, from production evidence only** — the code writes exactly five values to this column:
+
+| Value | Written at | Production evidence |
+|---|---|---|
+| `pending` | **`hr/submit/route.ts:231`** (INSERT), DDL default **`:90`** | **Permitted** — rows exist |
+| `running` | **`hr/process/route.ts:712`** | **Permitted** — `started_at` is populated on the failing row |
+| `completed` | **`hr/process/route.ts:2658`** | **Permitted** — the deletion query requires it and two deletions fired |
+| `failed` | **`:731`**, **`:948`**, **`:2275`**, **`:2658`** | Not observed either way — **cannot be determined** |
+| `scheduled` | **`:1826`** (onboarding), **`:1887`** (offboarding) | **REJECTED** [TOOL - Vercel runtime errors, SQLSTATE 23514] |
+
+The exact allowed list is still **not established** — it requires `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'hr_requests_status_check'`. **Read it before changing anything**: a blind `DROP CONSTRAINT` would remove a guard whose full purpose is unknown, and the correct repair (widen it to the five values the code actually writes) cannot be written without seeing the current definition.
 - The same error group's `first` timestamp is **2026-07-28T14:59:21Z**, which matches ticket [34870](https://ww14.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?TicketId=34870) `[ONBOARDING] New Employee: Joanna Penny` (created 2026-07-28T14:59:23Z). The same `'scheduled'` write exists on the future-dated **onboarding** path at **`src/app/api/hr/process/route.ts:1822-1830`**, where the account is created with `accountEnabled: false` first (**`:1142`**, **`:1167`**). A future-dated onboarding that hits this constraint therefore leaves a **permanently locked** account no cron will ever unlock.
 
-**Action needed today:** revoke Audrey McKinney's access manually at the client's stated cutoff. Do not rely on the automation. How many other future-dated requests are affected cannot be determined from the aggregated error view — the query in §1d, widened to `status`, would settle it.
+**Action needed today:** revoke Audrey McKinney's access manually at the client's stated cutoff. Do not rely on the automation, and do not try to re-drive the request — it will answer 200 and do nothing. How many other requests are wedged cannot be determined from the aggregated error view; this settles it:
+
+```sql
+SELECT id, type, status, company_slug, target_upn, autotask_ticket_number,
+       answers->>'last_day'   AS last_day,
+       answers->>'start_date' AS start_date,
+       started_at, created_at
+FROM hr_requests
+WHERE status NOT IN ('completed', 'failed')
+ORDER BY created_at DESC;
+```
+
+Rows at `running` with a populated `started_at` and no `completed_at` are the wedged ones. For an onboarding, wedged also means the M365 account was created with `accountEnabled: false` (**`hr/process/route.ts:1142`**, **`:1167`**) and nothing will ever unlock it — check those UPNs in the tenant directly.
 
 ---
 
@@ -469,7 +503,8 @@ Filed here so they are not lost; each needs its own decision.
 
 | Finding | Where | Note |
 |---|---|---|
-| **`hr_requests_status_check` exists in production and nowhere in the repo**, and it rejects `'scheduled'` | §1e | Breaks every future-dated onboarding and offboarding. Live impact today. Highest-priority item in this table. |
+| **`hr_requests_status_check` exists in production and nowhere in the repo** (never, in any commit), and it rejects `'scheduled'` | §1e | Breaks every future-dated onboarding and offboarding, and leaves the request wedged at `running` where a retry returns 200 and does nothing. Live impact today. Highest-priority item in this table, and **not the same kind of work as the rest of this document** — the repair is a production DDL change plus a data decision, not a branch, so it should not queue behind Phase 2 code review. |
+| The re-process guard returns **HTTP 200** for a request stuck at `running` | **`hr/process/route.ts:696-701`** | Violates the repo's own rule that API catch/guard paths never return 200 when nothing was done (CLAUDE.md, Critical Gotcha 5). A 409 or 422 would have made the wedge visible to monitoring. |
 | Offboarding never decrements the Pax8 subscription | item 10 | Confirms the billing admin's 2026-08-05 observation. TCT is paying for released seats. |
 | `hr_requests` and `hr_audit_logs` are created by a request handler, not by `/api/migrations/run` | **`hr/submit/route.ts:85-125`** | The mechanism by which production schema and repo schema diverged. |
 | `/api/hr/process` and the cron both **fail open** if `INTERNAL_SECRET` / `CRON_SECRET` are unset | **`hr/process/route.ts:647-656`** (`else { console.warn('… skipping auth check') }`); **`cron/.../route.ts:37-42`** | Whether they are set in production is undetermined (§6). The process route performs every Graph write in the system and is reachable by anyone if the secret is unset. |
@@ -484,9 +519,18 @@ Filed here so they are not lost; each needs its own decision.
 
 1. **Approve the kill switch tonight, ahead of the rest?** §8.11 step 1 is a few lines and stops any
    further scheduled deletion until the guards exist. Recommended.
-2. **`hr_requests_status_check`** — this is breaking future-dated onboarding and offboarding right now
-   (§1e), including Audrey McKinney today. Should it be fixed in this branch, or split into its own
-   change ahead of this one? Recommended: split, and ship it first.
+2. **`hr_requests_status_check`** — **answered, not asked.** Split it out and do it first, because it is
+   not the same *kind* of work as the rest of this document. The RCA fix is repo code: a new table, a
+   migration, guard logic, tests, review. The constraint problem is a **production database object that
+   has never existed in this repository**, so there is nothing to review in a branch — the repair is an
+   operator DDL change plus a decision about the wedged rows. Queueing it behind Phase 2's review cycle
+   would delay a same-day production fix for no benefit, and the two share no code. Sequence:
+   (i) read the constraint definition; (ii) widen it to the five values the code writes, or drop it and
+   add the check in `/api/migrations/run` where it belongs; (iii) decide what to do with the wedged
+   rows; (iv) change **`hr/process/route.ts:696-701`** to stop returning 200 — that belongs in the repo
+   and can ride with either change. **None of (i)-(iv) is done, and (iii) is a data write that needs
+   your explicit go-ahead.** Audrey McKinney today is a manual task regardless; the automation cannot
+   be repaired and re-trusted inside the window.
 3. **§8.9 — does deletion require TCT approval?** Cheapest single change here, and it changes the
    client-facing form. Your call, not mine.
 4. **§8.7 layer 3 — a separate app registration for scheduled jobs?** It is the only way to make
