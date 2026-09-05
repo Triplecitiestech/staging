@@ -610,12 +610,143 @@ export function createGraphClient(creds: TenantCredentials) {
       })
     },
 
-    /** Permanently delete a user account from Azure AD */
+    /**
+     * Delete a user account from Azure AD.
+     *
+     * NOT permanent at the moment of the call: Entra soft-deletes the object
+     * and it remains restorable from the deleted-users container for a limited
+     * period, after which it is unrecoverable. The 2026-09-03 Tri-Bros account
+     * was restored the same day. Do not describe this to anyone — customer or
+     * technician — as irreversible at the point it runs.
+     *
+     * NEVER call this directly from a scheduled job. Scheduled deletions must
+     * go through the precondition guard first (src/lib/hr/deletion-guard.ts);
+     * this method itself performs no safety check by design, so the guard is
+     * the only thing between a stale timer and a destroyed mailbox.
+     */
     async deleteUser(userId: string): Promise<void> {
       const t = await token()
       await graphRequest(t, `/users/${userId}`, {
         method: 'DELETE',
       })
+    },
+
+    /**
+     * Read everything the deletion guard needs, capturing per-gate failures
+     * rather than throwing.
+     *
+     * Each read is attempted independently: one unavailable field must not
+     * hide the others, and — critically — a field we could not read is
+     * reported as unavailable rather than defaulted. The guard treats an
+     * unavailable gate as a FAIL, so a partial read aborts the deletion
+     * instead of silently permitting it.
+     *
+     * `signInActivity` needs AuditLog.Read.All. The TCT multi-tenant app
+     * requests it, but a legacy per-tenant app registration may not have
+     * consented, so a 403 there is expected and handled, not exceptional.
+     */
+    async getUserDeletionState(userId: string): Promise<{
+      found: boolean
+      objectId: string | null
+      userPrincipalName: string | null
+      accountEnabled: boolean | null
+      assignedLicenseCount: number | null
+      lastSignInDateTime: string | null
+      groupCount: number | null
+      unavailable: Array<{ gate: string; reason: string }>
+    }> {
+      const t = await token()
+      const unavailable: Array<{ gate: string; reason: string }> = []
+
+      let found = false
+      let objectId: string | null = null
+      let userPrincipalName: string | null = null
+      let accountEnabled: boolean | null = null
+      let assignedLicenseCount: number | null = null
+      let lastSignInDateTime: string | null = null
+      let groupCount: number | null = null
+
+      // Core object: id, UPN, accountEnabled, assignedLicenses.
+      try {
+        const user = await graphRequest<{
+          id: string
+          userPrincipalName: string
+          accountEnabled: boolean
+          assignedLicenses?: Array<{ skuId: string }>
+        }>(
+          t,
+          `/users/${encodeURIComponent(userId)}?$select=id,userPrincipalName,accountEnabled,assignedLicenses`
+        )
+        found = true
+        objectId = user.id ?? null
+        userPrincipalName = user.userPrincipalName ?? null
+        accountEnabled = typeof user.accountEnabled === 'boolean' ? user.accountEnabled : null
+        assignedLicenseCount = Array.isArray(user.assignedLicenses)
+          ? user.assignedLicenses.length
+          : null
+        if (accountEnabled === null) {
+          unavailable.push({ gate: 'account_disabled', reason: 'accountEnabled absent from response' })
+        }
+        if (assignedLicenseCount === null) {
+          unavailable.push({ gate: 'unlicensed', reason: 'assignedLicenses absent from response' })
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        // A 404 is a definite answer (the object is gone), not an unreadable
+        // gate — record it as "not found" so the guard aborts on absence
+        // rather than on unreadability. Anything else is unreadable.
+        if (/\(404\)/.test(msg) || /Request_ResourceNotFound/i.test(msg)) {
+          found = false
+        } else {
+          unavailable.push({ gate: 'subject_exists', reason: msg })
+          unavailable.push({ gate: 'identity_matches', reason: msg })
+          unavailable.push({ gate: 'account_disabled', reason: msg })
+          unavailable.push({ gate: 'unlicensed', reason: msg })
+        }
+      }
+
+      // Sign-in activity — separate call because $select=signInActivity fails
+      // the whole request when the permission is missing.
+      if (found) {
+        try {
+          const withSignIn = await graphRequest<{
+            signInActivity?: { lastSignInDateTime?: string; lastNonInteractiveSignInDateTime?: string }
+          }>(t, `/users/${encodeURIComponent(userId)}?$select=id,signInActivity`)
+          lastSignInDateTime = withSignIn.signInActivity?.lastSignInDateTime ?? null
+        } catch (err) {
+          unavailable.push({
+            gate: 'no_recent_signin',
+            reason: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        try {
+          const groups = await graphRequest<{ value: Array<{ id: string }> }>(
+            t,
+            `/users/${encodeURIComponent(userId)}/memberOf?$select=id&$top=999`
+          )
+          groupCount = Array.isArray(groups.value) ? groups.value.length : null
+          if (groupCount === null) {
+            unavailable.push({ gate: 'no_group_membership', reason: 'memberOf returned no value array' })
+          }
+        } catch (err) {
+          unavailable.push({
+            gate: 'no_group_membership',
+            reason: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+
+      return {
+        found,
+        objectId,
+        userPrincipalName,
+        accountEnabled,
+        assignedLicenseCount,
+        lastSignInDateTime,
+        groupCount,
+        unavailable,
+      }
     },
 
     /** Remove a license from a user */
