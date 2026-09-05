@@ -515,7 +515,24 @@ Filed here so they are not lost; each needs its own decision.
 
 ---
 
+## 9a · DECISIONS — answered by Kurtis, 2026-09-04
+
+These are settled. They override the recommendations in §8 where they differ.
+
+| # | Decision | Answer | Consequence for the design |
+|---|---|---|---|
+| 1 | Should client contacts be able to schedule irreversible deletions? | **YES — unchanged.** Self-service stays as it is. | §8.9's recommendation (require TCT approval) is **REJECTED**. Do not build an approval gate. This raises the stakes on everything else: with no human between a client contact and an irreversible deletion, the pre-execution verification (§8.3) and a working cancellation path (§8.6) become the *only* things standing between a mis-submitted form and a destroyed mailbox. Build both to fail-safe, without exception. |
+| 2 | A separate app registration for scheduled jobs? | **YES.** | Build §8.7 layer 3. Scheduled jobs get their own Entra app registration so an audit entry's own Display Name distinguishes scheduled from interactive. **Blocked on an operator**: the registration and per-tenant admin consent are Entra tasks across every managed tenant, not code. Give the scheduled-jobs app the *narrowest* grant its jobs need — not a copy of the portal app's list. |
+| 3 | Do we hold `AuditLog.Read.All`? | **Already granted — question answered by the code, not by a decision.** It is in the required-permission list at **`src/lib/graph.ts:22`**, sourced from `docs/M365_PORTAL_PERMISSIONS.md`. | The `signInActivity` gate in §8.3 needs no new permission and no re-consent for `multi_tenant` companies. Caveat: that list is what the TCT app *requests*; a `legacy`-mode company using its own app registration may have consented to a narrower set, so the gate must degrade to "not measured" per tenant rather than assume availability — and an unavailable gate is never a pass (§8.3). |
+| 4 | Pax8 seat decrement — this fix or its own? | **Its own change.** | Out of scope here. Billing correctness, not safety. |
+
+**Still unanswered, and not blocking:** §8.11 step 1, the kill switch. It has not been built. It is also no longer urgent — the live query on 2026-09-04 returned **zero** armed deletions, so there is currently nothing for it to stop.
+
+---
+
 ## 9 · Open questions for Kurtis
+
+*(Superseded by §9a above for items 3-6. Retained for the record.)*
 
 1. **Approve the kill switch tonight, ahead of the rest?** §8.11 step 1 is a few lines and stops any
    further scheduled deletion until the guards exist. Recommended.
