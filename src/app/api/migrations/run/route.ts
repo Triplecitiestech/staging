@@ -870,6 +870,65 @@ export async function POST(request: Request) {
       results.push(`⚠️ hr_request_steps: ${err.message}`)
     }
 
+    // hr_requests.status CHECK constraint — REPAIR of a production-only object.
+    //
+    // A constraint named hr_requests_status_check existed in production and
+    // NOWHERE in this repository (never, in any commit — verified with
+    // `git log --all -S`). Its allowed-value list excluded 'scheduled', so
+    // every future-dated onboarding and offboarding failed the
+    // `UPDATE hr_requests SET status = 'scheduled'` write in /api/hr/process,
+    // stayed wedged at 'running', and was never picked up by
+    // /api/cron/process-scheduled-offboards (which selects status =
+    // 'scheduled'). Confirmed on requests from 2026-04-30 onward: accounts were
+    // created with sign-in blocked and nothing ever unblocked them, and
+    // scheduled offboardings never revoked access on the last working day.
+    // Full detail: docs/incidents/2026-09-03-tribros-scheduled-deletion-rca.md
+    //
+    // The repair drops the unversioned constraint and re-adds it with the
+    // complete set of values the application actually writes, so the object is
+    // described here rather than only in the database. The list must stay in
+    // sync with KNOWN_STATUSES in src/lib/hr/pending-actions.ts.
+    //
+    // NOT NULL and the 'pending' default are untouched. Dropping and re-adding
+    // a CHECK is safe on a populated table: the ADD validates existing rows and
+    // fails loudly if any row holds a value outside the list, which is the
+    // behaviour we want rather than a silently unenforced column.
+    try {
+      const statusValues = ['pending', 'running', 'scheduled', 'completed', 'failed']
+      const offending = await client.query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*)::text AS count
+           FROM hr_requests
+          WHERE status IS NULL OR NOT (status = ANY($1::text[]))
+          GROUP BY status`,
+        [statusValues]
+      )
+      if (offending.rows.length > 0) {
+        // Report rather than force it — an unexpected value is a finding, and
+        // dropping the constraint while leaving those rows would hide it.
+        const detail = offending.rows
+          .map((r) => `${r.status ?? 'NULL'} x${r.count}`)
+          .join(', ')
+        results.push(
+          `⚠️ hr_requests_status_check: NOT applied — existing rows hold values outside the allowed list (${detail}). Resolve those rows first.`
+        )
+      } else {
+        await client.query(
+          `ALTER TABLE hr_requests DROP CONSTRAINT IF EXISTS hr_requests_status_check`
+        )
+        await client.query(
+          `ALTER TABLE hr_requests
+             ADD CONSTRAINT hr_requests_status_check
+             CHECK (status IN ('pending', 'running', 'scheduled', 'completed', 'failed'))`
+        )
+        results.push(
+          "✅ hr_requests_status_check constraint (now permits 'scheduled' — repairs future-dated onboarding/offboarding)"
+        )
+      }
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ hr_requests_status_check: ${err.message}`)
+    }
+
     // Sales calculator: pricing overrides edited at /admin/sales-calculator/pricing.
     // Append-only (latest row wins, history = audit trail); flat path→number map
     // in `overrides` (e.g. {"packages.basic.perUser.price": 40}) layered over
