@@ -16,6 +16,7 @@ import {
   DELETE_AFTER_HOLD_VALUES,
 } from '@/lib/hr/offboarding-actions'
 import { checkExchangeAutomationAvailability, dispatchExchangeJob } from '@/lib/exchange-online'
+import { cancelScheduledDeletion, findArmedDeletionsForSubject } from '@/lib/hr/cancel-deletion'
 
 // Pax8 license procurement can poll for up to 5 minutes
 export const maxDuration = 300
@@ -1218,6 +1219,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await logStep(client, hrRequest.id, 'create_user', 'Create M365 User', 'failed', createStart, { upn }, undefined, msg)
             failedSteps.push('create_user')
             await addTicketNote('M365 User Creation Failed', `UPN: ${upn}\nError: ${msg}`)
+
+            // ObjectConflict is not just a failed create — it is PROOF that
+            // this person already has an account, i.e. that they are being
+            // reinstated. On 2026-08-10 Graph returned exactly this for
+            // MLinero@shiptribros.com while a deletion sat armed against that
+            // same account; the error was stringified into the note above and
+            // inspected by nothing, and the account was destroyed 24 days
+            // later. Treat it as a supersession signal.
+            if (/ObjectConflict/i.test(msg) || /already exists/i.test(msg)) {
+              try {
+                const armed = await findArmedDeletionsForSubject(client, hrRequest.company_slug, {
+                  upn,
+                })
+                for (const hit of armed) {
+                  const cancelled = await cancelScheduledDeletion(
+                    client,
+                    hit.id,
+                    `onboarding_request:${hrRequest.id} submitted by ${hrRequest.submitted_by_email ?? 'unknown'}`,
+                    'superseded_by_onboarding',
+                    `Graph returned ObjectConflict for ${upn} while re-onboarding. Matched by ${hit.matchedBy}.`
+                  )
+                  if (cancelled.cancelled) {
+                    await addTicketNote(
+                      'PENDING ACCOUNT DELETION CANCELLED — This Person Is Being Reinstated',
+                      `Creating a new account for ${upn} failed because one already exists, which means this person is being brought back rather than newly hired.\n\n` +
+                        `A permanent deletion of that existing account was armed for ${cancelled.scheduledDeletionDate}. It has been CANCELLED. The account will not be deleted.\n\n` +
+                        (hit.matchedBy === 'upn'
+                          ? `Matched on email address rather than directory object id, so please confirm this is the same person before relying on it.\n\n`
+                          : `Matched on the directory object id.\n\n`) +
+                        `NEXT STEP: the existing account still needs to be re-enabled, re-licensed and re-added to groups by hand — this request did not do that, because it was trying to create a new account.`,
+                      2
+                    )
+                  }
+                }
+              } catch (supErr) {
+                console.error(
+                  '[hr/process] ObjectConflict supersession check failed:',
+                  supErr instanceof Error ? supErr.message : supErr
+                )
+              }
+            }
           }
 
           // --- Assign License (only if user was created) ---

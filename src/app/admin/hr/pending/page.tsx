@@ -77,7 +77,72 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function ActionCard({ action }: { action: PendingAction }) {
+function CancelDeletionButton({
+  action,
+  onCancelled,
+}: {
+  action: PendingAction
+  onCancelled: (requestId: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function cancel() {
+    if (
+      !confirm(
+        `Cancel the scheduled deletion of ${action.subject ?? 'this account'}?\n\n` +
+          `It is armed for ${action.scheduledDeletionDate}. Cancelling means the account will NOT be deleted. ` +
+          `The offboarding itself still stands.`
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/hr/cancel-deletion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: action.requestId }),
+      })
+      const json = await res.json()
+      if (!res.ok || json?.success !== true) {
+        setError(json?.error ?? `Failed (${res.status})`)
+        return
+      }
+      onCancelled(action.requestId)
+    } catch (err) {
+      setError((err as Error)?.message ?? 'Request failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-white/5 pt-3">
+      <button
+        onClick={cancel}
+        disabled={busy}
+        className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+      >
+        {busy ? 'Cancelling…' : 'Cancel this deletion'}
+      </button>
+      <p className="mt-2 text-xs text-slate-500">
+        Stops the account from being deleted. Does not undo the offboarding. Recorded against
+        your name.
+      </p>
+      {error && <p className="mt-2 text-xs text-rose-300">{error}</p>}
+    </div>
+  )
+}
+
+function ActionCard({
+  action,
+  onCancelled,
+}: {
+  action: PendingAction
+  onCancelled: (requestId: string) => void
+}) {
   const style = SEVERITY_STYLE[action.severity]
   const overdue = action.daysUntilEffective !== null && action.daysUntilEffective < 0
 
@@ -166,6 +231,10 @@ function ActionCard({ action }: { action: PendingAction }) {
           {action.errorMessage}
         </p>
       )}
+
+      {action.kind === 'pending_deletion' && (
+        <CancelDeletionButton action={action} onCancelled={onCancelled} />
+      )}
     </div>
   )
 }
@@ -204,6 +273,24 @@ export default function HrPendingPage() {
     load()
     return () => controller.abort()
   }, [])
+
+  // Drop the cancelled row locally rather than refetching: the server has
+  // already confirmed the write, and a silent refetch failure would leave a
+  // cancelled deletion still rendered as armed.
+  function handleCancelled(requestId: string) {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            actions: prev.actions.filter((a) => a.requestId !== requestId),
+            summary: {
+              ...prev.summary,
+              pendingDeletions: Math.max(0, prev.summary.pendingDeletions - 1),
+            },
+          }
+        : prev
+    )
+  }
 
   const summary = data?.summary
 
@@ -312,7 +399,11 @@ export default function HrPendingPage() {
             ) : (
               <div className="space-y-4">
                 {data.actions.map((action) => (
-                  <ActionCard key={action.requestId} action={action} />
+                  <ActionCard
+                    key={action.requestId}
+                    action={action}
+                    onCancelled={handleCancelled}
+                  />
                 ))}
               </div>
             )}
