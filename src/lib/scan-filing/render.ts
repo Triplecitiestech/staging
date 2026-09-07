@@ -427,6 +427,134 @@ export function countMeaningful(text: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// Artifact validation
+// ---------------------------------------------------------------------------
+//
+// WHAT THIS REPLACED, AND WHY. The first integrity guard compared the length of
+// the /$value body against the `size` field on the attachment collection, and
+// called any difference a short download. Live, that rejected 8 of 8 real scans:
+// the shortfall was EXACTLY 392 bytes across 7 files ranging 155,669 to
+// 1,565,339 bytes, and byte-identical on retry. A constant offset independent of
+// file size is an envelope, not data loss — those two fields measure different
+// things for a fileAttachment, and Microsoft does not document which one `size`
+// counts. The guard was measuring the wrong quantity, so it failed 100% of the
+// time and told the caller to retry a call that could never succeed.
+//
+// The intent was right and is kept: do not file a truncated PDF. The measurement
+// is now the ARTIFACT itself, which is what the intent was always about —
+// a %PDF- header, a %%EOF trailer, and MuPDF opening it with at least one page.
+//
+// There is deliberately NO 392-byte tolerance. The constant is undocumented and
+// may differ by attachment type or tenant; encoding it would replace a wrong
+// measurement with a fragile one.
+
+/** How far back from the end to look for the EOF marker. */
+const EOF_SEARCH_WINDOW = 2048
+
+/** Does the byte stream start with the PDF magic number? */
+export function hasPdfHeader(bytes: Uint8Array): boolean {
+  if (!bytes || bytes.byteLength < 5) return false
+  // "%PDF-" — the spec allows leading junk, but Raven output does not have any,
+  // and accepting arbitrary leading bytes would weaken the check for no gain.
+  return (
+    bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d
+  )
+}
+
+/**
+ * Does the stream carry a %%EOF trailer near its end?
+ *
+ * This is the check that actually catches truncation: a cut-off PDF keeps its
+ * header and loses its tail. Incremental updates leave several %%EOF markers,
+ * so the LAST one is what matters, and trailing whitespace after it is legal.
+ */
+export function hasPdfEof(bytes: Uint8Array): boolean {
+  if (!bytes || bytes.byteLength < 5) return false
+  const start = Math.max(0, bytes.byteLength - EOF_SEARCH_WINDOW)
+  const tail = Buffer.from(bytes.buffer, bytes.byteOffset + start, bytes.byteLength - start)
+  return tail.lastIndexOf('%%EOF', undefined, 'latin1') !== -1
+}
+
+export interface PdfArtifactVerdict {
+  ok: boolean
+  headerOk: boolean
+  eofOk: boolean
+  /** Page count from MuPDF, or null when the renderer could not be consulted. */
+  pageCount: number | null
+  /** true / false / null — null means NOT CHECKED, never "assumed fine". */
+  openable: boolean | null
+  /** Why openable is null, when it is. */
+  openabilityNote?: string
+  problems: string[]
+}
+
+/**
+ * Validate that these bytes are a complete, openable PDF.
+ *
+ * The MuPDF step degrades rather than blocks: if the renderer cannot be loaded
+ * at all, `openable` is null with a stated reason and the two structural checks
+ * still stand. Filing a scan should not become impossible because the RENDERER
+ * is missing — but "not checked" must never be reported as "fine", which is why
+ * it is a third state and not a default true.
+ */
+export async function validatePdfArtifact(bytes: Uint8Array): Promise<PdfArtifactVerdict> {
+  const problems: string[] = []
+  const headerOk = hasPdfHeader(bytes)
+  const eofOk = hasPdfEof(bytes)
+
+  if (!headerOk) problems.push('The file does not begin with the PDF magic number "%PDF-".')
+  if (!eofOk) {
+    problems.push(
+      `No "%%EOF" trailer in the last ${EOF_SEARCH_WINDOW} bytes — the file is truncated or is not a PDF.`
+    )
+  }
+
+  let pageCount: number | null = null
+  let openable: boolean | null = null
+  let openabilityNote: string | undefined
+
+  if (headerOk) {
+    try {
+      const mupdf = await loadMuPdf()
+      let doc: any = null
+      try {
+        doc = mupdf.Document.openDocument(bytes, 'application/pdf')
+        pageCount = doc.countPages()
+        openable = typeof pageCount === 'number' && pageCount >= 1
+        if (!openable) problems.push(`MuPDF opened the file but reports ${pageCount} pages.`)
+      } catch (err) {
+        openable = false
+        problems.push(
+          `MuPDF could not open the file: ${err instanceof Error ? err.message : String(err)}`
+        )
+      } finally {
+        try {
+          doc?.destroy?.()
+        } catch {
+          /* freeing is best-effort */
+        }
+      }
+    } catch (err) {
+      // The renderer itself is unavailable — a packaging problem, not a problem
+      // with this document. Report it as unchecked rather than failing the file.
+      openabilityNote =
+        `The PDF renderer could not be loaded, so openability was NOT checked ` +
+        `(${err instanceof Error ? err.message : String(err)}). The structural checks above still applied.`
+    }
+  }
+
+  return {
+    ok: headerOk && eofOk && openable !== false,
+    headerOk,
+    eofOk,
+    pageCount,
+    openable,
+    ...(openabilityNote ? { openabilityNote } : {}),
+    problems,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Probe image (no PDF, no credentials, no MuPDF)
 // ---------------------------------------------------------------------------
 //

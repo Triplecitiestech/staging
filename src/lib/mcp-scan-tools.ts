@@ -193,7 +193,10 @@ export function registerScanTools(server: any) {
       const actor = emailOf(extra)
       try {
         assertScanReady()
-        const { bytes, meta, message } = await fetchScanAttachment(args.messageId, args.attachmentId)
+        const { bytes, meta, message, artifact } = await fetchScanAttachment(
+          args.messageId,
+          args.attachmentId
+        )
         const result = await renderPdf(bytes, {
           dpi: args.dpi,
           maxPages: args.maxPages,
@@ -223,6 +226,11 @@ export function registerScanTools(server: any) {
             name: meta.name,
             contentType: meta.contentType,
             bytes: bytes.byteLength,
+            // The attachment resource's own size field runs a constant ~392
+            // bytes larger than the downloaded body and is NOT an integrity
+            // measure; both are reported so neither is mistaken for the other.
+            reportedSize: meta.size,
+            integrity: artifact,
           },
           pageCount: result.pageCount,
           mode: result.mode,
@@ -410,7 +418,10 @@ export function registerScanTools(server: any) {
           })
         }
 
-        const { bytes, meta, message } = await fetchScanAttachment(args.messageId, args.attachmentId)
+        const { bytes, meta, message, artifact } = await fetchScanAttachment(
+          args.messageId,
+          args.attachmentId
+        )
 
         const upload = await uploadScanFile({
           driveId: args.driveId,
@@ -474,6 +485,9 @@ export function registerScanTools(server: any) {
             messageId: message.id,
             messageWebLink: message.webLink,
             receivedDateTime: message.receivedDateTime,
+            bytes: bytes.byteLength,
+            reportedSize: meta.size,
+            integrity: artifact,
           },
           warnings,
           nextStep:

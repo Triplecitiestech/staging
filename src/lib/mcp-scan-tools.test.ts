@@ -85,6 +85,7 @@ beforeEach(() => {
       fromRavenScanner: true,
     },
     bytes: new Uint8Array([1, 2, 3, 4]),
+    artifact: { ok: true, headerOk: true, eofOk: true, pageCount: 1, openable: true, problems: [] },
   })
   graphMock.uploadScanFile.mockResolvedValue({
     itemId: 'item-9',
@@ -325,6 +326,7 @@ describe('scan_render_attachment', () => {
       // Not a PDF, so rendering fails — the sender check must still be visible
       // via the failure path rather than being lost.
       bytes: new Uint8Array([1, 2, 3, 4]),
+      artifact: { ok: true, headerOk: true, eofOk: true, pageCount: 1, openable: true, problems: [] },
     })
     const res = await registerAll()
       .get('scan_render_attachment')!
