@@ -71,66 +71,99 @@ export const WILMAR_DAY14_DATE = '2026-09-14';
 // ============================================================
 
 export interface WilmarPhaseDefinition {
-  /** "Phase 0" .. "Phase 8", or null for the unnumbered Open Items card. */
-  number: number | null;
-  /** Autotask phase `title` PREFIX to match against — ids drift on resync,
-   *  title prefixes are stable (see CLAUDE.md gotchas re: phase resync). */
+  /** "Phase 1" .. "Phase 10" — mirrors the Autotask phase number exactly, so
+   *  the customer page and the internal project can never disagree about what
+   *  "Phase 4" means. */
+  number: number;
+  /**
+   * Autotask phase `externalID` — the PRIMARY match key. Autotask never
+   * generates or mutates externalID, so only a deliberate write changes it:
+   * it survived both the phase title rewrites and the 2026-09-07 renumber
+   * that took this page down. A display string is not an identifier.
+   */
+  autotaskExternalId: string;
+  /** Autotask phase `title` PREFIX — FALLBACK ONLY, for a phase that somehow
+   *  lost its externalID. Note "Phase 1 -" cannot collide with
+   *  "Phase 10 - ..." because of the trailing " -". */
   titlePrefix: string;
   eyebrow: string;
   title: string;
   description: string;
   /** Exact substring of `description` to render bold + cyan, matching the
-   *  design source's <strong> emphasis on Phases 5 and 6. */
+   *  design source's <strong> emphasis on the listen-only / Day 14 cards. */
   emphasize?: string;
-  /** Cyan-tinted card border/fill treatment (Phases 5 and 6 in the source). */
+  /** Cyan-tinted card border/fill treatment (the listen-only / Day 14 cards). */
   highlight?: boolean;
 }
 
-/** Phases 0–8, in display order. Order is NEVER derived from Autotask's
- *  `phaseNumber` field (an Autotask-generated ticket-style id, not "0".."8")
- *  — it comes from this fixed array. */
+/**
+ * Phases 1–10, in display order.
+ *
+ * Numbering MIRRORS Autotask project 55 exactly (renumbered 2026-09-07 so the
+ * phase number matches the WBS group shown in the project view; "Open
+ * Decisions" became Phase 1 and every other phase moved +2). Order is NEVER
+ * derived from Autotask's `phaseNumber` field (an Autotask-generated
+ * ticket-style id, not "1".."10") — it comes from this fixed array.
+ *
+ * The customer-facing copy below is written for a customer audience and is
+ * NOT pulled from Autotask titles or descriptions.
+ */
 export const WILMAR_PHASE_DEFINITIONS: WilmarPhaseDefinition[] = [
   {
-    number: 0,
-    titlePrefix: 'Phase 0 -',
-    eyebrow: 'Phase 0',
+    number: 1,
+    autotaskExternalId: 'group_mm6h63z2',
+    titlePrefix: 'Phase 1 -',
+    eyebrow: 'Phase 1',
+    title: 'Open Items',
+    description: 'A few decisions we need from your team before some of the work below can start.',
+  },
+  {
+    number: 2,
+    autotaskExternalId: 'group_mm6hpakr',
+    titlePrefix: 'Phase 2 -',
+    eyebrow: 'Phase 2',
     title: 'Contract, Billing and Account Setup',
     description: 'Agreement filed, billing configured, portal and support channels opened.',
   },
   {
-    number: 1,
-    titlePrefix: 'Phase 1 -',
-    eyebrow: 'Phase 1',
+    number: 3,
+    autotaskExternalId: 'group_mm6hvaae',
+    titlePrefix: 'Phase 3 -',
+    eyebrow: 'Phase 3',
     title: 'EZ Red Transition',
     description: 'Consolidating EZ Red contracts and assets under the Wilmar account.',
   },
   {
-    number: 2,
-    titlePrefix: 'Phase 2 -',
-    eyebrow: 'Phase 2',
+    number: 4,
+    autotaskExternalId: 'group_mm6hraja',
+    titlePrefix: 'Phase 4 -',
+    eyebrow: 'Phase 4',
     title: 'Co-Managed Access for Wilmar IT',
     description:
       'Granting your team direct access to the ticketing, RMM and documentation consoles, and agreeing the support split in writing.',
   },
   {
-    number: 3,
-    titlePrefix: 'Phase 3 -',
-    eyebrow: 'Phase 3',
+    number: 5,
+    autotaskExternalId: 'group_mm6h65c',
+    titlePrefix: 'Phase 5 -',
+    eyebrow: 'Phase 5',
     title: 'Kickoff, Discovery and Inventory',
     description: 'Kickoff session, site confirmation, and full inventory of devices and systems.',
   },
   {
-    number: 4,
-    titlePrefix: 'Phase 4 -',
-    eyebrow: 'Phase 4',
+    number: 6,
+    autotaskExternalId: 'group_mm6hdw3k',
+    titlePrefix: 'Phase 6 -',
+    eyebrow: 'Phase 6',
     title: 'Security Monitoring, Day 1',
     description:
       'Email protection, dark web monitoring, tenant audit logging and SaaS alerting switched on immediately.',
   },
   {
-    number: 5,
-    titlePrefix: 'Phase 5 -',
-    eyebrow: 'Phase 5',
+    number: 7,
+    autotaskExternalId: 'group_mm6h742g',
+    titlePrefix: 'Phase 7 -',
+    eyebrow: 'Phase 7',
     title: 'Tool Deployment, Day 1 to 14, listen-only',
     description:
       'Monitoring agents deployed in observe-only mode. Nothing changes on your machines during this window.',
@@ -138,43 +171,37 @@ export const WILMAR_PHASE_DEFINITIONS: WilmarPhaseDefinition[] = [
     highlight: true,
   },
   {
-    number: 6,
-    titlePrefix: 'Phase 6 -',
-    eyebrow: 'Phase 6',
+    number: 8,
+    autotaskExternalId: 'group_mm6hz1ec',
+    titlePrefix: 'Phase 8 -',
+    eyebrow: 'Phase 8',
     title: 'Day 14 Activation',
     description: 'Patching and Windows Update management turned on after the observation period.',
     emphasize: 'Patching and Windows Update management turned on after the observation period.',
     highlight: true,
   },
   {
-    number: 7,
-    titlePrefix: 'Phase 7 -',
-    eyebrow: 'Phase 7',
+    number: 9,
+    autotaskExternalId: 'group_mm6hrfdr',
+    titlePrefix: 'Phase 9 -',
+    eyebrow: 'Phase 9',
     title: 'Documentation and Site Analysis',
     description: 'Documenting every site, network and system into a maintained knowledge base.',
   },
   {
-    number: 8,
-    titlePrefix: 'Phase 8 -',
-    eyebrow: 'Phase 8',
+    number: 10,
+    autotaskExternalId: 'group_mm6hbxsq',
+    titlePrefix: 'Phase 10 -',
+    eyebrow: 'Phase 10',
     title: 'Review and Go-Live',
     description: 'Joint review of the completed onboarding and transition to steady-state service.',
   },
 ];
 
-/**
- * The 10th, unnumbered card. Autotask's real phase (title "Open Decisions -
- * Need Answers") has an internal-only description naming an owner — this
- * copy is written fresh for a customer audience, not pulled from Autotask.
- * Matched by full title since it carries no "Phase N -" prefix.
- */
-export const WILMAR_OPEN_ITEMS_PHASE: WilmarPhaseDefinition = {
-  number: null,
-  titlePrefix: 'Open Decisions - Need Answers',
-  eyebrow: 'Open items',
-  title: 'Open Items',
-  description: 'A few decisions we need from your team before some of the work above can start.',
-};
+/** Phase number of the Review & Go-Live phase, whose Autotask `startDate`
+ *  supplies the "refinement" milestone date. Named so the milestone below
+ *  can't be repointed by a title edit. */
+export const WILMAR_GO_LIVE_PHASE_NUMBER = 10;
 
 // ============================================================
 // Milestones — dates are live except the fixed agreement date
@@ -187,8 +214,13 @@ export interface WilmarMilestoneDefinition {
   label: string;
   dateSource: MilestoneDateSource;
   fixedDate?: string;
-  /** For `phase-start`: the Autotask phase title prefix whose `startDate` supplies the date. */
-  phaseTitlePrefix?: string;
+  /** For `phase-start`: the WILMAR_PHASE_DEFINITIONS `number` whose Autotask
+   *  phase `startDate` supplies the date. Deliberately NOT a title prefix —
+   *  a bare display string silently repoints at a different phase when the
+   *  project is renumbered (a "Phase 8 -" prefix meant Review & Go-Live before
+   *  2026-09-07 and Day 14 Activation after it, with nothing erroring).
+   *  Resolving through the definitions inherits the externalID-first lookup. */
+  phaseNumber?: number;
   /** Milestones 1–2 always render as reached, regardless of date math. */
   alwaysReached?: boolean;
 }
@@ -223,7 +255,7 @@ export const WILMAR_MILESTONES: WilmarMilestoneDefinition[] = [
     key: 'refine',
     label: 'Continued deployment, refinement and environment tweaks',
     dateSource: 'phase-start',
-    phaseTitlePrefix: 'Phase 8 -',
+    phaseNumber: WILMAR_GO_LIVE_PHASE_NUMBER,
   },
   {
     key: 'complete',
@@ -303,8 +335,27 @@ function formatLongDate(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-function findPhase(phases: AutotaskProjectPhase[], titlePrefix: string): AutotaskProjectPhase | undefined {
-  return phases.find((p) => (p.title ?? '').startsWith(titlePrefix));
+/**
+ * Resolve one definition to its live Autotask phase.
+ *
+ * `externalID` FIRST: Autotask never generates or mutates it, so nothing but a
+ * deliberate write changes it, and it has now survived both the phase title
+ * rewrites and the 2026-09-07 renumber. Title prefix is the fallback only —
+ * matching a phase on a display string is what took this page down.
+ */
+function findPhase(
+  phases: AutotaskProjectPhase[],
+  def: Pick<WilmarPhaseDefinition, 'autotaskExternalId' | 'titlePrefix'>
+): AutotaskProjectPhase | undefined {
+  return (
+    phases.find((p) => p.externalID != null && p.externalID === def.autotaskExternalId) ??
+    phases.find((p) => (p.title ?? '').startsWith(def.titlePrefix))
+  );
+}
+
+/** Look a definition up by its mirrored Autotask phase number. */
+export function findWilmarPhaseDefinition(phaseNumber: number): WilmarPhaseDefinition | undefined {
+  return WILMAR_PHASE_DEFINITIONS.find((d) => d.number === phaseNumber);
 }
 
 export async function getWilmarStatusData(): Promise<WilmarStatusResult> {
@@ -330,33 +381,35 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
     client.getEntityPicklist('Tasks', 'status'),
   ]);
 
-  // ---- Resolve the 9 numbered phases (0-8) by title prefix ----
-  const numberedPhaseMatches = WILMAR_PHASE_DEFINITIONS.map((def) => ({
+  // ---- Resolve all 10 phases: externalID first, title prefix as fallback ----
+  const phaseMatches = WILMAR_PHASE_DEFINITIONS.map((def) => ({
     def,
-    phase: findPhase(phases, def.titlePrefix),
+    phase: findPhase(phases, def),
   }));
 
-  const missingNumberedPhases = numberedPhaseMatches.filter((m) => !m.phase);
-  if (missingNumberedPhases.length > 0) {
-    // A numbered phase disappearing means the project structure changed in a
-    // way this page doesn't understand — safer to show "couldn't load" than
-    // to render a headline percentage with silently-missing phases baked in.
+  const missingPhases = phaseMatches.filter((m) => !m.phase);
+  if (missingPhases.length > 0) {
+    // A phase disappearing means the project structure changed in a way this
+    // page doesn't understand — safer to show "couldn't load" than to render a
+    // headline percentage with silently-missing phases baked in.
     throw new Error(
-      `Autotask phase(s) not found by title prefix: ${missingNumberedPhases.map((m) => m.def.titlePrefix).join(', ')}`
+      `Autotask phase(s) not found by externalID or title prefix: ${missingPhases
+        .map((m) => `${m.def.autotaskExternalId} / "${m.def.titlePrefix}"`)
+        .join(', ')}`
     );
   }
 
-  const numberedPhaseIds = new Set(numberedPhaseMatches.map((m) => m.phase!.id));
+  const matchedPhaseIds = new Set(phaseMatches.map((m) => m.phase!.id));
   const statusLabelById = new Map(statusPicklist.map((p) => [p.id, p.label.toLowerCase()]));
 
-  // ---- Overall progress: Phase 0-8 tasks only ----
-  const numberedTasks = tasks.filter((t) => t.phaseID != null && numberedPhaseIds.has(t.phaseID));
+  // ---- Overall progress: tasks in the 10 mirrored phases ----
+  const scopedTasks = tasks.filter((t) => t.phaseID != null && matchedPhaseIds.has(t.phaseID));
 
   let complete = 0;
   let inProgress = 0;
   let waiting = 0;
   let notStarted = 0;
-  for (const task of numberedTasks) {
+  for (const task of scopedTasks) {
     if (task.completedDateTime) {
       complete++;
       continue;
@@ -366,11 +419,11 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
     else if (label.includes('waiting')) waiting++;
     else notStarted++;
   }
-  const totalTasks = numberedTasks.length;
+  const totalTasks = scopedTasks.length;
   const overallPercent = totalTasks > 0 ? Math.round((complete / totalTasks) * 100) : 0;
 
-  // ---- Phase cards (0-8, phase-number order) ----
-  const phaseCards: WilmarPhaseCard[] = numberedPhaseMatches.map(({ def, phase }) => {
+  // ---- Phase cards (1-10, phase-number order) ----
+  const phaseCards: WilmarPhaseCard[] = phaseMatches.map(({ def, phase }) => {
     const phaseTasks = tasks.filter((t) => t.phaseID === phase!.id);
     const phaseComplete = phaseTasks.filter((t) => t.completedDateTime).length;
     const phaseTotal = phaseTasks.length;
@@ -386,26 +439,6 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
     };
   });
 
-  // Open Items — 10th, unnumbered card. Optional: omit if Autotask doesn't
-  // have this phase rather than failing the whole page.
-  const openItemsPhase = findPhase(phases, WILMAR_OPEN_ITEMS_PHASE.titlePrefix);
-  if (openItemsPhase) {
-    const openItemsTasks = tasks.filter((t) => t.phaseID === openItemsPhase.id);
-    const openItemsComplete = openItemsTasks.filter((t) => t.completedDateTime).length;
-    const openItemsTotal = openItemsTasks.length;
-    phaseCards.push({
-      eyebrow: WILMAR_OPEN_ITEMS_PHASE.eyebrow,
-      title: WILMAR_OPEN_ITEMS_PHASE.title,
-      description: WILMAR_OPEN_ITEMS_PHASE.description,
-      highlight: false,
-      percent: openItemsTotal > 0 ? Math.round((openItemsComplete / openItemsTotal) * 100) : 0,
-      completed: openItemsComplete,
-      total: openItemsTotal,
-    });
-  } else {
-    console.warn('[wilmar-status] "Open Decisions - Need Answers" phase not found; omitting the 10th card.');
-  }
-
   // ---- Milestones ----
   const milestoneDates: Array<Date | null> = WILMAR_MILESTONES.map((m) => {
     switch (m.dateSource) {
@@ -416,7 +449,8 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
       case 'project-end':
         return project.endDateTime ? dateOnly(new Date(project.endDateTime)) : null;
       case 'phase-start': {
-        const phase = m.phaseTitlePrefix ? findPhase(phases, m.phaseTitlePrefix) : undefined;
+        const def = m.phaseNumber != null ? findWilmarPhaseDefinition(m.phaseNumber) : undefined;
+        const phase = def ? findPhase(phases, def) : undefined;
         return phase?.startDate ? dateOnly(new Date(phase.startDate)) : null;
       }
       default:
