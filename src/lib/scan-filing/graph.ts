@@ -23,6 +23,7 @@
 // drive's own webUrl as reported by Graph.
 
 import { throwClassified } from '@/lib/connector/failure-envelope'
+import { validatePdfArtifact, type PdfArtifactVerdict } from './render'
 import { structuredLog } from '@/lib/resilience'
 
 // ---------------------------------------------------------------------------
@@ -255,6 +256,8 @@ export interface FetchedAttachment {
   meta: ScanAttachmentMeta
   message: ScanMessage
   bytes: Uint8Array
+  /** What the integrity check actually observed about the file. */
+  artifact: PdfArtifactVerdict
 }
 
 /**
@@ -263,9 +266,8 @@ export interface FetchedAttachment {
  * Two deliberate choices. The attachment is LOCATED in the message's own
  * attachment list first, so a wrong id fails with the ids that do exist rather
  * than a bare 404 — the same reason hr_er_log_update lists the Entry IDs it
- * found. And the downloaded length is compared against the size Graph reported:
- * a short read is a truncated download, and filing a truncated PDF that opens to
- * a blank page is worse than not filing it.
+ * found. And the bytes are validated AS A PDF before anyone sees them: filing a
+ * truncated PDF that opens to a blank page is worse than not filing it.
  */
 export async function fetchScanAttachment(
   messageId: string,
@@ -292,10 +294,13 @@ export async function fetchScanAttachment(
     })
   }
 
+  // `meta.size` is the attachment resource's own size field. It is NOT the byte
+  // length of /$value — live, it runs a constant 392 bytes larger — so it is used
+  // only as an approximate ceiling check, never as an integrity measure.
   if (meta.size !== null && meta.size > MAX_SCAN_BYTES) {
     throwClassified({
       reasonCode: 'INVALID_INPUT',
-      message: `Attachment "${meta.name}" is ${(meta.size / 1024 / 1024).toFixed(1)} MB, above this pipeline's ${MAX_SCAN_BYTES / 1024 / 1024} MB ceiling.`,
+      message: `Attachment "${meta.name}" is reported as ${(meta.size / 1024 / 1024).toFixed(1)} MB, above this pipeline's ${MAX_SCAN_BYTES / 1024 / 1024} MB ceiling.`,
       remediation: 'File this one by hand from Outlook, and tell Kurtis if scans this size are now normal.',
       surface: 'scan_filer',
     })
@@ -311,25 +316,63 @@ export async function fetchScanAttachment(
     throwClassified({
       reasonCode: 'PRECONDITION_FAILED',
       message: `Attachment "${meta.name}" downloaded as 0 bytes.`,
-      evidence: `Graph reported size ${meta.size ?? 'unknown'} but /$value returned an empty body.`,
+      evidence: `/$value returned an empty body (the attachment resource reports size ${meta.size ?? 'unknown'}).`,
       remediation: 'Retry once; if it repeats, open the message in Outlook and confirm the attachment opens.',
       surface: 'scan_filer',
     })
   }
 
-  if (meta.size !== null && bytes.byteLength !== meta.size) {
+  // INTEGRITY: validate the ARTIFACT, not a byte count.
+  //
+  // The previous guard compared bytes.byteLength against meta.size and rejected
+  // 8 of 8 real scans — a constant 392-byte shortfall across files from 155,669
+  // to 1,565,339 bytes, byte-identical on retry. Those two fields measure
+  // different things for a fileAttachment and Microsoft does not document which
+  // one `size` counts, so the comparison could never hold. It also told the
+  // caller to retry, which loops forever on a deterministic result.
+  //
+  // The intent survives unchanged: never file a truncated PDF. The evidence is
+  // now the file itself.
+  const artifact = await validatePdfArtifact(bytes)
+
+  if (!artifact.headerOk) {
     throwClassified({
-      reasonCode: 'PRECONDITION_FAILED',
+      reasonCode: 'INVALID_INPUT',
       message:
-        `Attachment "${meta.name}" downloaded short: ${bytes.byteLength} bytes against the ${meta.size} ` +
-        `bytes Graph reported. The download is incomplete, so it is not filed.`,
-      evidence: 'Compared the /$value body length against the attachment collection\'s own size field.',
-      remediation: 'Retry the call. A repeat short read is an upstream problem worth reporting to Kurtis.',
+        `Attachment "${meta.name}" is not a PDF, so it is not a scan this pipeline can read or file.`,
+      evidence:
+        `The downloaded bytes do not begin with "%PDF-" (${bytes.byteLength} bytes, contentType ` +
+        `${meta.contentType ?? 'unknown'}).`,
+      remediation:
+        'Check the attachment id — a scan email carries exactly one application/pdf attachment, and an ' +
+        'inline image or signature graphic is not it. Do NOT retry this call unchanged.',
       surface: 'scan_filer',
+      details: { downloadedBytes: bytes.byteLength, reportedSize: meta.size },
     })
   }
 
-  return { meta, message, bytes }
+  if (!artifact.ok) {
+    throwClassified({
+      reasonCode: 'PRECONDITION_FAILED',
+      message:
+        `Attachment "${meta.name}" is not a complete, openable PDF, so it is not filed. ` +
+        artifact.problems.join(' '),
+      evidence:
+        `Validated the artifact itself: header ${artifact.headerOk ? 'ok' : 'missing'}, ` +
+        `%%EOF trailer ${artifact.eofOk ? 'present' : 'absent'}, ` +
+        `openable ${artifact.openable === null ? 'NOT CHECKED' : artifact.openable}` +
+        `${artifact.pageCount !== null ? `, ${artifact.pageCount} page(s)` : ''}. ` +
+        `Downloaded ${bytes.byteLength} bytes.`,
+      remediation:
+        'Open the message in Outlook and confirm the attachment opens there. If it does, this is a ' +
+        'connector bug worth reporting; if it does not, the scanner produced a bad file and it must be ' +
+        're-scanned. Retrying this call unchanged will produce the same result.',
+      surface: 'scan_filer',
+      details: { downloadedBytes: bytes.byteLength, reportedSize: meta.size, artifact },
+    })
+  }
+
+  return { meta, message, bytes, artifact }
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,9 @@ import { describe, it, expect } from 'vitest'
 import { deflateSync, inflateSync } from 'node:zlib'
 import {
   buildProbeImage,
+  hasPdfEof,
+  hasPdfHeader,
+  validatePdfArtifact,
   capText,
   countMeaningful,
   decideMode,
@@ -263,6 +266,79 @@ describe('renderPdf against a real PDF', () => {
     await expect(renderPdf(Buffer.from('this is not a pdf'))).rejects.toMatchObject({
       failure: { reasonCode: 'INVALID_INPUT' },
     })
+  })
+})
+
+describe('PDF artifact validation', () => {
+  // The guard this replaced compared the /$value body length against the
+  // attachment resource's `size` field and rejected 8 of 8 real scans on a
+  // CONSTANT 392-byte difference. These tests pin the replacement: the evidence
+  // is the file, and there is no byte-count tolerance anywhere in it.
+
+  it('accepts a real, complete PDF', async () => {
+    const v = await validatePdfArtifact(await buildTextPdf())
+    expect(v.ok).toBe(true)
+    expect(v.headerOk).toBe(true)
+    expect(v.eofOk).toBe(true)
+    expect(v.openable).toBe(true)
+    expect(v.pageCount).toBe(2)
+    expect(v.problems).toEqual([])
+  })
+
+  it('REJECTS a truncated PDF — the case the guard exists for', async () => {
+    const full = await buildTextPdf()
+    const cut = full.slice(0, Math.floor(full.byteLength * 0.6))
+    const v = await validatePdfArtifact(cut)
+
+    expect(v.ok).toBe(false)
+    expect(v.headerOk).toBe(true) // a truncated file keeps its header...
+    expect(v.eofOk).toBe(false) // ...and loses its tail, which is the signal
+    expect(v.problems.join(' ')).toContain('%%EOF')
+  })
+
+  it('rejects something that is not a PDF at all', async () => {
+    const v = await validatePdfArtifact(new Uint8Array(Buffer.from('just some text, not a pdf')))
+    expect(v.ok).toBe(false)
+    expect(v.headerOk).toBe(false)
+    expect(v.problems.join(' ')).toContain('%PDF-')
+  })
+
+  it('does not care about byte count: a valid PDF passes whatever its length', async () => {
+    // The defect was treating a size DIFFERENCE as corruption. Two structurally
+    // valid PDFs of very different sizes must both pass.
+    const small = await validatePdfArtifact(await buildImageOnlyPdf())
+    const larger = await validatePdfArtifact(await buildTextPdf())
+    expect(small.ok).toBe(true)
+    expect(larger.ok).toBe(true)
+  })
+
+  it('has no byte-count tolerance constant anywhere in its verdict', async () => {
+    // Guards against someone "fixing" a future mismatch with a magic 392.
+    const v = await validatePdfArtifact(await buildTextPdf())
+    expect(JSON.stringify(v)).not.toContain('392')
+  })
+})
+
+describe('hasPdfHeader / hasPdfEof', () => {
+  it('reads the magic number exactly', () => {
+    expect(hasPdfHeader(new Uint8Array(Buffer.from('%PDF-1.7\n')))).toBe(true)
+    expect(hasPdfHeader(new Uint8Array(Buffer.from(' %PDF-1.7')))).toBe(false)
+    expect(hasPdfHeader(new Uint8Array(Buffer.from('%PD')))).toBe(false)
+    expect(hasPdfHeader(new Uint8Array())).toBe(false)
+  })
+
+  it('finds %%EOF at the end, and tolerates trailing whitespace', () => {
+    expect(hasPdfEof(new Uint8Array(Buffer.from('%PDF-1.7 ... %%EOF')))).toBe(true)
+    expect(hasPdfEof(new Uint8Array(Buffer.from('%PDF-1.7 ... %%EOF\r\n')))).toBe(true)
+  })
+
+  it('accepts the LAST marker when incremental updates leave several', () => {
+    expect(hasPdfEof(new Uint8Array(Buffer.from('a %%EOF b %%EOF\n')))).toBe(true)
+  })
+
+  it('does not find a marker that fell outside the tail window', () => {
+    const buf = Buffer.concat([Buffer.from('%%EOF'), Buffer.alloc(4096, 0x20)])
+    expect(hasPdfEof(new Uint8Array(buf))).toBe(false)
   })
 })
 

@@ -292,9 +292,42 @@ establish state from the systems themselves, not from anything remembered.
 | `PERMISSION_DENIED` on a mail path | The Exchange Application RBAC assignment is gone or no longer resolves. Re-verify with `Test-ServicePrincipalAuthorization`. |
 | `NOT_IMPLEMENTED` naming `mupdf` | The WASM asset did not reach the serverless bundle. A build task, not a permissions problem. |
 | `verified: false` on an upload | The file may not be filed. Open the destination in SharePoint before re-uploading — a blind retry is how one scan ends up filed twice under two names. |
+| `PRECONDITION_FAILED` naming `%%EOF` or MuPDF | The downloaded file is not a complete, openable PDF. Open the attachment in Outlook: if it opens there, it is a connector bug; if not, the scan must be redone. **Retrying unchanged gives the same result.** |
+| `INVALID_INPUT` "is not a PDF" | Wrong attachment id — a scan email carries exactly one `application/pdf` attachment. |
 | `Test-ServicePrincipalAuthorization` reports the app in-scope for any other mailbox | **Stop.** A tenant-wide `Mail.Read` grant is defeating the scope. Remove the Entra grant before the connector goes live. |
 | A document lands on the wrong site | Recoverable — the log row carries the source email link. Re-file from there and count the miss in the week-one review. |
 | Misfile rate looks high in the week-one review | Do not enable Rio's notification. Tighten the routing rules against the live folder taxonomy first. |
+
+---
+
+## 7a · Integrity: what is checked, and what is deliberately not
+
+`scan_render_attachment` and `scan_file_attachment` validate the **artifact**,
+never a byte count:
+
+| Check | Catches |
+|---|---|
+| `%PDF-` header | Not a PDF at all → `INVALID_INPUT` |
+| `%%EOF` in the last 2 KB | **Truncation** — a cut-off PDF keeps its header and loses its tail |
+| MuPDF opens it, pageCount >= 1 | Structural corruption |
+
+The verdict is returned as `integrity` on both tools, alongside `bytes` (what
+was downloaded) and `reportedSize` (the attachment resource's own field).
+
+**Why not compare those two numbers?** Because that was the first design and it
+rejected **8 of 8 real scans**: the shortfall was exactly **392 bytes** on files
+from 155,669 to 1,565,339 bytes and identical on retry. A constant offset
+independent of file size is an envelope, not data loss — the two fields measure
+different things for a `fileAttachment`, and Microsoft does not document which
+one `size` counts. The failure also told the caller to retry, which loops forever.
+
+**There is no 392-byte tolerance and none should be added.** The constant is
+undocumented and may differ by attachment type or tenant; encoding it would swap
+a wrong measurement for a fragile one. A test asserts the verdict never contains
+that number.
+
+`openable: null` means **not checked** (the renderer could not load), never
+"fine" — the reason is stated alongside it, and the structural checks still applied.
 
 ---
 
