@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AutotaskProjectPhase } from './autotask';
 import {
+  computeTodayPositionPercent,
   WILMAR_PHASE_DEFINITIONS,
   WILMAR_MILESTONES,
   WILMAR_GO_LIVE_PHASE_NUMBER,
@@ -161,5 +162,90 @@ describe("the 'refine' milestone reads Review & Go-Live, not Day 14 Activation",
       expect(m.phaseNumber).toBeDefined();
       expect(findWilmarPhaseDefinition(m.phaseNumber!)).toBeDefined();
     }
+  });
+});
+
+describe('the TODAY marker sits in the segment today actually falls in', () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+  /** The live milestone rail on 2026-09-07: agreement, project opens, Day 1,
+   *  Day 14, refinement (Autotask Phase 10 start), onboarding complete. */
+  const RAIL = [
+    { positionPercent: 0, date: d('2026-08-24') },
+    { positionPercent: 20, date: d('2026-08-26') },
+    { positionPercent: 40, date: d('2026-09-01') },
+    { positionPercent: 60, date: d('2026-09-14') },
+    { positionPercent: 80, date: d('2026-09-22') },
+    { positionPercent: 100, date: d('2026-09-30') },
+  ];
+
+  it('does NOT land on the Day 14 dot on 2026-09-07 — the reported bug', () => {
+    // The old math interpolated only across "project opens" -> "Day 1" and then
+    // extrapolated: (Sep 7 - Aug 26)/(Sep 1 - Aug 26) = 2.0, giving
+    // 20 + 2.0 * 20 = 60%, which is EXACTLY the Day 14 dot.
+    const pos = computeTodayPositionPercent(RAIL, d('2026-09-07'));
+    expect(pos).not.toBeCloseTo(60, 5);
+    expect(pos).toBeGreaterThan(40); // past Day 1
+    expect(pos).toBeLessThan(60); // not yet Day 14
+    expect(pos).toBeCloseTo(40 + (6 / 13) * 20, 5); // ~49.2%
+  });
+
+  it('lands exactly on a milestone dot on that milestone date', () => {
+    for (const anchor of RAIL) {
+      expect(computeTodayPositionPercent(RAIL, anchor.date)).toBeCloseTo(anchor.positionPercent, 5);
+    }
+  });
+
+  it('interpolates within every interior segment', () => {
+    expect(computeTodayPositionPercent(RAIL, d('2026-08-25'))).toBeCloseTo(10, 5);
+    expect(computeTodayPositionPercent(RAIL, d('2026-09-18'))).toBeCloseTo(60 + (4 / 8) * 20, 5);
+    expect(computeTodayPositionPercent(RAIL, d('2026-09-26'))).toBeCloseTo(80 + (4 / 8) * 20, 5);
+  });
+
+  it('clamps rather than running off either end of the rail', () => {
+    expect(computeTodayPositionPercent(RAIL, d('2026-01-01'))).toBe(0);
+    expect(computeTodayPositionPercent(RAIL, d('2027-01-01'))).toBe(100);
+  });
+
+  it('never returns a position outside 0-100 for any day across the engagement', () => {
+    for (let day = 0; day < 400; day++) {
+      const t = new Date(Date.UTC(2026, 7, 1) + day * 86_400_000);
+      const pos = computeTodayPositionPercent(RAIL, t);
+      expect(pos).toBeGreaterThanOrEqual(0);
+      expect(pos).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('advances monotonically as time passes', () => {
+    let prev = -1;
+    for (let day = 0; day < 400; day++) {
+      const t = new Date(Date.UTC(2026, 7, 1) + day * 86_400_000);
+      const pos = computeTodayPositionPercent(RAIL, t);
+      expect(pos).toBeGreaterThanOrEqual(prev);
+      prev = pos;
+    }
+  });
+
+  it('skips a TBD milestone instead of treating null as a position', () => {
+    // "Onboarding complete" reads TBD when Autotask has no project end date.
+    const withTbd = RAIL.map((a, i) => (i === 5 ? { ...a, date: null } : a));
+    expect(computeTodayPositionPercent(withTbd, d('2026-09-07'))).toBeCloseTo(40 + (6 / 13) * 20, 5);
+    // Past the last KNOWN date it pins there rather than guessing past it.
+    expect(computeTodayPositionPercent(withTbd, d('2026-10-15'))).toBe(80);
+  });
+
+  it('falls back to the last passed milestone when dates are out of order', () => {
+    const scrambled = [
+      { positionPercent: 0, date: d('2026-08-24') },
+      { positionPercent: 20, date: d('2026-09-20') },
+      { positionPercent: 40, date: d('2026-08-28') },
+    ];
+    const pos = computeTodayPositionPercent(scrambled, d('2026-09-07'));
+    expect(pos).toBeGreaterThanOrEqual(0);
+    expect(pos).toBeLessThanOrEqual(100);
+  });
+
+  it('returns 0 when no milestone date resolves at all', () => {
+    expect(computeTodayPositionPercent(RAIL.map((a) => ({ ...a, date: null })), d('2026-09-07'))).toBe(0);
   });
 });
