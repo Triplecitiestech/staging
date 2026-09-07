@@ -34,7 +34,11 @@ import { registerScanTools } from '@/lib/mcp-scan-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
 import { registerKaseyaQuoteManagerTools } from '@/lib/mcp-kaseya-quote-manager-tools'
-import { recordingServer, buildCapabilityReport } from '@/lib/connector/capability-registry'
+import {
+  recordingServer,
+  buildCapabilityReport,
+  type RecordedTool,
+} from '@/lib/connector/capability-registry'
 import { toolFailure } from '@/lib/connector/failure-envelope'
 
 let _autotask: AutotaskClient | null = null
@@ -87,10 +91,26 @@ function ticketReadAdvisory(count: number): string {
   return `This read returns ticket FIELDS only — no notes, time entries or attachments — so activityGap is true on every ticket that has any activity (${count} ticket(s) returned). It is not evidence about what was or was not done. Call autotask_ticket_activity({ ticketId }) for a ticket's merged timeline before stating that work was not done or that a ticket was not updated.`
 }
 
-/** Build the connector handler for one mount. `basePath` MUST match the route path. */
-export function buildConnectorHandler(basePath: string) {
-  return createMcpHandler(
-    (mcpServer) => {
+/**
+ * Register the ENTIRE connector tool surface onto one MCP server, and return
+ * the recording of what was registered.
+ *
+ * Extracted from buildConnectorHandler on 2026-09-08 so the diagnostics route
+ * can observe the REAL surface rather than a second copy of this list. A
+ * diagnostic built on its own registration list would be measuring itself, and
+ * the first tool someone added to only one of them would make it lie — which is
+ * precisely the failure the diagnostic exists to investigate.
+ *
+ * Behaviour is unchanged: this is the former createMcpHandler initializer body,
+ * lifted whole.
+ */
+export type ConnectorMcpServer = Parameters<Parameters<typeof createMcpHandler>[0]>[0]
+
+export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
+  recorded: RecordedTool[]
+} {
+  {
+    {
       // Wrap the server so every registerTool call below is RECORDED as it
       // happens. `recorded` is what tct_connector_capabilities reports from, so
       // the capability list can never drift from what is actually registered —
@@ -322,6 +342,16 @@ export function buildConnectorHandler(basePath: string) {
           } catch (e) { return failConnector(e) }
         }
       )
+      return { recorded }
+    }
+  }
+}
+
+/** Build the connector handler for one mount. `basePath` MUST match the route path. */
+export function buildConnectorHandler(basePath: string) {
+  return createMcpHandler(
+    (mcpServer) => {
+      registerAllConnectorTools(mcpServer)
     },
     {},
     { basePath, maxDuration: 60, verboseLogs: false }

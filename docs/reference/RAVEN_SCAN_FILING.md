@@ -298,6 +298,47 @@ establish state from the systems themselves, not from anything remembered.
 
 ---
 
+## 8a · Connector tool diagnostics — `GET /api/connector/diagnostics/tools`
+
+Read-only. Auth = `MIGRATION_SECRET` (bearer header or `?secret=`). Writes
+nothing, calls no vendor API, invokes no tool handler, touches no kill switch.
+
+Built 2026-09-08 during an unresolved investigation: the connector reported
+**185 registered** tools while the client advertised **179**, with the six
+`scan_*` tools missing, and `tct_connector_capabilities` reported those six with
+**empty parameter lists** while `hr_*` returned full ones.
+
+It registers the real surface through `registerAllConnectorTools()` — the same
+function both live mounts use, not a second copy of the tool list — then drives
+a **real MCP client over an in-memory transport** and compares what was
+registered against what that client receives. Reading the SDK's internal
+registry would have answered a different question while looking like the same
+answer.
+
+```powershell
+$r = Invoke-RestMethod -Uri 'https://www.triplecitiestech.com/api/connector/diagnostics/tools' `
+  -Headers @{ Authorization = "Bearer $env:MIGRATION_SECRET" }
+$r.summary
+$r.mismatches
+$r.tools | Where-Object { $_.name -like 'scan_*' } | Format-Table
+```
+
+How to read `summary`:
+
+| Result | Meaning |
+|---|---|
+| `registered` = `emittedToClient`, `mismatches` empty | The server is self-consistent. If the Claude client still advertises fewer, **the drop is downstream of this server** and no server-side change will fix it. |
+| `registeredButNotEmitted` > 0 | The server is the cause; `mismatches` names the tools. |
+| A row with `recordedParamCount` ≠ `emittedPropertyCount` | The recording proxy and the emitted schema disagree for that tool. |
+| A row with `recordedDescriptionLength` 0 | The recording proxy threw for that tool and fell back — which is the one code path that produces empty parameters. |
+
+`emittedHasSchemaKey` is not cosmetic: a tool registered with **no**
+`inputSchema` emits `{type, properties}` with no `$schema` key, while
+`inputSchema: {}` emits one **with** it. If anything downstream validates tool
+schemas strictly, that is the difference it would act on.
+
+---
+
 ## 9 · Not in this repo
 
 `Set-ScanConnectorMailboxScope.ps1` — the script that configured the Exchange
