@@ -89,6 +89,10 @@ export interface AutotaskProjectPhase {
   id: number;
   projectID: number;
   title: string;
+  /** Caller-supplied stable identifier. Autotask NEVER generates or mutates
+   *  this — only a deliberate write changes it — so it is the right key to
+   *  match a phase on. A title is a display string, not an identifier. */
+  externalID?: string;
   description?: string;
   startDate?: string;
   dueDate?: string;
