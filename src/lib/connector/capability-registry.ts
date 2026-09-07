@@ -148,7 +148,7 @@ const ENVELOPE_NOTE_SHORT =
  * — the taxonomy is vendor-neutral precisely so a new surface can adopt it
  * directly, and a new surface has no legacy plain-text callers to break.
  */
-const ENVELOPE_TOOL_PREFIXES = ['autotask_', 'tct_', 'kqm_']
+const ENVELOPE_TOOL_PREFIXES = ['autotask_', 'tct_', 'kqm_', 'scan_']
 
 function toolHasEnvelope(name: string): boolean {
   return ENVELOPE_TOOL_PREFIXES.some((p) => name.startsWith(p))
@@ -259,6 +259,7 @@ export const VENDORS = {
   datto_rmm: 'Datto RMM',
   unifi: 'UniFi / Ubiquiti',
   hr: 'Microsoft Graph — TCT HumanResources SharePoint',
+  scan: 'Microsoft Graph — Raven scan filing (Kurtis mailbox + SharePoint)',
   sales: 'TCT Sales Calculator (our own pricing)',
   kqm: 'Kaseya Quote Manager (Datto Commerce)',
   tct: 'TCT connector (meta)',
@@ -818,6 +819,75 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
       'Uploads ONE .docx to TWO locations (central + subject folder)',
       'Filename is generated — ER-DOC-NNNN_[LastName]_[date]_[Type].docx',
       'Both uploads read-back verified',
+    ],
+  },
+
+  // -- Raven scan filing (Kurtis's mailbox -> SharePoint / OneDrive) --------
+  scan_probe_render: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    constraints: [
+      'Writes nothing and reads nothing - it generates its own image',
+      'Deliberately NOT behind the scan kill switch: it exists to answer whether image content blocks work at all, which has to be answerable before the pipeline is configured',
+      'Reports the image block and the renderer as SEPARATE observations - a probe that collapses two observations into one answer is indistinguishable from one that guessed',
+    ],
+  },
+  scan_list_attachments: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_SCAN_WRITES_ENABLED',
+    constraints: [
+      'ONE mailbox only - the app\'s Mail.Read is scoped by Exchange Application RBAC to kurtis@, verified in-scope True there and False for a control mailbox',
+      'Metadata only: the $select deliberately excludes contentBytes',
+    ],
+  },
+  scan_render_attachment: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_SCAN_WRITES_ENABLED',
+    constraints: [
+      'ONE mailbox only - Mail.Read is scoped by Exchange Application RBAC, not granted tenant-wide (the two are UNIONED, so a tenant-wide grant would defeat the scope)',
+      'NEVER returns the raw attachment: a 936 KB scan as base64 is ~400,000 tokens, which is why the pipeline is built this way',
+      'Text layer first, page images only when the text cannot carry the document - and it always reports which and why, so "no text found" is never confused with "did not look"',
+      'Page count is capped (default 3) to protect context',
+    ],
+  },
+  scan_file_attachment: {
+    access: 'write',
+    risk: 'low-risk write',
+    staged: false,
+    killSwitch: 'CONNECTOR_SCAN_WRITES_ENABLED',
+    constraints: [
+      'Bytes go mailbox-to-drive SERVER-SIDE; nothing passes through the conversation',
+      'Destination is checked BEFORE any write, against the drive\'s own webUrl from Graph - the excluded plumbing/dead sites, the tenant root and other people\'s OneDrives are refused in code, not merely by permissions',
+      'No "replace" conflict behaviour exists, by schema - a scan overwriting a filed document destroys a record',
+      'Read-back verified: the returned webUrl and size come from re-reading the item after the write',
+      'A filename still containing "Raven_Scan" is refused',
+    ],
+  },
+  scan_log_append: {
+    access: 'write',
+    risk: 'low-risk write',
+    staged: false,
+    killSwitch: 'CONNECTOR_SCAN_WRITES_ENABLED',
+    constraints: [
+      'APPEND-ONLY by design - never overwrites an existing row',
+      'Scan ID is computed as the next SCAN-NNNN read from the sheet - never pass one',
+      'Row width and column order come from the table\'s LIVE header row on every call; a column no parameter fills is left blank and reported in unmappedColumns',
+      'Read-back verified against the Scan ID at its live column position',
+    ],
+  },
+  scan_log_columns: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_SCAN_WRITES_ENABLED',
+    constraints: [
+      'Writes nothing - reports the live header row, row count, last and next Scan ID',
+      'Gated by the same scan kill switch as the writes: one switch covers the whole surface',
     ],
   },
 }

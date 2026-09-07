@@ -30,6 +30,7 @@ import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
+import { registerScanTools } from '@/lib/mcp-scan-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
 import { registerKaseyaQuoteManagerTools } from '@/lib/mcp-kaseya-quote-manager-tools'
@@ -252,6 +253,19 @@ export function buildConnectorHandler(basePath: string) {
       // dedicated least-privilege Sites.Selected app. Dormant unless
       // CONNECTOR_HR_WRITES_ENABLED === 'true' and HR_RECORDS_* are set.
       registerHrTools(server)
+
+      // ── Raven scan filing (Kurtis's mailbox -> SharePoint/OneDrive) ────────
+      // Reads one scan attachment and returns it as text or page IMAGES —
+      // never as base64, which for a 936 KB scan would be ~400,000 tokens.
+      // Filing is a server-side mailbox-to-drive copy with the destination
+      // checked against the routing policy first (the excluded plumbing sites
+      // must be unreachable in code, not only by permissions) and read-back
+      // verified. Dedicated Entra app whose Mail.Read is scoped by Exchange
+      // Application RBAC to that ONE mailbox. Dormant unless
+      // CONNECTOR_SCAN_WRITES_ENABLED === 'true' and SCAN_FILER_* are set —
+      // except scan_probe_render, which needs no credential because it exists
+      // to answer whether image blocks work at all, before anything is set up.
+      registerScanTools(server)
 
       // ── Datto RMM (read-only reporting; GET-only by construction) ──────────
       // Reuses the shared DattoRmmClient; every call goes through getV2()

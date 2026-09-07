@@ -42,7 +42,7 @@ function fakeServer(): ToolRegisteringServer & { names: string[] } {
  */
 async function recordRealModules(): Promise<RecordedTool[]> {
   const { server, recorded } = recordingServer(fakeServer())
-  const [configRead, configWrite, write, project, itglue, unifi, hr, datto, salesPricing, kqm] = await Promise.all([
+  const [configRead, configWrite, write, project, itglue, unifi, hr, scan, datto, salesPricing, kqm] = await Promise.all([
     import('@/lib/mcp-config-read-tools'),
     import('@/lib/mcp-config-write-tools'),
     import('@/lib/mcp-write-tools'),
@@ -50,6 +50,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
     import('@/lib/mcp-itglue-tools'),
     import('@/lib/mcp-unifi-site-tools'),
     import('@/lib/mcp-hr-tools'),
+    import('@/lib/mcp-scan-tools'),
     import('@/lib/mcp-datto-rmm-tools'),
     import('@/lib/mcp-sales-pricing-tools'),
     import('@/lib/mcp-kaseya-quote-manager-tools'),
@@ -61,6 +62,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
   itglue.registerItGlueTools(server)
   unifi.registerUnifiSiteTools(server)
   hr.registerHrTools(server)
+  scan.registerScanTools(server)
   datto.registerDattoRmmTools(server)
   salesPricing.registerSalesPricingTools(server)
   kqm.registerKaseyaQuoteManagerTools(server)
@@ -239,6 +241,7 @@ describe('TOOL_FACTS completeness (the drift guard)', () => {
       'CONNECTOR_CONFIG_WRITES_ENABLED',
       'CONNECTOR_UNIFI_WRITES_ENABLED',
       'CONNECTOR_HR_WRITES_ENABLED',
+      'CONNECTOR_SCAN_WRITES_ENABLED',
     ])
     const bad = Object.entries(TOOL_FACTS)
       .filter(([, f]) => f.killSwitch && !KNOWN.has(f.killSwitch))
