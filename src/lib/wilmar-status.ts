@@ -358,6 +358,55 @@ export function findWilmarPhaseDefinition(phaseNumber: number): WilmarPhaseDefin
   return WILMAR_PHASE_DEFINITIONS.find((d) => d.number === phaseNumber);
 }
 
+/**
+ * Rail position (%) of the TODAY marker.
+ *
+ * Interpolates across whichever milestone segment `today` actually falls in.
+ * The earlier version interpolated ONLY between "project opens" and "Day 1"
+ * and then EXTRAPOLATED past Day 1, so the marker ran ~3.3%/day off the end of
+ * that segment — on 2026-09-07 it landed at exactly 60%, the Day 14 dot, which
+ * read to the customer as "today is Sep 14". Never extrapolate a position from
+ * one segment onto a rail that has five.
+ *
+ * Pure and exported so the geometry is testable without an Autotask call.
+ */
+export function computeTodayPositionPercent(
+  anchors: Array<{ positionPercent: number; date: Date | null }>,
+  today: Date
+): number {
+  // A milestone whose date could not be resolved (rendered "TBD") anchors
+  // nothing — skip it rather than treating a null as a position.
+  const known = anchors.filter((a): a is { positionPercent: number; date: Date } => a.date != null);
+  if (known.length === 0) return 0;
+
+  const t = today.getTime();
+  const first = known[0];
+  const last = known[known.length - 1];
+  if (t <= first.date.getTime()) return clampPercent(first.positionPercent);
+  if (t >= last.date.getTime()) return clampPercent(last.positionPercent);
+
+  for (let i = 0; i < known.length - 1; i++) {
+    const from = known[i];
+    const to = known[i + 1];
+    const span = to.date.getTime() - from.date.getTime();
+    if (span <= 0) continue; // out-of-order or same-day pair anchors nothing
+    if (t >= from.date.getTime() && t <= to.date.getTime()) {
+      const fraction = (t - from.date.getTime()) / span;
+      return clampPercent(from.positionPercent + fraction * (to.positionPercent - from.positionPercent));
+    }
+  }
+
+  // Dates out of chronological order (they come partly from Autotask, so this
+  // is possible). Fall back to the last milestone today has passed rather than
+  // inventing a position between two dates that don't bracket it.
+  const passed = known.filter((a) => a.date.getTime() <= t);
+  return clampPercent(passed.length > 0 ? passed[passed.length - 1].positionPercent : first.positionPercent);
+}
+
+function clampPercent(n: number): number {
+  return Math.max(0, Math.min(100, n));
+}
+
 export async function getWilmarStatusData(): Promise<WilmarStatusResult> {
   try {
     const data = await withTimeout(() => fetchWilmarStatusData(), OVERALL_TIMEOUT_MS, 'Wilmar status data');
@@ -471,16 +520,11 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
     positionPercent: MILESTONE_DOT_POSITIONS[i],
   }));
 
-  // ---- TODAY marker position: interpolate between the "project opens"
-  // (index 1) and "Day 1" (index 2) milestones, clamped to the full rail. ----
-  const d1 = milestoneDates[1];
-  const d2 = milestoneDates[2];
-  let todayPositionPercent = MILESTONE_DOT_POSITIONS[1];
-  if (d1 && d2 && d2.getTime() !== d1.getTime()) {
-    const fraction = (today.getTime() - d1.getTime()) / (d2.getTime() - d1.getTime());
-    todayPositionPercent = MILESTONE_DOT_POSITIONS[1] + fraction * (MILESTONE_DOT_POSITIONS[2] - MILESTONE_DOT_POSITIONS[1]);
-  }
-  todayPositionPercent = Math.max(0, Math.min(100, todayPositionPercent));
+  // ---- TODAY marker: interpolate across the segment today actually sits in ----
+  const todayPositionPercent = computeTodayPositionPercent(
+    milestones.map((m) => ({ positionPercent: m.positionPercent, date: m.date })),
+    today
+  );
 
   return {
     generatedAt: new Date(),
