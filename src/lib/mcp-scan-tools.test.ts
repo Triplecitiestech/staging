@@ -124,7 +124,8 @@ describe('the registered surface', () => {
     >
     // Read the enum's own accepted values, not its prose: the description
     // mentions "replace" precisely to say it does not exist.
-    const options = (schema.conflictBehavior.unwrap() as z.ZodEnum<[string, ...string[]]>).options
+    const field = schema.conflictBehavior as z.ZodOptional<z.ZodEnum<['rename', 'fail']>>
+    const options = field.unwrap().options
     expect(options).toEqual(['rename', 'fail'])
   })
 })
