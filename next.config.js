@@ -4,7 +4,12 @@ const nextConfig = {
   // runtime. pdfkit + fontkit ship binary .afm font files that Next.js's
   // bundler doesn't know how to handle; externalizing keeps the file
   // system path intact so pdfkit can find its standard PostScript fonts.
-  serverExternalPackages: ['pdfkit', 'fontkit', 'pdf-parse', 'mammoth'],
+  serverExternalPackages: ['pdfkit', 'fontkit', 'pdf-parse', 'mammoth', 'mupdf'],
+  // 'mupdf' is external because it loads a .wasm asset at runtime; bundling it
+  // breaks that lookup. It renders Raven scan pages to images server-side
+  // (src/lib/scan-filing/render.ts). If the asset ever fails to reach the
+  // serverless bundle, scan_render_attachment reports NOT_IMPLEMENTED naming
+  // the module rather than taking the connector route down with it.
   // Webpack configuration
   webpack: (config, { isServer }) => {
     if (isServer) {

@@ -233,6 +233,7 @@ export type ConnectorSurface =
   | 'unifi'
   | 'datto_rmm'
   | 'hr_sharepoint'
+  | 'scan_filer'
   | 'kaseya_quote_manager'
   | 'connector'
 

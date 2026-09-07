@@ -40,6 +40,33 @@
 
 import { withRetry, withTimeout, structuredLog } from '@/lib/resilience'
 import { throwClassified } from '@/lib/connector/failure-envelope'
+// The live-header row planner and its text/date normalisers moved to
+// src/lib/graph-workbook.ts on 2026-09-07 so the Raven scan log runs the SAME
+// implementation rather than a second copy of the code that fixed the 2026-07-30
+// width outage. Behaviour is unchanged and the names below are re-exported, so
+// every existing importer of this module still resolves.
+import {
+  keyRowByColumns,
+  headerMarksRequired,
+  normalizeDate,
+  normalizeHeader,
+  planWorkbookRow,
+  sanitizePlainText,
+  tableSegment,
+  todayEastern,
+  type RowPlan,
+  type RowProblem,
+  type WorkbookFieldSpec,
+} from '@/lib/graph-workbook'
+
+export {
+  keyRowByColumns,
+  headerMarksRequired,
+  normalizeDate,
+  normalizeHeader,
+  sanitizePlainText,
+  todayEastern,
+}
 
 // ---------------------------------------------------------------------------
 // Configuration (env-overridable; live-verified defaults from the owner)
@@ -77,22 +104,14 @@ const LOG_WORKSHEET = process.env.HR_ER_LOG_WORKSHEET || 'Log'
  * so the sheet is now the authority on width and order, and this table only
  * says which headers we have content for.
  */
-export interface ErFieldSpec {
-  /** Canonical workbook header. */
-  column: string
+/**
+ * One Employee-Relations column, plus which ErLogAppendInput key supplies it.
+ * The shared shape (column / kind / aliases / contentCritical) lives in
+ * graph-workbook.ts; only the input binding is HR-specific.
+ */
+export interface ErFieldSpec extends WorkbookFieldSpec {
   /** Key on ErLogAppendInput supplying it (absent = computed by the tool). */
   input?: keyof ErLogAppendInput
-  /** How the value is normalized on the way in. */
-  kind: 'text' | 'date' | 'computed'
-  /** Other header spellings that mean this same column. */
-  aliases?: string[]
-  /**
-   * The tool treats this as mandatory content. If the sheet has no column for
-   * it AND the caller supplied a value, the append fails loudly rather than
-   * silently dropping what the human wrote — losing an HR record's Summary or
-   * Employee to a padded blank is worse than not writing the row.
-   */
-  contentCritical?: boolean
 }
 
 export const ER_FIELDS: readonly ErFieldSpec[] = [
@@ -246,19 +265,7 @@ async function graph<T>(path: string, options?: RequestInit & { raw?: boolean })
  * control characters, collapse whitespace. Standing rule for this workbook —
  * the log must stay copy-paste-clean and CSV-safe.
  */
-export function sanitizePlainText(input: unknown): string {
-  if (input === null || input === undefined) return ''
-  const s = String(input).normalize('NFKC')
-  return s
-    .replace(
-      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{200D}]/gu,
-      ''
-    )
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .trim()
-}
+
 
 /** Filename-safe token: sanitized, illegal SharePoint chars removed, no spaces/underscores. */
 export function fileToken(input: unknown): string {
@@ -268,31 +275,14 @@ export function fileToken(input: unknown): string {
     .replace(/^\.+|\.+$/g, '')
 }
 
-/** YYYY-MM-DD in America/New_York for "now". */
-export function todayEastern(now: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now)
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}`
-}
+
 
 /**
  * Normalize a date input to YYYY-MM-DD (Eastern). A bare YYYY-MM-DD passes
  * through unchanged (no timezone shift); anything else is parsed and reformatted
  * in Eastern. Unparseable input is returned sanitized so nothing is silently lost.
  */
-export function normalizeDate(input: unknown): string {
-  const s = sanitizePlainText(input)
-  if (!s) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (!Number.isNaN(d.getTime())) return todayEastern(d)
-  return s
-}
+
 
 export function formatEntryId(n: number): string {
   return `ER-${String(Math.max(1, Math.floor(n))).padStart(4, '0')}`
@@ -337,9 +327,7 @@ export function buildErDocFileName(opts: {
  * "Role / Status", "Role/Status" and "role status" all collapse to "rolestatus",
  * so cosmetic header edits by a human do not silently unmap a column.
  */
-export function normalizeHeader(name: unknown): string {
-  return sanitizePlainText(name).toLowerCase().replace(/[^a-z0-9]/g, '')
-}
+
 
 /**
  * Does this header opt into being mandatory?
@@ -351,120 +339,37 @@ export function normalizeHeader(name: unknown): string {
  * column named "Required Action", and a spurious hard failure here blocks the
  * owner from logging a real HR issue. Anything unmarked is padded blank.
  */
-export function headerMarksRequired(name: unknown): boolean {
-  const s = sanitizePlainText(name)
-  return /\*\s*$/.test(s) || /\(\s*required\s*\)/i.test(s)
-}
 
-export type ErRowProblem =
-  | { kind: 'no_columns' }
-  /** The sheet lost a column we have content for — writing would drop it. */
-  | { kind: 'missing_target_column'; column: string }
-  /** The sheet marks a column required and no tool input can fill it. */
-  | { kind: 'unpopulatable_required_column'; column: string }
 
-export interface ErRowPlan {
-  /** Row values in LIVE column order; width === liveColumns.length by construction. */
-  values: string[]
-  /** Live column name → value written (a report, for the tool result). */
-  byColumn: Record<string, string>
-  /** Live columns no tool input maps to. Padded with '' and warned about. */
-  unmappedColumns: string[]
+/** HR alias for the shared row-problem union (graph-workbook.ts). */
+export type ErRowProblem = RowProblem
+
+/** HR alias for the shared row plan; the id column here is "Entry ID". */
+export interface ErRowPlan extends Omit<RowPlan, 'idColumnIndex'> {
   /** Index of the Entry ID column in the live row, for read-back verification. */
   entryIdIndex: number | null
-  /** Non-empty means: do not write; raise a structured failure instead. */
-  problems: ErRowProblem[]
-  warnings: string[]
 }
 
 /**
  * Build the row to append from the table's LIVE header row.
  *
- * Contract:
- *   - width and order come from `liveColumns`, never from ER_FIELDS
- *   - a live column we have no input for is padded with '' (so a column a human
- *     adds tomorrow cannot break the append)
- *   - content we cannot place, or a column marked required we cannot fill, is
- *     reported as a `problem` for the caller to turn into a structured failure
- *
- * `supplied` is keyed by CANONICAL column name (see suppliedErValues).
+ * Thin binding over the shared planner: ER_FIELDS says which headers we have
+ * content for, "Entry ID" is the identifier column, and the sheet's own header
+ * row decides the width and order. `supplied` is keyed by CANONICAL column name
+ * (see suppliedErValues).
  */
 export function planErRow(
   liveColumns: readonly string[],
   supplied: Record<string, string>
 ): ErRowPlan {
-  const warnings: string[] = []
-  const problems: ErRowProblem[] = []
-
-  const specByKey = new Map<string, ErFieldSpec>()
-  for (const spec of ER_FIELDS) {
-    for (const name of [spec.column, ...(spec.aliases ?? [])]) {
-      specByKey.set(normalizeHeader(name), spec)
-    }
-  }
-
-  const values: string[] = []
-  const byColumn: Record<string, string> = {}
-  const unmappedColumns: string[] = []
-  const placed = new Set<string>()
-  const seenKeys = new Set<string>()
-  let entryIdIndex: number | null = null
-
-  liveColumns.forEach((live, index) => {
-    const key = normalizeHeader(live)
-    const record = (value: string) => {
-      values.push(value)
-      if (!(live in byColumn)) byColumn[live] = value
-    }
-
-    if (seenKeys.has(key)) {
-      warnings.push(
-        `The sheet has more than one column matching "${live}". Only the first was ` +
-          `populated; the duplicate was left blank. Reconcile the header row.`
-      )
-      record('')
-      return
-    }
-    seenKeys.add(key)
-
-    const spec = specByKey.get(key)
-    if (!spec) {
-      if (headerMarksRequired(live)) problems.push({ kind: 'unpopulatable_required_column', column: live })
-      else unmappedColumns.push(live)
-      record('')
-      return
-    }
-
-    if (spec.column === 'Entry ID') entryIdIndex = index
-    placed.add(spec.column)
-    record(supplied[spec.column] ?? '')
+  const { idColumnIndex, ...rest } = planWorkbookRow(liveColumns, supplied, {
+    fields: ER_FIELDS,
+    idColumn: 'Entry ID',
   })
-
-  if (liveColumns.length === 0) problems.push({ kind: 'no_columns' })
-
-  // Content with nowhere to go. Only an error when there IS content: a blank
-  // optional field losing its column costs nothing, so it must not hard-fail.
-  for (const spec of ER_FIELDS) {
-    if (placed.has(spec.column)) continue
-    if (!(supplied[spec.column] ?? '')) continue
-    if (spec.contentCritical) problems.push({ kind: 'missing_target_column', column: spec.column })
-    else
-      warnings.push(
-        `The sheet has no "${spec.column}" column, so that value was not written. ` +
-          `Add the column to the sheet if it should be recorded.`
-      )
-  }
-
-  if (unmappedColumns.length > 0) {
-    warnings.push(
-      `The sheet has ${unmappedColumns.length} column(s) this tool has no input for: ` +
-        `${unmappedColumns.join(', ')}. They were left blank so the row width matches the ` +
-        `table. If one should be filled by this tool, a parameter needs adding for it.`
-    )
-  }
-
-  return { values, byColumn, unmappedColumns, entryIdIndex, problems, warnings }
+  return { ...rest, entryIdIndex: idColumnIndex }
 }
+
+
 
 /** Canonical-column → normalized value map, driven entirely by ER_FIELDS. */
 export function suppliedErValues(
@@ -772,16 +677,7 @@ export function cellValuesEqual(expected: string, actual: unknown): boolean {
 }
 
 /** Row values keyed by the sheet's own headers. First occurrence wins, as in planErRow. */
-export function keyRowByColumns(
-  columns: readonly string[],
-  values: readonly unknown[]
-): Record<string, string> {
-  const out: Record<string, string> = {}
-  columns.forEach((column, i) => {
-    if (!(column in out)) out[column] = String(values[i] ?? '')
-  })
-  return out
-}
+
 
 function truncateForWarning(text: string, max = 80): string {
   const s = text.replace(/\s+/g, ' ').trim()
@@ -1103,9 +999,7 @@ interface WorkbookTable {
  * (`%7B...%7D`) — which silently broke every table call in production. The name
  * is the reliable half of Graph's `/tables/{id|name}` key.
  */
-function tableSeg(table: WorkbookTable): string {
-  return encodeURIComponent(table.name)
-}
+const tableSeg = tableSegment
 
 /** True if the table's header row has an "Entry ID" column. Name-addressed. */
 async function tableHasEntryId(workbookBase: string, table: WorkbookTable): Promise<boolean> {
