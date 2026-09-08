@@ -271,6 +271,92 @@ Plan → Implement → Verify (build + lint + e2e) → Review (git diff) → Com
 - **Forbidden colors** (yellow/amber/gold/brown/orange) — see Code Conventions; this is an owner mandate, not a suggestion.
 - **Temporary development shortcuts exist intentionally** (auto-merge to main, preview auto-deploys, query-param secret fallback, impersonation + debug endpoints). Preserve them, don't expand them, don't copy them as patterns. Full list + pre-launch hardening checklist: `docs/gotchas.md`.
 
+## H · Autotask instance constants — LIVE-VERIFIED
+
+*Every value below was read from the live instance on **2026-09-08** through the TCT MCP connector, and each block names the tool that proved it. Re-verify with that tool rather than trusting this table; a value here with no tool named is not a verified constant. These are **instance-specific picklists**, not Autotask defaults — the repo has already paid for that confusion five times (`docs/gotchas.md` → "Autotask task assignment, picklists and 500s"). This section exists because these ids were being re-derived in every new session from chat transcripts.*
+
+### Resources and roles
+
+**Autotask enforces resource↔role pairings and rejects an invalid combination.** A time entry or task assignment that pairs someone with a role they do not hold fails. Resolve the pairing before writing — never assume a shared "safe" role.
+
+| Person | Resource id | Roles actually held | Default role | Department |
+|---|---|---|---|---|
+| Kurtis Florance (kurtis@triplecitiestech.com) | **29682885** | Exactly **one**: **29682834 Administration** | 29682834 (isDefault true) | **2** |
+
+- Resource id proved by **`autotask_find_resource`** (`{ email: "kurtis@triplecitiestech.com" }` → `{ id: 29682885, found: true }`).
+- Role list proved by **`autotask_resource_roles`** (`{ resourceId: 29682885 }` → `roles: [{ roleID: 29682834, roleName: "Administration", departmentID: 2, isDefault: true, isDepartmentLead: false }]`, `resourceCount: 1`).
+- **Do not pair Kurtis with role 29683355 "Engineer"** — he does not hold it, so Autotask rejects the write. Engineer is held by only part of the team; that default already broke task assignment for four people on 2026-08-25.
+- Any other person's roles: call **`autotask_resource_roles`** with their id (omit `resourceId` for every active resource). Never infer one person's roles from another's.
+- Task assignment needs **four fields together** — `assignedResourceID` + `assignedResourceRoleID` + `billingCodeID` + `departmentID`. Tickets need only resource + role.
+
+### Ticket queues (active)
+
+Proved by **`autotask_list_queues`** — 21 active queues. Ids 5, 6 and 8 are Autotask **system** queues (`isSystem: true`); the rest are TCT-created. No queue is `isDefaultValue`.
+
+| id | Queue | | id | Queue |
+|---|---|---|---|---|
+| 5 | Client Portal *(system)* | | 29683481 | Needs Review |
+| 6 | Post Sale *(system)* | | 29683482 | Human Resources |
+| 8 | Monitoring Alert *(system)* | | 29683483 | Billing & Accounting |
+| 29682833 | Level I Support | | 29683484 | Marketing |
+| 29682969 | Level II Support | | 29683486 | Procurement |
+| 29683354 | Recurring Tickets | | 29683488 | Sales |
+| 29683378 | Administration | | 29683489 | Dispatch |
+| 29683479 | Emergency Support | | 29683490 | Help Desk |
+| 29683480 | After Hours Support | | 29683493 | Transfer to Help Desk |
+| 29683494 | Security Monitoring Alert | | 29683495 | Network Monitoring Alert |
+| 29683496 | Backup Monitoring Alert | | | |
+
+**Queue 8 "Monitoring Alert" is the automated-ticket queue** the human-vs-automated classifier keys on (`src/lib/reporting/ticket-classification.ts`) — never count it as support work. Queue routing, inbound-email processing and queue notification settings are **UI-only**: not in the REST API, so they cannot be read or changed through the connector.
+
+### Ticket statuses (active) — and what is NOT knowable about them
+
+Proved by **`autotask_ticket_statuses`** — 19 active statuses. **1 "New" is the only `isDefaultValue`**; 1, 5 and 7 are system statuses.
+
+| id | Status | | id | Status |
+|---|---|---|---|---|
+| 1 | New *(default, system)* | | 35 | Escalated to Level 2 |
+| 5 | Complete *(system)* | | 11 | Escalated to Level 3 |
+| 52 | Complete - No Notify | | 53 | Escalated to TCT |
+| 8 | **In Progress** | | 26 | Need to Order Materials |
+| 7 | Waiting Customer *(system)* | | 27 | Needs Quote |
+| 50 | Billing Reconciliation | | 22 | Re-open |
+| 31 | Corr./Bad Blocks(On hold) | | 10 | Scheduled |
+| 19 | Customer Note Added | | 9 | Waiting Materials |
+| 21 | Waiting on Down Payment | | 25 | Waiting on Payment |
+| 12 | Waiting Vendor | | | |
+
+- **In Progress is 8. There is no ticket status id 4 on this instance** — and no task status 4 either (task In Progress is also 8). A hardcoded 4 writes an invalid status.
+- **52 "Complete - No Notify" and 22 "Re-open" must be in any cold-start status set**; 52 missing is what produced a fake 47-ticket backlog.
+- **19 "Customer Note Added" does NOT email the customer.** Its Autotask template is "Customer Note Added to Ticket - *Notify Assigned Resources*", fires when a *contact* posts, and emails TCT staff. Setting it to notify a customer notifies the wrong party.
+- **SLA-event mapping: NOT AVAILABLE from the API, and no overlay is currently populated.** `autotask_ticket_statuses` returns `slaEventMapping: { available: false }` with the reason: *"Autotask's REST API does not expose the status→SLA-event mapping (no status entity; picklist metadata carries no SLA field). It lives only in Admin > Features & Settings > Service Desk (Tickets) > Task & Ticket Statuses."* An owner-maintained overlay can be staged via `autotask_stage_config_write` (area `status_sla_overlay`); until someone does, **the mapping cannot be determined from available telemetry** — do not infer it from a status name, and never present an overlay value as API data.
+
+### Labor billing codes / work types (`useType 1`, active)
+
+Proved by **`autotask_list_billing_codes`** (`{ useType: 1 }`) — 11 active codes. **`useType 1`'s live label on this instance is "General Allocation Code"**, not "labor" or "work types"; filter by the id, and read the label out of the response rather than assuming it. **BillingCodes are READ-ONLY in the REST API** — there is no write surface, so a rate change is a UI task.
+
+| id | Code | Billing type | Notes |
+|---|---|---|---|
+| 29682800 | Onsite Support | Normal | |
+| 29682801 | Remote Support | Normal | |
+| 29682802 | Emergency/After Hours Support | Normal | Also the `afterHoursWorkType` target of 29683496 |
+| 29682804 | Maintenance | Normal | |
+| 29683328 | Travel | Normal | |
+| 29683496 | High/Low Voltage Technician | Normal | Dept 29683471; WorkTypeModifier **UseCustomRate 80** |
+| 29683498 | GT Global Adjusted | Normal | WorkTypeModifier **UseCustomRate 90** |
+| 29682808 | General Administration | **Non-Billable** | |
+| 29682860 | Sales | **Non-Billable** | |
+| 29682861 | Non Billable Support | **Non-Billable** | |
+| 29683491 | Prepaid Setup | **Non-Billable** | |
+
+Every code returns `unitCost: 0` / `unitPrice: 0` — rate comes from the role or a WorkTypeModifier, not the code. Nine codes are `UseRoleRate`; only 29683496 and 29683498 carry a custom rate. **WorkTypeModifiers carry no billing-code reference field in the REST API**, so the modifier ids above are matched by their own id and are not a proven join — verified against the API schema, not assumed.
+
+### Other picklists — resolve, never hardcode
+
+Task status, task/ticket priority, project status and note types are all instance-specific and have each been wrong in this repo. Resolve them by LABEL at runtime through `src/lib/connector/autotask-picklists.ts` (which reports `resolvedFrom: 'fallback'` rather than degrading silently), or read them live with **`autotask_entity_picklist`** / **`autotask_list_priorities`** / **`autotask_list_ticket_types`**. **Never assume two entities share a picklist** — `TicketNotes.publish` has no id 3 while `ProjectNotes.noteType` has a 3 and no 4, and the attachment entities' `publish` labels differ from `TicketNotes`' again.
+
+---
+
 ## Self-Improvement Protocol
 
 When the user corrects a mistake or a session reveals a new convention:

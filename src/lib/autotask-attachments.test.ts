@@ -262,6 +262,47 @@ describe('attachmentReadBackFields — the projection is PER ENTITY and intersec
     TicketNoteAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentID', 'publish', 'ticketID', 'ticketNoteID', 'title'],
   } as const
 
+  // Live entityInformation reports isQueryable FALSE for creatorType, data and
+  // fileSize on every attachment entity (2026-09-08), and Kaseya documents all
+  // three as erroring when queried. The declared lists omit them, so the flag
+  // matters for the DRIFT case the projection exists for: a field that is
+  // queryable today and stops being queryable tomorrow is present in the
+  // metadata, so a name-only intersection would keep requesting it and fail the
+  // whole read-back — the same 500 the shared list produced, from the other
+  // direction.
+  const withFlags = (names: readonly string[], unqueryable: readonly string[] = []) =>
+    names.map((name) => ({ name, isQueryable: !unqueryable.includes(name) }))
+
+  it('drops a field the metadata reports as NOT queryable, exactly as it drops a missing one', () => {
+    const t = attachmentReadBackFields('TicketAttachments', withFlags(LIVE.TicketAttachments, ['contentType']))
+    expect(t.source).toBe('live-intersection')
+    expect(t.fields).not.toContain('contentType')
+    expect(t.dropped).toContain('contentType')
+    // Everything else still comes through — the drop is per field, not a bail-out.
+    expect(t.fields).toEqual(expect.arrayContaining(['id', 'ticketID', 'publish', 'title']))
+  })
+
+  it('treats a MISSING isQueryable flag as queryable — the flag\'s absence is not evidence of a restriction', () => {
+    const bare = LIVE.TimeEntryAttachments.map((name) => ({ name }))
+    const withAll = attachmentReadBackFields('TimeEntryAttachments', withFlags(LIVE.TimeEntryAttachments))
+    expect(attachmentReadBackFields('TimeEntryAttachments', bare)).toEqual(withAll)
+  })
+
+  it('still keeps id and the parent field even when the metadata calls them unqueryable — a read-back has nothing to verify against without them', () => {
+    const t = attachmentReadBackFields('TimeEntryAttachments', withFlags(LIVE.TimeEntryAttachments, ['id', 'timeEntryID']))
+    expect(t.fields).toContain('id')
+    expect(t.fields).toContain('timeEntryID')
+    expect(t.dropped).not.toContain('id')
+  })
+
+  it('accepts a plain name array unchanged, so the flagged form is additive', () => {
+    for (const entity of ['TicketAttachments', 'TimeEntryAttachments', 'TicketNoteAttachments'] as const) {
+      expect(attachmentReadBackFields(entity, LIVE[entity])).toEqual(
+        attachmentReadBackFields(entity, withFlags(LIVE[entity])),
+      )
+    }
+  })
+
   it('TicketAttachments keeps ticketNoteID and parentAttachmentID; TimeEntryAttachments never requests them', () => {
     const t = attachmentReadBackFields('TicketAttachments', LIVE.TicketAttachments)
     expect(t.fields).toEqual(expect.arrayContaining(['id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'parentAttachmentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate', 'attachedByResourceID', 'impersonatorCreatorResourceID']))
