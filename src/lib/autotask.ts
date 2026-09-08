@@ -1342,6 +1342,36 @@ export class AutotaskClient {
     return this.queryAll('ResourceRoleDepartments', filters);
   }
 
+  /**
+   * SERVICE DESK role associations for a resource — a DIFFERENT entity from
+   * ResourceRoleDepartments, and the two genuinely disagree on this instance.
+   *
+   * Autotask's Resource > Associations tab carries two separate lists and the
+   * REST API models them as two entities:
+   *
+   *   ResourceRoleDepartments   — role paired WITH A DEPARTMENT. This is what
+   *                               task assignment needs (it also supplies
+   *                               departmentID) and what carries isDepartmentLead.
+   *   ResourceServiceDeskRoles  — the Service Desk role list. No department.
+   *
+   * Confirmed live 2026-09-08 on resource 29682885: ResourceRoleDepartments
+   * returned ONE row (Administration) while ResourceServiceDeskRoles returned
+   * TEN, with a DIFFERENT isDefault (Engineer, not Administration). Reading
+   * only the first under-reports what the person holds; reading only the
+   * second loses the department a task assignment cannot go without. So both
+   * are read and reported separately, never merged into one "roles" list.
+   */
+  async getResourceServiceDeskRoles(resourceIds?: number[]): Promise<Array<{
+    id: number; resourceID: number; roleID: number;
+    isActive: boolean; isDefault: boolean;
+  }>> {
+    const filters: object[] = [{ op: 'eq', field: 'isActive', value: true }];
+    if (resourceIds?.length) {
+      filters.push({ op: 'in', field: 'resourceID', value: resourceIds });
+    }
+    return this.queryAll('ResourceServiceDeskRoles', filters);
+  }
+
   /** Secondary resources currently attached to a task. */
   async getTaskSecondaryResources(taskId: number): Promise<Array<{ id: number; taskID: number; resourceID: number; roleID: number }>> {
     return this.queryAll('TaskSecondaryResources', {

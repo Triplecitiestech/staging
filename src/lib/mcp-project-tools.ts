@@ -261,6 +261,68 @@ async function verifyWriteAgainst(
  * untouched, so there is no GET-and-merge anywhere in this file and an
  * unsupplied field can never be blanked.
  */
+/**
+ * Compare a resource's TWO role lists and describe the disagreement.
+ *
+ * Autotask keeps two per-resource role associations and models them as two
+ * REST entities: ResourceRoleDepartments (role paired with a department) and
+ * ResourceServiceDeskRoles (Service Desk list, no department). They are NOT
+ * kept in step — confirmed live 2026-09-08 on resource 29682885, which held
+ * one department-paired role (Administration 29682834) and ten Service Desk
+ * roles, with a DIFFERENT default in each (Administration vs Engineer
+ * 29683355).
+ *
+ * That divergence is a finding, not a detail to smooth over. Merging the lists
+ * would invent a set the API never reported; picking the longer one would be a
+ * guess; and the differing DEFAULTS mean omitting a role resolves differently
+ * depending on which list the write consults. So this reports the difference
+ * and says plainly that which list a given write enforces against is not
+ * established by a read.
+ *
+ * Pure so the reporting is testable without a socket, in the same way
+ * verifyWrittenFields and splitByQueryability are.
+ */
+export function describeRoleDivergence(
+  departmentRoleIds: readonly number[],
+  serviceDeskRoleIds: readonly number[],
+  departmentDefault: number | null,
+  serviceDeskDefault: number | null,
+): {
+  diverged: boolean
+  onlyInServiceDesk: number[]
+  onlyInDepartmentRoles: number[]
+  defaultsAgree: boolean
+  note: string
+} {
+  const dept = [...new Set(departmentRoleIds)].sort((a, b) => a - b)
+  const desk = [...new Set(serviceDeskRoleIds)].sort((a, b) => a - b)
+  const onlyInServiceDesk = desk.filter((r) => !dept.includes(r))
+  const onlyInDepartmentRoles = dept.filter((r) => !desk.includes(r))
+  const defaultsAgree = departmentDefault === serviceDeskDefault
+  const diverged = onlyInServiceDesk.length > 0 || onlyInDepartmentRoles.length > 0 || !defaultsAgree
+
+  if (!diverged) {
+    return {
+      diverged,
+      onlyInServiceDesk,
+      onlyInDepartmentRoles,
+      defaultsAgree,
+      note: 'Both lists hold the same roles with the same default.',
+    }
+  }
+
+  const parts = [
+    `The two lists DISAGREE for this resource, so "which roles do they hold" has two different answers and neither is wrong.`,
+    onlyInServiceDesk.length ? `Service Desk only: ${onlyInServiceDesk.join(', ')}.` : '',
+    onlyInDepartmentRoles.length ? `Department-paired only: ${onlyInDepartmentRoles.join(', ')}.` : '',
+    defaultsAgree
+      ? ''
+      : `The defaults also differ (department-paired ${departmentDefault ?? 'none'} vs Service Desk ${serviceDeskDefault ?? 'none'}), so OMITTING a role can resolve to a DIFFERENT role depending on which list the write consults.`,
+    `Which list a given Autotask write enforces against is NOT established by this read — do not assume. A TASK assignment must come from departmentRoles because it needs departmentID; for a ticket time entry, confirm with the technician rather than picking from the longer list because it is longer.`,
+  ]
+  return { diverged, onlyInServiceDesk, onlyInDepartmentRoles, defaultsAgree, note: parts.filter(Boolean).join(' ') }
+}
+
 export function definedFields<T extends Record<string, unknown>>(input: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined))
 }
@@ -732,10 +794,14 @@ export function registerProjectTools(server: any) {
     {
       title: 'Autotask: which roles a resource can be assigned in',
       description:
-        'Read. Resolves WHICH ROLES a technician actually holds, and in which department — the join between autotask_list_resources (people) and autotask_list_roles (roles) that nothing else exposes. ' +
-        'CALL THIS BEFORE ASSIGNING ANYONE TO A TASK. Autotask enforces resource-to-role pairings and rejects an invalid combination; there is no global "safe" role, because the general-purpose Engineer role is held by only part of the team. ' +
-        'Each row gives roleID + roleName, departmentID, whether it is that resource\'s DEFAULT role (what an assignment uses when you omit the role), and whether they lead the department. ' +
-        'Omit resourceId to list the pairings for every active resource. Read-only.',
+        'Read. Resolves WHICH ROLES a technician actually holds — the join between autotask_list_resources (people) and autotask_list_roles (roles) that nothing else exposes. ' +
+        'CALL THIS BEFORE ASSIGNING ANYONE TO A TASK OR WRITING A TIME ENTRY. Autotask enforces resource-to-role pairings and rejects an invalid combination; there is no global "safe" role, because the general-purpose Engineer role is held by only part of the team. ' +
+        'AUTOTASK KEEPS TWO SEPARATE ROLE LISTS PER RESOURCE AND THEY CAN DISAGREE, so both are returned and never merged: ' +
+        'departmentRoles (ResourceRoleDepartments) is the role paired WITH A DEPARTMENT — it is what task assignment needs, because it supplies departmentID, and it carries isDepartmentLead. ' +
+        'serviceDeskRoles (ResourceServiceDeskRoles) is the Service Desk role list and has NO department. ' +
+        'Each list reports its OWN default, and they are not always the same role. When the two disagree the response carries divergence.diverged true plus the role ids in each, and the person is asked to confirm which one a given write needs rather than the tool guessing. ' +
+        'Confirmed live 2026-09-08: resource 29682885 held ONE departmentRole (Administration) and TEN serviceDeskRoles, with different defaults. Reading only one list under-reports or loses the department. ' +
+        'Omit resourceId to list both for every active resource. Read-only.',
       inputSchema: {
         resourceId: z.number().int().optional().describe('One Autotask resource id (from autotask_find_resource). Omit for all active resources.'),
       },
@@ -745,18 +811,23 @@ export function registerProjectTools(server: any) {
       const TOOL = 'autotask_resource_roles'
       try {
         const c = client()
-        const [rows, roles, resources] = await Promise.all([
-          c.getResourceRoleDepartments(resourceId != null ? [resourceId] : undefined),
+        const ids = resourceId != null ? [resourceId] : undefined
+        const [rows, deskRows, roles, resources] = await Promise.all([
+          c.getResourceRoleDepartments(ids),
+          c.getResourceServiceDeskRoles(ids).catch(() => []),
           c.getRoles().catch(() => []),
           c.getResourcesList(true).catch(() => []),
         ])
 
-        if (resourceId != null && rows.length === 0) {
+        // Absent from BOTH lists is the only genuine "holds no role". Failing
+        // on an empty ResourceRoleDepartments alone would have reported a
+        // resource with ten Service Desk roles as holding none.
+        if (resourceId != null && rows.length === 0 && deskRows.length === 0) {
           return failureResult({
             reasonCode: 'INVALID_INPUT',
             message: `Resource ${resourceId} holds no active role in Autotask, so it cannot be assigned to a task or a ticket.`,
-            evidence: `Queried live ResourceRoleDepartments filtered to resourceID ${resourceId} and isActive true; it returned no rows.`,
-            remediation: 'Check the resource id with autotask_find_resource. If the person is real, their roles need assigning in Autotask (Admin → Resources → the person → Roles) — that is a TCT admin action, not a connector gap.',
+            evidence: `Queried live ResourceRoleDepartments AND ResourceServiceDeskRoles filtered to resourceID ${resourceId} and isActive true; BOTH returned no rows.`,
+            remediation: 'Check the resource id with autotask_find_resource. If the person is real, their roles need assigning in Autotask (Admin → Resources → the person → Associations) — that is a TCT admin action, not a connector gap.',
             surface: 'autotask', tool: TOOL, details: { resourceId },
           })
         }
@@ -771,24 +842,58 @@ export function registerProjectTools(server: any) {
           list.push(row)
           byResource.set(row.resourceID, list)
         }
+        const deskByResource = new Map<number, typeof deskRows>()
+        for (const row of deskRows) {
+          const list = deskByResource.get(row.resourceID) ?? []
+          list.push(row)
+          deskByResource.set(row.resourceID, list)
+        }
+
+        const everyId = Array.from(new Set([...byResource.keys(), ...deskByResource.keys()]))
 
         return ok({
-          resourceCount: byResource.size,
-          resources: Array.from(byResource.entries()).map(([id, list]) => ({
-            resourceID: id,
-            name: person.get(id)?.name ?? null,
-            email: person.get(id)?.email ?? null,
-            defaultRoleID: list.find((r) => r.isDefault)?.roleID ?? null,
-            roles: list.map((r) => ({
-              roleID: r.roleID,
-              roleName: roleName.get(r.roleID) ?? null,
-              departmentID: r.departmentID,
-              isDefault: r.isDefault,
-              isDepartmentLead: r.isDepartmentLead,
-            })),
-          })),
+          resourceCount: everyId.length,
+          resources: everyId.map((id) => {
+            const list = byResource.get(id) ?? []
+            const desk = deskByResource.get(id) ?? []
+            const deptIds = [...new Set(list.map((r) => r.roleID))].sort((a, b) => a - b)
+            const deskIds = [...new Set(desk.map((r) => r.roleID))].sort((a, b) => a - b)
+            const deptDefault = list.find((r) => r.isDefault)?.roleID ?? null
+            const deskDefault = desk.find((r) => r.isDefault)?.roleID ?? null
+            return {
+              resourceID: id,
+              name: person.get(id)?.name ?? null,
+              email: person.get(id)?.email ?? null,
+              // ResourceRoleDepartments — carries the department, so this is
+              // the list a TASK assignment must come from.
+              departmentRoles: {
+                source: 'ResourceRoleDepartments',
+                defaultRoleID: deptDefault,
+                roles: list.map((r) => ({
+                  roleID: r.roleID,
+                  roleName: roleName.get(r.roleID) ?? null,
+                  departmentID: r.departmentID,
+                  isDefault: r.isDefault,
+                  isDepartmentLead: r.isDepartmentLead,
+                })),
+              },
+              // ResourceServiceDeskRoles — no department on the row.
+              serviceDeskRoles: {
+                source: 'ResourceServiceDeskRoles',
+                defaultRoleID: deskDefault,
+                roles: desk.map((r) => ({
+                  roleID: r.roleID,
+                  roleName: roleName.get(r.roleID) ?? null,
+                  isDefault: r.isDefault,
+                })),
+              },
+              divergence: describeRoleDivergence(deptIds, deskIds, deptDefault, deskDefault),
+            }
+          }),
           assignmentNote:
-            'To assign one of these people to a TASK you need four fields together: assignedResourceID, assignedResourceRoleID (one of the roleIDs above), billingCodeID (autotask_list_billing_codes) and departmentID (the one paired with the role above). autotask_create_task and autotask_update_task fill in the role and department for you if you omit them, using the row marked isDefault.',
+            'To assign one of these people to a TASK you need four fields together: assignedResourceID, assignedResourceRoleID, billingCodeID (autotask_list_billing_codes) and departmentID. The role and department MUST come from departmentRoles — a serviceDeskRoles entry carries no department. autotask_create_task and autotask_update_task fill in the role and department for you if you omit them, using the departmentRoles row marked isDefault.',
+          rateNote:
+            'THE ROLE CHOSEN SETS THE BILL RATE. Roles carry their own hourlyRate and hourlyFactor (autotask_list_roles), and on this instance they are not uniform — several sit at 145 while Emergency Technician, After Hours Support and vCIO sit at 225 with factors up to 1.5. Once a resource holds several roles, picking the wrong one misbills the customer in one direction or the other. Choose the role that describes the work, not the first one that validates.',
         })
       } catch (e) { return fail(e, TOOL) }
     }
