@@ -236,6 +236,57 @@ describe('TOOL_FACTS completeness (the drift guard)', () => {
     expect(wrong, `Write tools cannot carry risk 'read': ${wrong.join(', ')}`).toEqual([])
   })
 
+  it('READS every kill switch TOOL_FACTS names — the report cannot say "disabled" for a switch it never read', async () => {
+    // 2026-09-08: killSwitchState() was a hand-written list of three names and
+    // CONNECTOR_SCAN_WRITES_ENABLED was not on it, so five scan tools reported
+    // enabled:false whatever the environment said — including while they were
+    // running successfully in production. The report carried zero information
+    // about them. This asserts the reporting path actually consults each switch.
+    const switches = [...new Set(Object.values(TOOL_FACTS).map((f) => f.killSwitch).filter(Boolean))]
+    expect(switches.length).toBeGreaterThan(0)
+
+    const saved: Record<string, string | undefined> = {}
+    for (const k of switches as string[]) {
+      saved[k] = process.env[k]
+      process.env[k] = 'true'
+    }
+    try {
+      const report = await buildCapabilityReport(await recordRealModules(), { includeParams: false })
+      const gated = report.tools.filter((t) => t.killSwitch)
+      expect(gated.length).toBeGreaterThan(0)
+      const stuckOff = gated.filter((t) => !t.enabled).map((t) => `${t.name} (${t.killSwitch})`)
+      expect(
+        stuckOff,
+        `These tools report disabled with their kill switch set to 'true', which means killSwitchState() never read it: ${stuckOff.join(', ')}`
+      ).toEqual([])
+    } finally {
+      for (const k of switches as string[]) {
+        if (saved[k] === undefined) delete process.env[k]
+        else process.env[k] = saved[k]
+      }
+    }
+  })
+
+  it('reports a gated tool as disabled when its switch is off', async () => {
+    const saved = process.env.CONNECTOR_SCAN_WRITES_ENABLED
+    delete process.env.CONNECTOR_SCAN_WRITES_ENABLED
+    try {
+      const report = await buildCapabilityReport(await recordRealModules(), { includeParams: false })
+      const scanGated = report.tools.filter(
+        (t) => t.name.startsWith('scan_') && t.killSwitch === 'CONNECTOR_SCAN_WRITES_ENABLED'
+      )
+      expect(scanGated.length).toBe(5)
+      expect(scanGated.every((t) => !t.enabled)).toBe(true)
+      // The probe declares no kill switch, so it must read enabled either way.
+      const probe = report.tools.find((t) => t.name === 'scan_probe_render')!
+      expect(probe.killSwitch).toBeUndefined()
+      expect(probe.enabled).toBe(true)
+    } finally {
+      if (saved === undefined) delete process.env.CONNECTOR_SCAN_WRITES_ENABLED
+      else process.env.CONNECTOR_SCAN_WRITES_ENABLED = saved
+    }
+  })
+
   it('gives every kill-switched tool a real env var name', async () => {
     const KNOWN = new Set([
       'CONNECTOR_CONFIG_WRITES_ENABLED',
