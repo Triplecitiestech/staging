@@ -935,11 +935,27 @@ export function buildIdentity() {
   }
 }
 
-function killSwitchState() {
-  const flags: Record<string, boolean> = {
-    CONNECTOR_CONFIG_WRITES_ENABLED: process.env.CONNECTOR_CONFIG_WRITES_ENABLED === 'true',
-    CONNECTOR_UNIFI_WRITES_ENABLED: process.env.CONNECTOR_UNIFI_WRITES_ENABLED === 'true',
-    CONNECTOR_HR_WRITES_ENABLED: process.env.CONNECTOR_HR_WRITES_ENABLED === 'true',
+/**
+ * Read every kill switch TOOL_FACTS names, at request time.
+ *
+ * The NAMES are derived from TOOL_FACTS rather than typed out here. This was a
+ * hand-written list of three, and when CONNECTOR_SCAN_WRITES_ENABLED was added
+ * to five tools nobody added it here — so `flags[...]` was `undefined`,
+ * `undefined === true` was false, and tct_connector_capabilities reported all
+ * five scan tools DISABLED no matter what the environment said. It could not
+ * report them enabled even when they were: the switch was on and the tools ran
+ * successfully in production while the report called them off (2026-09-08).
+ *
+ * Deriving the names removes the failure entirely — a kill switch that no tool
+ * declares does not exist, and one a tool does declare cannot be missed. Note
+ * this derives only WHICH VARIABLES TO READ; the decision that a tool has a kill
+ * switch at all still has to be made deliberately in TOOL_FACTS, so nothing
+ * review-worthy is being inferred.
+ */
+function killSwitchState(): Record<string, boolean> {
+  const flags: Record<string, boolean> = {}
+  for (const facts of Object.values(TOOL_FACTS)) {
+    if (facts.killSwitch) flags[facts.killSwitch] = process.env[facts.killSwitch] === 'true'
   }
   return flags
 }

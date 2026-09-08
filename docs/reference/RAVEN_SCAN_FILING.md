@@ -150,6 +150,31 @@ least privilege is demonstrated, not assumed.
 > the company, defeating the scope entirely. Re-verify after any permission
 > change to the app.
 
+### Who can call these tools
+
+**There is no per-user allowlist anywhere in the connector.** On both mounts the
+only check is bearer-token verification:
+
+| Mount | Check |
+|---|---|
+| `/api/connector/entra/mcp` | `verifyConnectorToken()` — JWT signature against Entra's JWKS, issuer pinned to the tenant, audience pinned to `CONNECTOR_ENTRA_AUDIENCE` or `MCP_RESOURCE_URL`. Fail-closed on any error. |
+| `/api/connector/tct/mcp` | `verifyAccessToken()` — one of our own signed tokens. |
+
+Both resolve the caller's email into `authInfo.extra.email`. **That is
+attribution, not authorization** — the scan tools read it only to stamp the
+audit log. No tool checks who the caller is, and there is no group, role or
+scope test beyond `required: true` (a structurally valid token).
+
+So the practical boundary is: **anyone who can obtain an access token for that
+app registration reaches the whole tool surface** — Kurtis's mailbox, and
+SharePoint writes to every site the app's grant covers. Whether that is "any
+user in the tenant" depends on the app registration's *Assignment required?*
+setting and who is assigned to it — an Entra configuration fact, not a code one,
+and **not verified here**.
+
+If that boundary is wider than intended, the fix is an Entra app-role or group
+assignment, or a caller check in `verifyConnectorToken()`. Neither exists today.
+
 ### Environment variables
 
 ```
