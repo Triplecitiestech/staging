@@ -10,7 +10,7 @@
 //      a write could be advertised as a read.
 // Both are caught here. Adding a tool without classifying it fails the build.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   recordingServer,
   buildCapabilityReport,
@@ -204,6 +204,95 @@ describe('buildCapabilityReport is generated from the live registry', () => {
     const report = buildCapabilityReport([])
     expect(report.usageNote).toMatch(/UNKNOWN/)
     expect(report.generatedFrom).toMatch(/LIVE MCP tool registry/)
+  })
+})
+
+describe('per-surface caller authorization is enforced by the wrapper, not just reported', () => {
+  // The check lives in recordingServer's handler wrapper so a tool cannot
+  // bypass it by not knowing about it. These drive the REAL wrapper.
+  const OWNER = 'kurtis@triplecitiestech.com'
+  let savedMailbox: string | undefined
+
+  beforeEach(() => {
+    savedMailbox = process.env.SCAN_MAILBOX
+    process.env.SCAN_MAILBOX = OWNER
+  })
+  afterEach(() => {
+    if (savedMailbox === undefined) delete process.env.SCAN_MAILBOX
+    else process.env.SCAN_MAILBOX = savedMailbox
+  })
+
+  /** Register one tool through the real proxy and return the handler it installed. */
+  function install(name: string) {
+    let installed: ((...a: unknown[]) => Promise<unknown>) | undefined
+    const sink = {
+      registerTool(_n: string, _c: unknown, h: (...a: unknown[]) => Promise<unknown>) {
+        installed = h
+        return undefined
+      },
+    }
+    const { server } = recordingServer(sink as unknown as ToolRegisteringServer)
+    let ran = false
+    server.registerTool(name, { title: name, description: name, inputSchema: {} }, async () => {
+      ran = true
+      return { content: [{ type: 'text' as const, text: 'ran' }] }
+    })
+    return { call: installed!, didRun: () => ran }
+  }
+
+  function text(result: unknown): string {
+    const c = (result as { content?: Array<{ text?: string }> })?.content ?? []
+    return c.map((x) => x.text ?? '').join('')
+  }
+
+  it('BLOCKS a restricted tool for the wrong caller — the handler never runs', async () => {
+    const t = install('scan_render_attachment')
+    const res = await t.call({}, { authInfo: { extra: { email: 'alex@triplecitiestech.com' } } })
+    expect((res as { isError?: boolean }).isError).toBe(true)
+    expect(text(res)).toContain('PERMISSION_DENIED')
+    expect(t.didRun(), 'the tool handler must not have executed').toBe(false)
+  })
+
+  it('lets the authorised owner through to the handler', async () => {
+    const t = install('scan_render_attachment')
+    const res = await t.call({}, { authInfo: { extra: { email: OWNER } } })
+    expect((res as { isError?: boolean }).isError).toBeUndefined()
+    expect(t.didRun()).toBe(true)
+  })
+
+  it('blocks when the token carries no identity at all', async () => {
+    const t = install('scan_file_attachment')
+    const res = await t.call({}, {})
+    expect((res as { isError?: boolean }).isError).toBe(true)
+    expect(t.didRun()).toBe(false)
+  })
+
+  it('reads the identity wherever authInfo sits, not from a fixed argument position', async () => {
+    // A tool with no input schema is called as (extra) only.
+    const t = install('scan_log_columns')
+    const res = await t.call({ authInfo: { extra: { email: OWNER } } })
+    expect(t.didRun()).toBe(true)
+    expect((res as { isError?: boolean }).isError).toBeUndefined()
+  })
+
+  it('leaves an UNRESTRICTED tool completely alone, including with no identity', async () => {
+    const t = install('autotask_get_ticket')
+    const res = await t.call({ ticketId: 1 }, {})
+    expect(t.didRun()).toBe(true)
+    expect((res as { isError?: boolean }).isError).toBeUndefined()
+  })
+
+  it('reports the restriction in the capability list for every scan tool', async () => {
+    const report = await buildCapabilityReport(await recordRealModules(), { includeParams: false })
+    const scan = report.tools.filter((t) => t.name.startsWith('scan_'))
+    expect(scan.length).toBe(6)
+    for (const t of scan) {
+      expect(t.restrictedTo, `${t.name} must report its restriction`).toBeDefined()
+      expect(t.restrictedTo!.surface).toBe('Raven scan filing')
+    }
+    expect(report.summary.callerRestricted).toBe(6)
+    // Nothing else is restricted, so the count is exactly the scan surface.
+    expect(report.tools.filter((t) => t.restrictedTo).length).toBe(6)
   })
 })
 

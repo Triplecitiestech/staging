@@ -152,28 +152,57 @@ least privilege is demonstrated, not assumed.
 
 ### Who can call these tools
 
-**There is no per-user allowlist anywhere in the connector.** On both mounts the
-only check is bearer-token verification:
+**`scan_*` is restricted to the mailbox owner — `kurtis@triplecitiestech.com`
+by default — even for an otherwise-valid connector token.** Enforced at
+invocation in `src/lib/connector/tool-authorization.ts`.
 
-| Mount | Check |
+Two layers, and they answer different questions:
+
+| Layer | Question | Where |
+|---|---|---|
+| Token verification | Is this a valid caller of the connector at all? | `verifyConnectorToken()` (entra mount) / `verifyAccessToken()` (tct mount) |
+| **Per-surface authorization** | Is *this* caller allowed on *this* surface? | `authorizeToolCall()`, applied in `recordingServer()`'s handler wrapper |
+
+**Every other surface is unrestricted** — Autotask, IT Glue, Datto RMM, UniFi,
+HR, Kaseya, sales pricing. Those act on company records any technician may
+already see; a mailbox is not that.
+
+#### The rule is derived, not listed
+
+Both halves, deliberately — this repo has paid four times for a hand-maintained
+lookup table (`periodType`, `parentIdField`, the `errors[]` phrase list,
+`killSwitchState`):
+
+- **Which tools** comes from the tool-name **prefix**, never a list of names. A
+  `scan_*` tool written next year is restricted the day it is written.
+- **Who** comes from `scanMailbox()` — the mailbox those tools read. Re-scope
+  the mailbox and the authorised caller moves with it. `scanMailbox()` is a
+  function, not a module-load constant, precisely because an authorization
+  control must not read a snapshot taken when the lambda booted.
+
+#### Fail-closed, three ways
+
+| Situation | Result |
 |---|---|
-| `/api/connector/entra/mcp` | `verifyConnectorToken()` — JWT signature against Entra's JWKS, issuer pinned to the tenant, audience pinned to `CONNECTOR_ENTRA_AUDIENCE` or `MCP_RESOURCE_URL`. Fail-closed on any error. |
-| `/api/connector/tct/mcp` | `verifyAccessToken()` — one of our own signed tokens. |
+| Caller is not the owner | `PERMISSION_DENIED` — states it is an authorisation decision, not a bad token, so nobody re-authenticates in a loop |
+| Token carries no email claim | `PERMISSION_DENIED` — an unidentified caller is unauthorised |
+| `SCAN_MAILBOX` resolves empty | `POLICY_BLOCKED` — a restricted surface with no resolvable owner refuses *everyone*; a misconfiguration must never read as permission |
 
-Both resolve the caller's email into `authInfo.extra.email`. **That is
-attribution, not authorization** — the scan tools read it only to stamp the
-audit log. No tool checks who the caller is, and there is no group, role or
-scope test beyond `required: true` (a structurally valid token).
+Denials are written to the structured log
+(`connector.tool_authorization.denied`, with the actor), **not** to
+`connector_tool_calls` — the handler never ran, and that table means "calls that
+reached a tool".
 
-So the practical boundary is: **anyone who can obtain an access token for that
-app registration reaches the whole tool surface** — Kurtis's mailbox, and
-SharePoint writes to every site the app's grant covers. Whether that is "any
-user in the tenant" depends on the app registration's *Assignment required?*
-setting and who is assigned to it — an Entra configuration fact, not a code one,
-and **not verified here**.
+#### What this does not do
 
-If that boundary is wider than intended, the fix is an Entra app-role or group
-assignment, or a caller check in `verifyConnectorToken()`. Neither exists today.
+It does not hide restricted tools from `tools/list`. Advertisement is discovery;
+invocation is access. A non-owner still *sees* the six tools and is refused by
+every one of them.
+
+It is also not a substitute for the Entra layer: whether an arbitrary tenant
+user can obtain a token for the app at all depends on the app registration's
+*Assignment required?* setting, which is **not verified here**. This closes the
+per-surface hole regardless of that setting.
 
 ### Environment variables
 
