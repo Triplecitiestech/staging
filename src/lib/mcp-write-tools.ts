@@ -13,16 +13,24 @@ import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/
 import { definedFields, splitByQueryability, verifyWrittenFields } from '@/lib/mcp-project-tools'
 import {
   ATTACHMENT_CONTENT_TYPES,
+  ATTACHMENT_ENTITIES,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_PUBLISH,
   ATTACHMENT_WINDOW_NOTE,
   attachmentBytesMatch,
+  attachmentReadBackFields,
   buildAttachmentBody,
   describeAttribution,
   planAttachment,
   verifyAttachmentReadBack,
+  type AttachmentEntity,
+  type AttachmentEntityConfig,
+  type AttachmentMismatch,
+  type AttachmentPhase,
   type StoredAttachmentFields,
+  type VerificationState,
 } from '@/lib/autotask-attachments'
+import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -1093,51 +1101,55 @@ export function registerWriteTools(server: any) {
   )
 
   // -------------------------------------------------------------------------
-  // File attachments on tickets and time entries
+  // File attachments on tickets, time entries and ticket notes
   // -------------------------------------------------------------------------
   //
   // Built for the RingCentral call-transcript pipeline (UTF-8 .txt, 3-10 KB).
-  // The connector had 75 Autotask tools and none created an attachment; the gap
-  // was also absent from knownLimits, so the connector did not know it had it.
+  // The rules that shape this surface, and the vendor citations, are in
+  // src/lib/autotask-attachments.ts. What the handler below guarantees:
   //
-  // The rules that shape this surface are in src/lib/autotask-attachments.ts
-  // (the vendor citations are there too). The two that matter most:
+  //   1. publish is ALWAYS sent (default INTERNAL 2) and ALWAYS read back. Live
+  //      entityInformation calls it read-only AND required, which cannot both
+  //      be true of a create; the vendor's own documented create sends it.
+  //   2. Size and content type are checked BEFORE any upload (INVALID_INPUT).
+  //   3. Every step is PHASE-TAGGED (validate | post | readback | rollback).
+  //      Anything that fails AFTER Autotask accepted the POST is VERIFY_FAILED
+  //      / fixableBy connector — never the caller's — and the envelope always
+  //      carries details.createdAttachmentId, parentType, parentId and
+  //      verificationState so "nothing was created" and "created but
+  //      unverified" can never be confused again. (2026-09-08: the first live
+  //      call created row 28465, the read-back 500'd on a wrong projection, the
+  //      failure said INVALID_INPUT / caller, omitted the id, and no rollback
+  //      ran. Eight read-only calls were needed to establish what existed.)
+  //   4. A read-back that fails, returns nothing, or disagrees with the request
+  //      triggers a ROLLBACK (DELETE of the created id). If that also fails,
+  //      verificationState is rollback_failed WITH the id.
+  //   5. The read-back projection is PER ENTITY, intersected with live
+  //      entityInformation — a shared list is what produced the 500.
   //
-  //   1. publish is ALWAYS sent, defaulting to INTERNAL (2), and the stored
-  //      value is READ BACK. Live entityInformation calls publish read-only AND
-  //      required, which cannot both be true of a create; the vendor's own
-  //      documented create sends it. Rather than trust either, every call
-  //      settles it: if Autotask stored a different publish than requested the
-  //      attachment is removed again and the call fails PRECONDITION_FAILED —
-  //      a verbatim customer call transcript in the Client Portal is the one
-  //      outcome this tool must never leave behind.
-  //   2. Size and content type are checked BEFORE any upload; the vendor's
-  //      size limit is a documented RANGE ("6 to 7 MB") so the cap is its
-  //      lower bound, labelled chosen.
-  //
-  // One handler serves both tools: they differ only in the parent entity, the
-  // read-back query and the URL to hand back.
-  type AttachmentKind = 'ticket' | 'time_entry'
-  const ATTACHMENT_KINDS: Record<AttachmentKind, {
+  // One handler serves the three create tools; they differ in parent entity,
+  // parent field and how the parent is pre-read.
+  type AttachmentKind = 'ticket' | 'time_entry' | 'ticket_note'
+  interface AttachmentKindConfig extends AttachmentEntityConfig {
     tool: string
-    entity: 'TicketAttachments' | 'TimeEntryAttachments'
-    parentEntity: write.AttachmentParentEntity
-    parentField: 'ticketID' | 'timeEntryID'
     parentLabel: string
-    idParam: 'ticketId' | 'timeEntryId'
-  }> = {
-    ticket: { tool: 'autotask_add_ticket_attachment', entity: 'TicketAttachments', parentEntity: 'Tickets', parentField: 'ticketID', parentLabel: 'ticket', idParam: 'ticketId' },
-    time_entry: { tool: 'autotask_add_time_entry_attachment', entity: 'TimeEntryAttachments', parentEntity: 'TimeEntries', parentField: 'timeEntryID', parentLabel: 'time entry', idParam: 'timeEntryId' },
+    idParam: 'ticketId' | 'timeEntryId' | 'ticketNoteId'
   }
+  const ATTACHMENT_KINDS: Record<AttachmentKind, AttachmentKindConfig> = {
+    ticket: { ...ATTACHMENT_ENTITIES.TicketAttachments, tool: 'autotask_add_ticket_attachment', parentLabel: 'ticket', idParam: 'ticketId' },
+    time_entry: { ...ATTACHMENT_ENTITIES.TimeEntryAttachments, tool: 'autotask_add_time_entry_attachment', parentLabel: 'time entry', idParam: 'timeEntryId' },
+    ticket_note: { ...ATTACHMENT_ENTITIES.TicketNoteAttachments, tool: 'autotask_add_ticket_note_attachment', parentLabel: 'ticket note', idParam: 'ticketNoteId' },
+  }
+  const PARENT_TYPE_TO_KIND: Record<'ticket' | 'time_entry' | 'ticket_note', AttachmentKind> = { ticket: 'ticket', time_entry: 'time_entry', ticket_note: 'ticket_note' }
 
   const ATTACHMENT_SHARED_DESCRIPTION =
     `The file is validated BEFORE anything is sent: contentType must be one of ${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')} (a connector allowlist, not an Autotask limit), the filename extension must agree with it, and the decoded size must not exceed ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes — the lower bound of Kaseya's documented "6 to 7 MB" per-file API limit, chosen because the vendor gives a range, not a number. ${ATTACHMENT_WINDOW_NOTE} ` +
     'Pass content (UTF-8 text) for a text file or contentBase64 for binary bytes, never both. ' +
     `VISIBILITY: defaults to INTERNAL (publish ${ATTACHMENT_PUBLISH.INTERNAL} "Internal Users Only"). Pass customerVisible: true ONLY when the customer should see the file — that stores publish ${ATTACHMENT_PUBLISH.CUSTOMER_VISIBLE} "All Autotask Users", the Internal-cleared state that Client Portal customers can open, so a call transcript or internal note attached that way is exposed to the customer verbatim. ` +
-    'The stored publish level is READ BACK off the created attachment and reported with its live label; it is never claimed from the accepted POST. If Autotask stored a different visibility than requested, or the file landed on a different parent, the attachment is REMOVED again and the call returns PRECONDITION_FAILED — nothing is left behind at the wrong visibility. ' +
-    'READ-BACK VERIFIED: the attachment is re-read by id and its publish, parent, title, fullPath and attachmentType compared against what was requested, and the stored bytes are fetched and compared to what was sent. A value that did not stick returns PRECONDITION_FAILED. contentType is reported (stored vs requested) rather than enforced, because Autotask may normalise it. ' +
+    'The stored publish level is READ BACK off the created attachment and reported with its live label; it is never claimed from the accepted POST. ' +
+    'READ-BACK VERIFIED, then ROLLED BACK ON ANY DOUBT: after the POST the attachment is re-read by id (publish, parent, title, fullPath, attachmentType) and its stored bytes fetched and compared to what was sent. If the read-back fails, returns nothing, or disagrees with the request, the attachment is DELETED again and the call returns reasonCode VERIFY_FAILED (fixableBy connector) with details.createdAttachmentId, details.parentType, details.parentId and details.verificationState — rolled_back (removed and confirmed), rollback_failed (the id REMAINS and a human must remove it, e.g. with autotask_delete_attachment) or unverified. A failure BEFORE the POST never carries createdAttachmentId, so the two cases are always distinguishable. Every failure also carries details.phase (validate | post | readback | rollback). contentType is reported (stored vs requested) rather than enforced, because Autotask may normalise it. ' +
     'Attributed to the signed-in technician via Autotask resource impersonation; the response reports which resource Autotask actually recorded. ' +
-    'Attachments cannot be edited afterwards (Autotask: "It is not possible to update an attachment") and this connector does not expose attachment deletion, so confirm the filename, title and visibility with the user before calling.'
+    'Attachments cannot be edited afterwards (Autotask: "It is not possible to update an attachment"); a wrong one is removed with autotask_delete_attachment and re-uploaded. Confirm the filename, title and visibility with the user before calling.'
 
   const ATTACHMENT_INPUT = {
     filename: z.string().describe('File name Autotask should show, with extension (e.g. "call-2026-09-08-1432.txt"). Bare name only — no path. Max 255 characters.'),
@@ -1148,8 +1160,8 @@ export function registerWriteTools(server: any) {
     customerVisible: z.boolean().optional().describe(`EXPLICIT OPT-IN to customer visibility. Default false = INTERNAL (publish ${ATTACHMENT_PUBLISH.INTERNAL}). true stores publish ${ATTACHMENT_PUBLISH.CUSTOMER_VISIBLE} "All Autotask Users", which Client Portal customers can open — a verbatim call transcript attached this way is exposed to the customer. Leave unset unless the user explicitly asked for the customer to see the file.`),
   }
 
-  /** The two publish ids this tool can request, with their LIVE labels. */
-  const attachmentPublishLabel = async (client: AutotaskClient, entity: 'TicketAttachments' | 'TimeEntryAttachments', publish: number | null | undefined): Promise<string | null> => {
+  /** Live label for a publish id on an attachment entity; null when unresolved. */
+  const attachmentPublishLabel = async (client: AutotaskClient, entity: AttachmentEntity, publish: number | null | undefined): Promise<string | null> => {
     if (publish == null) return null
     try {
       return (await client.picklistLabelMap(entity, 'publish')).get(publish) ?? null
@@ -1158,199 +1170,297 @@ export function registerWriteTools(server: any) {
     }
   }
 
+  /**
+   * The read-back projection for one entity, from LIVE entityInformation.
+   * A failed metadata lookup falls back to the declared per-entity list and
+   * says so — it never blocks the read-back, and it can never reintroduce a
+   * field from another entity.
+   */
+  const readBackProjection = async (entity: AttachmentEntity) => {
+    try {
+      const { snapshot } = await getEntityCapabilitySnapshot(entity)
+      return attachmentReadBackFields(entity, snapshot.fields.map((f) => f.name))
+    } catch {
+      return attachmentReadBackFields(entity, null)
+    }
+  }
+
+  interface RollbackOutcome {
+    attempted: boolean
+    deleted: boolean
+    /** true = re-read found nothing; false = still present; null = re-read failed. */
+    confirmedAbsent: boolean | null
+    error?: string
+  }
+
+  /** DELETE the row this call created, then prove it by re-reading. Never throws. */
+  const rollbackAttachment = async (
+    client: AutotaskClient,
+    K: AttachmentKindConfig,
+    parentId: number,
+    attachmentId: number,
+    fields: string[],
+    rid: number,
+  ): Promise<RollbackOutcome> => {
+    const out: RollbackOutcome = { attempted: true, deleted: false, confirmedAbsent: null }
+    try {
+      await write.deleteAttachment(K.parentEntity, parentId, attachmentId, rid)
+      out.deleted = true
+    } catch (e) {
+      out.error = e instanceof Error ? e.message : String(e)
+      return out
+    }
+    try {
+      const again = await client.getAttachmentRecord(K.entity, K.parentField, parentId, attachmentId, fields)
+      out.confirmedAbsent = again === null
+    } catch {
+      out.confirmedAbsent = null
+    }
+    return out
+  }
+
+  // rolled_back requires BOTH an accepted DELETE and a re-read that did not
+  // return the row. A DELETE that was accepted while the row is still readable
+  // has not removed anything the caller can rely on, so it is rollback_failed.
+  const verificationStateOf = (rollback: RollbackOutcome | null): VerificationState =>
+    !rollback || !rollback.attempted
+      ? 'unverified'
+      : rollback.deleted && rollback.confirmedAbsent !== false
+        ? 'rolled_back'
+        : 'rollback_failed'
+
+  const rollbackSentence = (rollback: RollbackOutcome, attachmentId: number): string =>
+    rollback.deleted
+      ? rollback.confirmedAbsent === true
+        ? `The attachment (id ${attachmentId}) was REMOVED again and the removal confirmed by read-back; nothing remains on the record.`
+        : rollback.confirmedAbsent === false
+          ? `A DELETE for attachment ${attachmentId} was accepted but a re-read STILL RETURNS IT — treat it as present and remove it by hand.`
+          : `A DELETE for attachment ${attachmentId} was accepted but the re-read to confirm it failed — check the record.`
+      : `The attachment COULD NOT be removed (${rollback.error ?? 'unknown error'}) — attachment ${attachmentId} REMAINS on the record and a human must delete it now (autotask_delete_attachment, or the Autotask UI).`
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const addAttachment = async (kind: AttachmentKind, args: any, extra: any): Promise<McpToolResult> => {
     const K = ATTACHMENT_KINDS[kind]
     const TOOL = K.tool
     const parentId: number = args[K.idParam]
+    const baseDetails = { [K.idParam]: parentId, parentType: K.parentEntity, parentId }
+
+    // ---- Phase: validate ---------------------------------------------------
+    const planned = planAttachment({
+      filename: args.filename,
+      contentType: args.contentType,
+      content: args.content,
+      contentBase64: args.contentBase64,
+      title: args.title,
+      customerVisible: args.customerVisible,
+    })
+    if (!planned.ok) return failureResult({ ...planned.failure, tool: TOOL, details: { ...planned.failure.details, ...baseDetails, phase: 'validate' as AttachmentPhase } })
+    const plan = planned.plan
+
+    let rid: number
+    let client: AutotaskClient
+    let parentTicketId: number | null
     try {
-      // 1. Validate before any byte moves. Every refusal here is INVALID_INPUT
-      //    and no request has been made.
-      const planned = planAttachment({
-        filename: args.filename,
-        contentType: args.contentType,
-        content: args.content,
-        contentBase64: args.contentBase64,
-        title: args.title,
-        customerVisible: args.customerVisible,
-      })
-      if (!planned.ok) return failureResult({ ...planned.failure, tool: TOOL, details: { ...planned.failure.details, [K.idParam]: parentId } })
-      const plan = planned.plan
-
-      const rid = await resolveResourceId(emailOf(extra))
-      const client = new AutotaskClient()
-
-      // 2. The parent must exist. A clean null is a genuine absence (a lookup
-      //    failure throws and classifies separately). PRECONDITION_FAILED, per
-      //    the taxonomy's own wording ("required parent missing"): the request
-      //    is well-formed, the world does not contain the record it names.
-      const parentTicketId: number | null = await (async () => {
-        if (kind === 'ticket') {
-          const t = await client.getTicket(parentId)
-          return t ? parentId : null
+      rid = await resolveResourceId(emailOf(extra))
+      client = new AutotaskClient()
+      // The parent must exist. A clean null is a genuine absence; a thrown
+      // lookup failure classifies on its own. Nothing has been created yet.
+      parentTicketId = await (async () => {
+        if (kind === 'ticket') return (await client.getTicket(parentId)) ? parentId : null
+        if (kind === 'time_entry') {
+          const te = await client.getTimeEntryById(parentId)
+          if (!te) return null
+          return typeof te.ticketID === 'number' && te.ticketID > 0 ? te.ticketID : -1
         }
-        const te = await client.getTimeEntryById(parentId)
-        if (!te) return null
-        return typeof te.ticketID === 'number' && te.ticketID > 0 ? te.ticketID : -1
+        const note = await client.getTicketNoteByNoteId(parentId)
+        if (!note) return null
+        return typeof note.ticketID === 'number' && note.ticketID > 0 ? note.ticketID : -1
       })()
-      if (parentTicketId === null) {
-        return failureResult({
-          reasonCode: 'PRECONDITION_FAILED',
-          message: `No Autotask ${K.parentLabel} has id ${parentId}, so there is nothing to attach the file to. Nothing was uploaded.`,
-          evidence: `A query filtered on ${K.parentLabel} id ${parentId} succeeded and returned no rows. A failed lookup raises a different error, so this is a genuine absence, not a broken query.`,
-          remediation:
-            kind === 'ticket'
-              ? `Check the id — this tool takes the numeric ticket id, not the T-number; resolve a ticket NUMBER with autotask_get_ticket_by_number first.`
-              : `Check the id — this tool takes the TimeEntries.id (from autotask_ticket_time_entries or autotask_ticket_activity, where each time entry carries its id), not a ticket id.`,
-          surface: 'autotask',
-          tool: TOOL,
-          details: { [K.idParam]: parentId },
-        })
-      }
-      const ticketUrl = parentTicketId > 0 ? getAutotaskTicketUrl(String(parentTicketId)) : undefined
-
-      // 3. Create, at the child collection URL — the only place Autotask
-      //    accepts an attachment POST.
-      const res = await write.createAttachment(K.parentEntity, parentId, buildAttachmentBody(plan), rid)
-      const newId = res.result?.itemId
-      if (!newId) {
-        return failureResult({
-          reasonCode: 'PRECONDITION_FAILED',
-          message: `Autotask accepted the attachment at ${res.pathUsed} but returned no itemId, so nothing can be read back and nothing is confirmed — including its visibility. Do NOT report the file as attached.`,
-          evidence: 'A create is only confirmed by the id it returns; without one there is nothing to verify against.',
-          remediation: ticketUrl
-            ? `Open the ticket and check its Attachments before retrying — a blind retry can attach the file twice: ${ticketUrl}`
-            : 'Check the record in Autotask before retrying — a blind retry can attach the file twice.',
-          surface: 'autotask',
-          tool: TOOL,
-          details: { [K.idParam]: parentId, pathUsed: res.pathUsed, pathAttempts: res.attempts },
-        })
-      }
-
-      // 4. Read back by id (queryable fields).
-      const stored: StoredAttachmentFields | null =
-        kind === 'ticket' ? await client.getTicketAttachmentById(parentId, newId) : await client.getTimeEntryAttachmentById(parentId, newId)
-      if (!stored) {
-        return failureResult({
-          reasonCode: 'PRECONDITION_FAILED',
-          message: `Autotask returned attachment id ${newId} for ${K.parentLabel} ${parentId}, but a read-back query for that id under ${K.parentLabel} ${parentId} did not return it, so nothing about the stored file — including its visibility and which record it is on — is confirmed. Do NOT report it as attached.`,
-          evidence: `The post-write query (${K.parentField} = ${parentId} AND id = ${newId}) returned no row for a record Autotask reported creating moments earlier. Attachment queries must carry the parent id (Kaseya, "Changes to Attachment entities"), so an absence here means either the row is not under this ${K.parentLabel} or the read failed to see it — the stored values could not be compared either way.`,
-          remediation: `Check the ${K.parentLabel} in Autotask before doing anything else${ticketUrl ? `: ${ticketUrl}` : ''}. Do not retry blindly — the upload may already have applied.`,
-          surface: 'autotask',
-          tool: TOOL,
-          details: { [K.idParam]: parentId, attachmentId: newId, pathUsed: res.pathUsed },
-        })
-      }
-
-      const verification = verifyAttachmentReadBack(plan, { field: K.parentField, id: parentId }, stored)
-      const publishLabel = await attachmentPublishLabel(client, K.entity, stored.publish)
-      const visibility = classifyPublishVisibility(stored.publish, publishLabel)
-
-      // 5. Visibility or parent wrong: remove what was just created, then
-      //    prove the removal by re-reading. This is the one delete path in the
-      //    attachment surface and it is not reachable by any parameter.
-      if (verification.rollbackWarranted) {
-        const rollback: { attempted: true; deleted: boolean; confirmedAbsent: boolean | null; error?: string } = { attempted: true, deleted: false, confirmedAbsent: null }
-        try {
-          await write.deleteAttachmentAfterFailedVerification(K.parentEntity, parentId, newId, rid)
-          rollback.deleted = true
-          const again = kind === 'ticket' ? await client.getTicketAttachmentById(parentId, newId).catch(() => undefined) : await client.getTimeEntryAttachmentById(parentId, newId).catch(() => undefined)
-          rollback.confirmedAbsent = again === undefined ? null : again === null
-        } catch (e) {
-          rollback.error = e instanceof Error ? e.message : String(e)
-        }
-        const publishMismatch = verification.mismatches.find((m) => m.field === 'publish')
-        const where = publishMismatch
-          ? `stored publish ${stored.publish ?? 'null'}${publishLabel ? ` "${publishLabel}"` : ''} (${visibility.scope}) instead of the requested ${plan.publish}`
-          : `landed with ${K.parentField} ${stored[K.parentField] ?? 'null'} instead of the requested ${parentId}`
-        const outcome = rollback.confirmedAbsent === true
-          ? 'The attachment was REMOVED again and the removal confirmed by read-back; nothing remains on the record.'
-          : rollback.deleted
-            ? 'The attachment was removed again, but the removal could NOT be confirmed by read-back — check the record.'
-            : `The attachment COULD NOT be removed (${rollback.error ?? 'unknown error'}) — attachment ${newId} is still on the record at the wrong visibility and a human must delete it in Autotask NOW.`
-        return failureResult({
-          reasonCode: 'PRECONDITION_FAILED',
-          message: `Autotask accepted the attachment at ${res.pathUsed} but ${where}. ${outcome} Do NOT report the file as attached${publishMismatch ? ', and do not retry with the same arguments — this instance did not honour the requested publish value' : ''}.`,
-          evidence: publishMismatch
-            ? 'Verified by re-reading the attachment by id after the write and comparing publish against what was requested, rather than trusting the HTTP status. entityInformation reports publish as isReadOnly on this entity; this call is the live test of whether a create can set it, and on this call the answer was no.'
-            : 'Verified by re-reading the attachment by id after the write and comparing the parent id against what was requested, rather than trusting the HTTP status.',
-          remediation: publishMismatch
-            ? `Report this to Kurtis: the Autotask REST API on this instance stored publish ${stored.publish ?? 'null'} for a create that sent ${plan.publish}. Until that is understood, attachments cannot be pinned internal-only through the connector and must be added in the Autotask UI.${ticketUrl ? ` Record: ${ticketUrl}` : ''}`
-            : `Re-read the ${K.parentLabel} and check the record in Autotask before retrying${ticketUrl ? `: ${ticketUrl}` : ''}.`,
-          surface: 'autotask',
-          tool: TOOL,
-          details: { [K.idParam]: parentId, attachmentId: newId, mismatches: verification.mismatches, verifiedFields: verification.verifiedFields, rollback, pathUsed: res.pathUsed, pathAttempts: res.attempts },
-        })
-      }
-
-      // 6. Bytes: the child GET is the only read that returns `data`. A
-      //    transport failure here degrades to "not compared" with the reason;
-      //    a genuine difference is a failure.
-      let dataVerified: boolean | null = null
-      let dataNote: string | null = null
-      let fileSizeStored: number | null = null
-      try {
-        const content = await client.getAttachmentContent(K.parentEntity, parentId, newId)
-        fileSizeStored = content?.fileSize ?? null
-        dataVerified = attachmentBytesMatch(plan.base64, content?.data)
-        if (dataVerified === null) dataNote = `GET ${K.parentEntity}/${parentId}/Attachments/${newId} returned no data field, so the stored bytes were NOT compared. The fields above were verified; the content was not.`
-      } catch (e) {
-        dataNote = `Reading the stored bytes back failed (${e instanceof Error ? e.message : String(e)}), so the content was NOT compared. The fields above were verified; the content was not.`
-      }
-
-      if (verification.mismatches.length || dataVerified === false) {
-        const parts = verification.mismatches.map((m) => `${m.field} (asked for ${JSON.stringify(m.requested)}, stored ${JSON.stringify(m.actual)})`)
-        if (dataVerified === false) parts.push(`the stored bytes differ from what was sent (${plan.sizeBytes} bytes sent, fileSize ${fileSizeStored ?? 'unknown'} stored)`)
-        return failureResult({
-          reasonCode: 'PRECONDITION_FAILED',
-          message: `Autotask accepted the attachment at ${res.pathUsed} and it is on ${K.parentLabel} ${parentId} at publish ${stored.publish ?? 'null'}${publishLabel ? ` "${publishLabel}"` : ''} (${visibility.scope}), but the read-back does not match: ${parts.join('; ')}. The attachment (id ${newId}) was left in place because its visibility and parent are correct; do NOT report it as attached correctly.`,
-          evidence: 'Verified by re-reading the attachment by id and fetching its stored bytes after the write, rather than trusting the HTTP status. Line-ending translation is the only difference tolerated on text fields; bytes are compared exactly.',
-          remediation: `Check attachment ${newId} in Autotask${ticketUrl ? ` (${ticketUrl})` : ''} and delete it there if it is wrong — the connector does not expose attachment deletion. Attachments cannot be edited, so a corrected file is a new upload.`,
-          surface: 'autotask',
-          tool: TOOL,
-          details: { [K.idParam]: parentId, attachmentId: newId, mismatches: verification.mismatches, verifiedFields: verification.verifiedFields, dataVerified, fileSizeStored, pathUsed: res.pathUsed, pathAttempts: res.attempts },
-        })
-      }
-
-      const attribution = describeAttribution(stored, rid)
-      return ok({
-        attachment: {
-          id: newId,
-          [K.idParam]: parentId,
-          ...(kind === 'time_entry' ? { ticketId: parentTicketId > 0 ? parentTicketId : null } : {}),
-          title: stored.title ?? null,
-          fullPath: stored.fullPath ?? null,
-          attachmentType: stored.attachmentType ?? null,
-          contentType: stored.contentType ?? null,
-          publish: stored.publish ?? null,
-          publishLabel,
-          visibility,
-          attachDate: stored.attachDate ?? null,
-          sizeBytesSent: plan.sizeBytes,
-          fileSizeStored,
-        },
-        verification: {
-          verifiedFields: [...verification.verifiedFields, ...(dataVerified ? ['data'] : [])],
-          contentType: verification.contentType,
-          ...(verification.contentType.matches === false
-            ? { contentTypeNote: `Autotask stored contentType ${JSON.stringify(verification.contentType.stored)} for a request that sent ${JSON.stringify(plan.contentType)}. Reported rather than failed: entityInformation marks contentType read-only and the vendor may normalise it. The file itself is verified by its bytes.` }
-            : {}),
-          dataVerified,
-          ...(dataNote ? { dataNote } : {}),
-          ...(plan.contentTypeAsPassed ? { contentTypeNormalizedFrom: plan.contentTypeAsPassed } : {}),
-          basis: 'Re-read by id after the write (publish, parent, title, fullPath, attachmentType) and the stored bytes fetched through the child URL and compared to what was sent. fileSize is not queryable and is reported as the child GET returned it.',
-        },
-        attribution,
-        pathUsed: res.pathUsed,
-        ...(ticketUrl ? { ticketUrl } : {}),
-        activityNote:
+    } catch (e) {
+      return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ...baseDetails, phase: 'validate' as AttachmentPhase, createdAttachmentId: null } })
+    }
+    if (parentTicketId === null) {
+      return failureResult({
+        reasonCode: 'PRECONDITION_FAILED',
+        message: `No Autotask ${K.parentLabel} has id ${parentId}, so there is nothing to attach the file to. Nothing was uploaded.`,
+        evidence: `A query filtered on ${K.parentLabel} id ${parentId} succeeded and returned no rows. A failed lookup raises a different error, so this is a genuine absence, not a broken query.`,
+        remediation:
           kind === 'ticket'
-            ? `Appears in autotask_ticket_activity({ ticketId: ${parentId} }) as sourceEntity TicketAttachments.`
-            : parentTicketId > 0
-              ? `Appears in autotask_ticket_activity({ ticketId: ${parentTicketId} }) as sourceEntity TicketAttachments with parent.timeEntryId ${parentId} — Autotask returns attachments parented to a ticket's time entries in the ticket's attachment query.`
-              : `This time entry belongs to a project TASK, not a ticket. autotask_task_activity does not read attachments, so the file will not appear in any connector activity read; verify in the Autotask UI.`,
+            ? 'Check the id — this tool takes the numeric ticket id, not the T-number; resolve a ticket NUMBER with autotask_get_ticket_by_number first.'
+            : kind === 'time_entry'
+              ? 'Check the id — this tool takes the TimeEntries.id (from autotask_ticket_time_entries or autotask_ticket_activity, where each time entry carries its id), not a ticket id.'
+              : 'Check the id — this tool takes the TicketNotes.id (from autotask_ticket_notes or autotask_ticket_activity), not a ticket id.',
+        surface: 'autotask',
+        tool: TOOL,
+        details: { ...baseDetails, phase: 'validate' as AttachmentPhase, createdAttachmentId: null },
       })
-    } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { [K.idParam]: parentId } }) }
+    }
+    const ticketUrl = parentTicketId > 0 ? getAutotaskTicketUrl(String(parentTicketId)) : undefined
+
+    // ---- Phase: post -------------------------------------------------------
+    let res: Awaited<ReturnType<typeof write.createAttachment>>
+    try {
+      res = await write.createAttachment(K.parentEntity, parentId, buildAttachmentBody(plan), rid)
+    } catch (e) {
+      // Autotask refused (or the request never completed). Nothing is known to
+      // exist; classified by the shared classifier (vendor rejection, auth,
+      // transient…), tagged with the phase.
+      return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ...baseDetails, phase: 'post' as AttachmentPhase, createdAttachmentId: null } })
+    }
+    const newId = res.result?.itemId
+    if (!newId) {
+      return failureResult({
+        reasonCode: 'VERIFY_FAILED',
+        message: `Autotask accepted the attachment at ${res.pathUsed} but returned no itemId, so a record may exist that this call cannot read back or remove. Do NOT report the file as attached.`,
+        evidence: 'A create is only confirmed by the id it returns; without one there is nothing to verify against and nothing to roll back.',
+        remediation: `Open the ${K.parentLabel} in Autotask and check its Attachments before retrying — a blind retry can attach the file twice${ticketUrl ? `: ${ticketUrl}` : '.'}`,
+        surface: 'autotask',
+        tool: TOOL,
+        details: { ...baseDetails, phase: 'post' as AttachmentPhase, createdAttachmentId: null, verificationState: 'unverified' as VerificationState, pathUsed: res.pathUsed, pathAttempts: res.attempts },
+      })
+    }
+
+    // ---- Phase: readback ---------------------------------------------------
+    // From here on a record EXISTS. Every exit path below either verifies it
+    // or rolls it back, and every failure names it.
+    const projection = await readBackProjection(K.entity)
+    const created = { createdAttachmentId: newId, pathUsed: res.pathUsed, pathAttempts: res.attempts, readBackProjection: projection }
+
+    const verifyFailed = async (why: {
+      summary: string
+      evidence: string
+      mismatches?: AttachmentMismatch[]
+      stored?: StoredAttachmentFields | null
+      dataVerified?: boolean | null
+      readBackError?: string
+    }): Promise<McpToolResult> => {
+      const rollback = await rollbackAttachment(client, K, parentId, newId, projection.fields, rid)
+      const state = verificationStateOf(rollback)
+      return failureResult({
+        reasonCode: 'VERIFY_FAILED',
+        message: `Autotask accepted the attachment at ${res.pathUsed} (attachment id ${newId} on ${K.parentLabel} ${parentId}), but ${why.summary} ${rollbackSentence(rollback, newId)} Do NOT report the file as attached.`,
+        evidence: why.evidence,
+        remediation:
+          state === 'rolled_back'
+            ? 'Nothing remains on the record. Report this envelope to Claude Code as a connector defect (the write itself succeeded; the verification did not). Do not retry with identical arguments until the cause is understood — if the read-back disagreed on publish, this instance did not honour the requested visibility and attachments must be added in the Autotask UI.'
+            : `Attachment ${newId} may still be on ${K.parentLabel} ${parentId}${ticketUrl ? ` (${ticketUrl})` : ''}. Remove it with autotask_delete_attachment({ parentType: "${kind}", parentId: ${parentId}, attachmentId: ${newId} }) or in the Autotask UI, then report this envelope to Claude Code as a connector defect.`,
+        surface: 'autotask',
+        tool: TOOL,
+        details: {
+          ...baseDetails,
+          ...created,
+          phase: (rollback.attempted && !rollback.deleted ? 'rollback' : 'readback') as AttachmentPhase,
+          verificationState: state,
+          rollback,
+          ...(why.mismatches ? { mismatches: why.mismatches } : {}),
+          ...(why.stored !== undefined ? { stored: why.stored } : {}),
+          ...(why.dataVerified !== undefined ? { dataVerified: why.dataVerified } : {}),
+          ...(why.readBackError ? { readBackError: why.readBackError } : {}),
+        },
+      })
+    }
+
+    let stored: StoredAttachmentFields | null
+    try {
+      stored = await client.getAttachmentRecord(K.entity, K.parentField, parentId, newId, projection.fields)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return verifyFailed({
+        summary: `the read-back query (${K.parentField} = ${parentId} AND id = ${newId}, fields ${projection.fields.join(',')}) FAILED: ${msg}.`,
+        evidence: `The post-write query threw rather than returning rows, so nothing about the stored file — including its visibility — could be compared. Projection source: ${projection.source}${projection.dropped.length ? `; dropped as absent from live entityInformation: ${projection.dropped.join(', ')}` : ''}.`,
+        readBackError: msg,
+      })
+    }
+    if (!stored) {
+      return verifyFailed({
+        summary: `a read-back query for id ${newId} under ${K.parentLabel} ${parentId} returned NO ROW.`,
+        evidence: `The post-write query (${K.parentField} = ${parentId} AND id = ${newId}) returned nothing for a record Autotask reported creating moments earlier. Attachment queries must carry the parent id (Kaseya, "Changes to Attachment entities"), so either the row is not under this ${K.parentLabel} or the read cannot see it.`,
+        stored: null,
+      })
+    }
+
+    const verification = verifyAttachmentReadBack(plan, { field: K.parentField, id: parentId }, stored)
+    const publishLabel = await attachmentPublishLabel(client, K.entity, stored.publish)
+    const visibility = classifyPublishVisibility(stored.publish, publishLabel)
+
+    if (verification.mismatches.length) {
+      const parts = verification.mismatches.map((m) => `${m.field} (asked for ${JSON.stringify(m.requested)}, stored ${JSON.stringify(m.actual)})`)
+      const publishMismatch = verification.mismatches.some((m) => m.field === 'publish')
+      return verifyFailed({
+        summary: `the read-back DISAGREES with the request: ${parts.join('; ')}${publishMismatch ? ` — stored publish ${stored.publish ?? 'null'}${publishLabel ? ` "${publishLabel}"` : ''} is ${visibility.scope}` : ''}.`,
+        evidence: 'Verified by re-reading the attachment by id after the write and comparing every requested field against the stored value, rather than trusting the HTTP status. Line-ending translation and attachmentType case are the only differences tolerated.' + (publishMismatch ? ' entityInformation reports publish as isReadOnly on this entity; this call is the live test of whether a create can set it, and on this call the answer was no.' : ''),
+        mismatches: verification.mismatches,
+        stored,
+      })
+    }
+
+    // Bytes: the child GET is the only read that returns `data`.
+    let dataVerified: boolean | null
+    let fileSizeStored: number | null = null
+    try {
+      const content = await client.getAttachmentContent(K.parentEntity, parentId, newId)
+      fileSizeStored = content?.fileSize ?? null
+      dataVerified = attachmentBytesMatch(plan.base64, content?.data)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return verifyFailed({
+        summary: `the stored bytes could not be read back (GET ${K.parentEntity}/${parentId}/Attachments/${newId}: ${msg}).`,
+        evidence: 'The fields were re-read and matched, but the content comparison — the child GET that returns data — failed, so the stored file is unconfirmed.',
+        stored,
+        dataVerified: null,
+        readBackError: msg,
+      })
+    }
+    if (dataVerified !== true) {
+      return verifyFailed({
+        summary: dataVerified === false
+          ? `the STORED BYTES differ from what was sent (${plan.sizeBytes} bytes sent, fileSize ${fileSizeStored ?? 'unknown'} stored).`
+          : `the child GET returned no data field, so the stored bytes could not be compared.`,
+        evidence: 'Bytes are compared exactly after base64 decoding; a missing data field is treated as unverified, never as a match.',
+        stored,
+        dataVerified,
+      })
+    }
+
+    const attribution = describeAttribution(stored, rid)
+    return ok({
+      attachment: {
+        id: newId,
+        [K.idParam]: parentId,
+        parentType: K.parentEntity,
+        ...(kind !== 'ticket' ? { ticketId: parentTicketId > 0 ? parentTicketId : null } : {}),
+        title: stored.title ?? null,
+        fullPath: stored.fullPath ?? null,
+        attachmentType: stored.attachmentType ?? null,
+        contentType: stored.contentType ?? null,
+        publish: stored.publish ?? null,
+        publishLabel,
+        visibility,
+        attachDate: stored.attachDate ?? null,
+        sizeBytesSent: plan.sizeBytes,
+        fileSizeStored,
+      },
+      verification: {
+        verifiedFields: [...verification.verifiedFields, 'data'],
+        contentType: verification.contentType,
+        ...(verification.contentType.matches === false
+          ? { contentTypeNote: `Autotask stored contentType ${JSON.stringify(verification.contentType.stored)} for a request that sent ${JSON.stringify(plan.contentType)}. Reported rather than failed: entityInformation marks contentType read-only and the vendor may normalise it. The file itself is verified by its bytes.` }
+          : {}),
+        dataVerified: true,
+        readBackProjection: projection,
+        ...(plan.contentTypeAsPassed ? { contentTypeNormalizedFrom: plan.contentTypeAsPassed } : {}),
+        basis: `Re-read by ${K.parentField} + id after the write (publish, parent, title, fullPath, attachmentType) with a projection intersected against live ${K.entity} entityInformation, and the stored bytes fetched through the child URL and compared to what was sent. fileSize is not queryable and is reported as the child GET returned it.`,
+      },
+      attribution,
+      pathUsed: res.pathUsed,
+      ...(ticketUrl ? { ticketUrl } : {}),
+      activityNote:
+        kind === 'ticket'
+          ? `Appears in autotask_ticket_activity({ ticketId: ${parentId} }) as sourceEntity TicketAttachments.`
+          : parentTicketId > 0
+            ? `Appears in autotask_ticket_activity({ ticketId: ${parentTicketId} }) as sourceEntity TicketAttachments with parent.${kind === 'time_entry' ? 'timeEntryId' : 'ticketNoteId'} ${parentId} — Autotask returns attachments parented to a ticket's notes and time entries in the ticket's attachment query.`
+            : 'This time entry belongs to a project TASK, not a ticket. autotask_task_activity does not read attachments, so the file will not appear in any connector activity read; verify in the Autotask UI.',
+    })
   }
 
   server.registerTool(
@@ -1375,7 +1485,7 @@ export function registerWriteTools(server: any) {
       title: 'Autotask: attach a file to a time entry',
       description:
         'WRITE. Uploads a FILE as an attachment on an Autotask TIME ENTRY (creates a TimeEntryAttachments record via POST TimeEntries/{timeEntryId}/Attachments), attributed to the signed-in technician. Built for attaching the RingCentral transcript of a call to the time entry logged for that call. Takes the TimeEntries.id (from autotask_ticket_time_entries / autotask_ticket_activity, or the id returned by autotask_create_time_entry), NOT the ticket id. ' +
-        'An attachment on a ticket\'s time entry shows up in autotask_ticket_activity for that ticket, tagged with parent.timeEntryId. ' +
+        "An attachment on a ticket's time entry shows up in autotask_ticket_activity for that ticket, tagged with parent.timeEntryId. " +
         ATTACHMENT_SHARED_DESCRIPTION,
       inputSchema: {
         timeEntryId: z.number().int().describe('Autotask TIME ENTRY id (TimeEntries.id) — from autotask_ticket_time_entries, autotask_ticket_activity, or the itemId returned by autotask_create_time_entry. Not a ticket id.'),
@@ -1384,5 +1494,125 @@ export function registerWriteTools(server: any) {
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (args: any, extra: any) => addAttachment('time_entry', args, extra),
+  )
+
+  server.registerTool(
+    ATTACHMENT_KINDS.ticket_note.tool,
+    {
+      title: 'Autotask: attach a file to a ticket note',
+      description:
+        'WRITE. Uploads a FILE as an attachment on an Autotask TICKET NOTE (creates a TicketNoteAttachments record via POST TicketNotes/{ticketNoteId}/Attachments), attributed to the signed-in technician. Takes the TicketNotes.id (from autotask_ticket_notes / autotask_ticket_activity, or the itemId returned by autotask_add_internal_note), NOT the ticket id. ' +
+        "An attachment on a ticket's note shows up in autotask_ticket_activity for that ticket, tagged with parent.ticketNoteId. The attachment's own publish is set here and read back independently of the note's publish. " +
+        ATTACHMENT_SHARED_DESCRIPTION,
+      inputSchema: {
+        ticketNoteId: z.number().int().describe('Autotask TICKET NOTE id (TicketNotes.id) — from autotask_ticket_notes, autotask_ticket_activity, or the itemId returned by autotask_add_internal_note. Not a ticket id.'),
+        ...ATTACHMENT_INPUT,
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args: any, extra: any) => addAttachment('ticket_note', args, extra),
+  )
+
+  // -------------------------------------------------------------------------
+  // Attachment delete
+  // -------------------------------------------------------------------------
+  //
+  // Exposed at the owner's direction on 2026-09-08: a create whose
+  // verification failed left row 28465 in place and there was no way to remove
+  // it through the connector. canDelete is true on all three entities (live).
+  // ONE attachment per call, addressed by parent + id, pre-read so the response
+  // says what was removed, and confirmed absent by re-read afterwards.
+  server.registerTool(
+    'autotask_delete_attachment',
+    {
+      title: 'Autotask: delete an attachment',
+      description:
+        'WRITE, DESTRUCTIVE. Permanently deletes ONE file attachment from a ticket, time entry or ticket note (DELETE {Tickets|TimeEntries|TicketNotes}/{parentId}/Attachments/{attachmentId}), attributed to the signed-in technician. ' +
+        'The attachment is READ FIRST (it must exist under the named parent — a mismatch is PRECONDITION_FAILED and nothing is deleted) so the response can report exactly what was removed (title, fullPath, publish, attachDate, who attached it), and READ AGAIN after the delete: a row that is still returned is reported as VERIFY_FAILED, never as deleted. ' +
+        'There is no undo — attachments cannot be edited or restored through the API. Use it to remove a file uploaded to the wrong record, a wrong version, or a rollback_failed leftover from autotask_add_*_attachment (its envelope names the parentType, parentId and createdAttachmentId to pass here). Confirm with the user which attachment before calling.',
+      inputSchema: {
+        parentType: z.enum(['ticket', 'time_entry', 'ticket_note']).describe('What the attachment hangs off: ticket (TicketAttachments), time_entry (TimeEntryAttachments) or ticket_note (TicketNoteAttachments).'),
+        parentId: z.number().int().describe('The parent record id — ticket id, TimeEntries.id or TicketNotes.id, matching parentType.'),
+        attachmentId: z.number().int().describe('The attachment id to delete — from autotask_ticket_activity (attachment items carry their id) or from a create envelope\'s details.createdAttachmentId.'),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ parentType, parentId, attachmentId }: any, extra: any) => {
+      const TOOL = 'autotask_delete_attachment'
+      const K = ATTACHMENT_KINDS[PARENT_TYPE_TO_KIND[parentType as keyof typeof PARENT_TYPE_TO_KIND]]
+      const baseDetails = { parentType: K.parentEntity, parentId, attachmentId }
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        const client = new AutotaskClient()
+        const projection = await readBackProjection(K.entity)
+        const before = await client.getAttachmentRecord(K.entity, K.parentField, parentId, attachmentId, projection.fields)
+        if (!before) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `No attachment with id ${attachmentId} exists under ${K.parentLabel} ${parentId}, so there is nothing to delete. Nothing was changed.`,
+            evidence: `A query (${K.parentField} = ${parentId} AND id = ${attachmentId}) on ${K.entity} succeeded and returned no rows. A failed lookup raises a different error, so this is a genuine absence — the id may belong to a different parent or parentType, or the attachment is already gone.`,
+            remediation: 'List the parent\'s attachments with autotask_ticket_activity({ ticketId }) — each attachment item carries its id and parent — and call again with the matching parentType, parentId and attachmentId.',
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ...baseDetails, phase: 'validate' as AttachmentPhase },
+          })
+        }
+        const publishLabel = await attachmentPublishLabel(client, K.entity, before.publish)
+        const removed = {
+          id: attachmentId,
+          parentType: K.parentEntity,
+          parentId,
+          title: before.title ?? null,
+          fullPath: before.fullPath ?? null,
+          publish: before.publish ?? null,
+          publishLabel,
+          visibility: classifyPublishVisibility(before.publish, publishLabel),
+          attachDate: before.attachDate ?? null,
+          attachedByResourceID: before.attachedByResourceID ?? null,
+          impersonatorCreatorResourceID: before.impersonatorCreatorResourceID ?? null,
+        }
+
+        try {
+          await write.deleteAttachment(K.parentEntity, parentId, attachmentId, rid)
+        } catch (e) {
+          return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ...baseDetails, phase: 'post' as AttachmentPhase, attachment: removed } })
+        }
+
+        let after: StoredAttachmentFields | null | undefined
+        try {
+          after = await client.getAttachmentRecord(K.entity, K.parentField, parentId, attachmentId, projection.fields)
+        } catch (e) {
+          return failureResult({
+            reasonCode: 'VERIFY_FAILED',
+            message: `Autotask accepted the DELETE for attachment ${attachmentId} on ${K.parentLabel} ${parentId}, but the re-read to confirm its removal failed (${e instanceof Error ? e.message : String(e)}). Do NOT report it as deleted until confirmed.`,
+            evidence: 'The post-delete query threw rather than returning rows, so absence could not be confirmed.',
+            remediation: `Re-read with autotask_ticket_activity, or check the record in Autotask. Report this envelope to Claude Code.`,
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ...baseDetails, phase: 'readback' as AttachmentPhase, verificationState: 'unverified' as VerificationState, attachment: removed },
+          })
+        }
+        if (after) {
+          return failureResult({
+            reasonCode: 'VERIFY_FAILED',
+            message: `Autotask accepted the DELETE for attachment ${attachmentId} on ${K.parentLabel} ${parentId}, but a re-read STILL RETURNS the row. Do NOT report it as deleted.`,
+            evidence: `The post-delete query (${K.parentField} = ${parentId} AND id = ${attachmentId}) returned the attachment, so the accepted DELETE did not remove it.`,
+            remediation: 'Check the attachment in the Autotask UI and delete it there if it is still present. Report this envelope to Claude Code as a connector defect.',
+            surface: 'autotask',
+            tool: TOOL,
+            details: { ...baseDetails, phase: 'readback' as AttachmentPhase, verificationState: 'unverified' as VerificationState, attachment: removed, stored: after },
+          })
+        }
+
+        return ok({
+          deleted: true,
+          verified: true,
+          attachment: removed,
+          pathUsed: `${K.parentEntity}/${parentId}/Attachments/${attachmentId}`,
+          basis: `Pre-read by ${K.parentField} + id, DELETE at the child URL, then re-read by the same query returned no row.`,
+          ...(removed.visibility.scope === 'customer_visible' ? { note: 'The deleted attachment was CUSTOMER-VISIBLE (publish 1); a customer who had opened it in the Client Portal will no longer find it.' } : {}),
+        })
+      } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ...baseDetails, phase: 'validate' as AttachmentPhase } }) }
+    },
   )
 }

@@ -265,7 +265,7 @@ export async function updateTicketNote(
 // parent id is in the URL, never the body; impersonation is the header.
 // https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/API_Calls/REST_Attachments.htm
 
-export type AttachmentParentEntity = 'Tickets' | 'TimeEntries'
+export type AttachmentParentEntity = 'Tickets' | 'TimeEntries' | 'TicketNotes'
 
 export async function createAttachment(
   parent: AttachmentParentEntity,
@@ -281,22 +281,19 @@ export async function createAttachment(
 }
 
 /**
- * Remove an attachment THIS CONNECTOR JUST CREATED whose read-back showed it
- * landed with the wrong visibility or on the wrong parent.
+ * Delete one attachment at its child URL: DELETE {parent}/{parentId}/Attachments/{id}
+ * (the only delete path the zone Swagger exposes; canDelete is true on
+ * TicketAttachments, TimeEntryAttachments and TicketNoteAttachments, read live
+ * 2026-09-08).
  *
- * This is NOT an exposed delete and must not become one. entityInformation
- * reports canDelete true on both attachment entities, and the connector still
- * withholds attachment deletion as a tool (see known-limits.ts, POLICY_GATED),
- * for the same blast-radius reason time-entry and contact deletion are
- * withheld. The single caller is the visibility rollback in
- * mcp-write-tools.ts: when the stored `publish` is not the one requested — a
- * customer-call transcript sitting in the Client Portal — leaving the row in
- * place IS the harm, so the row the tool created seconds earlier, addressed by
- * the id Autotask returned for it and scoped to the same parent, is removed
- * again. The caller re-reads afterwards and reports whether the removal is
- * confirmed; a failed rollback is reported loudly, never swallowed.
+ * Two callers, both in mcp-write-tools.ts: the ROLLBACK inside the three create
+ * tools (a create whose read-back failed or disagreed is removed again, and the
+ * outcome reported as verificationState), and autotask_delete_attachment, the
+ * exposed delete added at the owner's direction on 2026-09-08 after row 28465
+ * was left in place with no way to remove it through the connector. Callers
+ * confirm the removal by re-reading; this function only reports the HTTP outcome.
  */
-export async function deleteAttachmentAfterFailedVerification(
+export async function deleteAttachment(
   parent: AttachmentParentEntity,
   parentId: number,
   attachmentId: number,

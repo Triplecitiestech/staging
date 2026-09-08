@@ -37,8 +37,7 @@ const getTicketCoreFields = vi.fn()
 const getCompanyLocations = vi.fn()
 const picklistLabelMap = vi.fn()
 const getTimeEntryById = vi.fn()
-const getTicketAttachmentById = vi.fn()
-const getTimeEntryAttachmentById = vi.fn()
+const getAttachmentRecord = vi.fn()
 const getAttachmentContent = vi.fn()
 
 vi.mock('@/lib/autotask', () => ({
@@ -52,8 +51,7 @@ vi.mock('@/lib/autotask', () => ({
     getCompanyLocations = getCompanyLocations
     picklistLabelMap = picklistLabelMap
     getTimeEntryById = getTimeEntryById
-    getTicketAttachmentById = getTicketAttachmentById
-    getTimeEntryAttachmentById = getTimeEntryAttachmentById
+    getAttachmentRecord = getAttachmentRecord
     getAttachmentContent = getAttachmentContent
   },
   getAutotaskTicketUrl: (id: string) => `https://ww15.autotask.net/ticket/${id}`,
@@ -1108,15 +1106,32 @@ describe('autotask_update_ticket contract', () => {
 // ---------------------------------------------------------------------------
 //
 // Live entityInformation calls publish, title, fullPath and attachmentType
-// read-only AND required on both attachment entities, which cannot both be
-// true of a create; the vendor's own documented create request sends all four.
-// These tests pin the behaviour that makes the tool safe whichever way the
-// instance answers: publish is always sent, always read back, and a stored
-// visibility that differs from the request is rolled back and FAILED — never
-// reported as success on the strength of a 200.
+// read-only AND required on the attachment entities, which cannot both be true
+// of a create; the vendor's own documented create request sends all four. The
+// FIRST live call (autotask_add_time_entry_attachment) created row 28465 and
+// then failed its read-back with 500 "Unable to find ticketNoteID in the
+// TimeEntryAttachment Entity" — a field list shared across entities — and the
+// failure was classified INVALID_INPUT / caller, omitted the created id, and
+// ran no rollback. These tests pin every one of those four defects shut.
 
 const TRANSCRIPT = 'Speaker 1 (00:00): Triple Cities Tech, this is Ben.\nSpeaker 2 (00:02): Hi Ben, the printer is offline again.\n'
 const TRANSCRIPT_B64 = Buffer.from(TRANSCRIPT, 'utf8').toString('base64')
+
+/** Live field names per attachment entity, as entityInformation reported them on 2026-09-08. */
+const LIVE_ATTACHMENT_FIELDS: Record<string, string[]> = {
+  TicketAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentAttachmentID', 'parentID', 'publish', 'ticketID', 'ticketNoteID', 'timeEntryID', 'title'],
+  TimeEntryAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentID', 'publish', 'taskID', 'ticketID', 'timeEntryID', 'title'],
+  TicketNoteAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentID', 'publish', 'ticketID', 'ticketNoteID', 'title'],
+}
+function liveAttachmentMetadata(entity: string) {
+  const fields = LIVE_ATTACHMENT_FIELDS[entity]
+  if (!fields) throw new Error(`Autotask API GET ${entity}/entityInformation failed (404): not found`)
+  return Promise.resolve({
+    entity,
+    capabilities: { canQuery: true, canCreate: true, canUpdate: false, canDelete: true },
+    fields: fields.map((name) => ({ name, isRequired: false, isReadOnly: true, isQueryable: !['creatorType', 'data', 'fileSize'].includes(name) })),
+  })
+}
 
 /** Requests issued during a test as { method, path, body }. */
 function requests() {
@@ -1142,13 +1157,29 @@ function storedAttachment(overrides: Record<string, unknown> = {}) {
 }
 
 const ATTACH_ARGS = { ticketId: 555, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT }
+const TE_ARGS = { timeEntryId: 13188, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT }
+const PUBLISH_LABELS = new Map([[1, 'All Autotask Users'], [2, 'Internal Users Only'], [4, 'Internal & Co-Managed']])
 
-describe('autotask_add_ticket_attachment — refusals BEFORE any upload', () => {
-  it('rejects an oversized file as INVALID_INPUT without contacting Autotask', async () => {
+function attachmentSetup() {
+  clearCapabilityCache()
+  __setCapabilityFetcher(liveAttachmentMetadata)
+  getAttachmentRecord.mockReset()
+  getTimeEntryById.mockReset().mockResolvedValue({ id: 13188, ticketID: 555, resourceID: 1234, dateWorked: '2026-09-08', hoursWorked: 0.5 })
+  getTicketNoteByNoteId.mockReset().mockResolvedValue({ id: 777, ticketID: 555, title: 'n', description: 'd', publish: 2 })
+  getAttachmentContent.mockReset().mockResolvedValue({ data: TRANSCRIPT_B64, fileSize: Buffer.byteLength(TRANSCRIPT) })
+  picklistLabelMap.mockResolvedValue(PUBLISH_LABELS)
+}
+
+describe('autotask_add_ticket_attachment — refusals BEFORE any upload (phase validate)', () => {
+  beforeEach(attachmentSetup)
+  afterEach(() => __setCapabilityFetcher(null))
+
+  it('rejects an oversized file as INVALID_INPUT without contacting Autotask, and carries no created id', async () => {
     const failure = await harness().failure('autotask_add_ticket_attachment', { ...ATTACH_ARGS, content: 'x'.repeat(6_000_001) })
     expect(failure.reasonCode).toBe('INVALID_INPUT')
     expect(String(failure.message)).toMatch(/6,000,000 bytes/)
-    expect(failure.details).toMatchObject({ ticketId: 555, sizeBytes: 6_000_001 })
+    expect(failure.details).toMatchObject({ ticketId: 555, parentType: 'Tickets', parentId: 555, sizeBytes: 6_000_001, phase: 'validate' })
+    expect((failure.details as Record<string, unknown>).createdAttachmentId).toBeUndefined()
     expect(vi.mocked(fetch)).not.toHaveBeenCalled()
     expect(getTicket).not.toHaveBeenCalled()
   })
@@ -1166,45 +1197,35 @@ describe('autotask_add_ticket_attachment — refusals BEFORE any upload', () => 
     expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
 
-  it('a deliberately wrong ticket id is PRECONDITION_FAILED naming the id, and nothing is uploaded', async () => {
+  it('a deliberately wrong ticket id is PRECONDITION_FAILED naming the id, phase validate, createdAttachmentId null', async () => {
     getTicket.mockResolvedValueOnce(null)
     const failure = await harness().failure('autotask_add_ticket_attachment', { ...ATTACH_ARGS, ticketId: 999999 })
     expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
     expect(String(failure.message)).toMatch(/No Autotask ticket has id 999999/)
     expect(String(failure.remediation)).toMatch(/ticket NUMBER/)
-    expect(failure.details).toMatchObject({ ticketId: 999999 })
+    expect(failure.details).toMatchObject({ ticketId: 999999, phase: 'validate', createdAttachmentId: null })
     expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
 })
 
 describe('autotask_add_ticket_attachment — the create and its read-back', () => {
-  beforeEach(() => {
-    getTicketAttachmentById.mockReset()
-    getAttachmentContent.mockReset().mockResolvedValue({ data: TRANSCRIPT_B64, fileSize: Buffer.byteLength(TRANSCRIPT) })
-    picklistLabelMap.mockResolvedValue(new Map([[1, 'All Autotask Users'], [2, 'Internal Users Only'], [4, 'Internal & Co-Managed']]))
-  })
+  beforeEach(attachmentSetup)
+  afterEach(() => __setCapabilityFetcher(null))
 
   it('POSTs the vendor-documented body to the child collection URL, impersonated, with publish 2 by default', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment())
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment())
 
     const out = await harness().ok('autotask_add_ticket_attachment', ATTACH_ARGS)
 
     const [post] = requests()
-    expect(post.method).toBe('POST')
-    expect(post.path).toBe('Tickets/555/Attachments')
-    expect(post.impersonation).toBe('1234')
+    expect(post).toMatchObject({ method: 'POST', path: 'Tickets/555/Attachments', impersonation: '1234' })
     expect(post.body).toEqual({
-      attachmentType: 'FILE_ATTACHMENT',
-      fullPath: 'call.txt',
-      title: 'call.txt',
-      publish: 2,
-      contentType: 'text/plain',
-      data: TRANSCRIPT_B64,
+      attachmentType: 'FILE_ATTACHMENT', fullPath: 'call.txt', title: 'call.txt', publish: 2, contentType: 'text/plain', data: TRANSCRIPT_B64,
     })
     expect(requests()).toHaveLength(1) // no rollback, no second write
 
-    expect(out.attachment).toMatchObject({ id: 90, ticketId: 555, publish: 2, publishLabel: 'Internal Users Only' })
+    expect(out.attachment).toMatchObject({ id: 90, ticketId: 555, parentType: 'Tickets', publish: 2, publishLabel: 'Internal Users Only' })
     expect(out.attachment.visibility.scope).toBe('internal')
     expect(out.verification.verifiedFields.sort()).toEqual(['attachmentType', 'data', 'fullPath', 'publish', 'ticketID', 'title'])
     expect(out.verification.dataVerified).toBe(true)
@@ -1213,9 +1234,23 @@ describe('autotask_add_ticket_attachment — the create and its read-back', () =
     expect(out.activityNote).toMatch(/autotask_ticket_activity\(\{ ticketId: 555 \}\)/)
   })
 
+  it('reads back with the TicketAttachments projection built from LIVE metadata (includes ticketNoteID and parentAttachmentID)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment())
+
+    const out = await harness().ok('autotask_add_ticket_attachment', ATTACH_ARGS)
+
+    const [entity, parentField, parentId, id, fields] = getAttachmentRecord.mock.calls[0]
+    expect([entity, parentField, parentId, id]).toEqual(['TicketAttachments', 'ticketID', 555, 90])
+    expect(fields).toEqual(expect.arrayContaining(['id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'parentAttachmentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate', 'attachedByResourceID', 'impersonatorCreatorResourceID']))
+    expect(fields).not.toContain('taskID')
+    expect(fields).not.toContain('data')
+    expect(out.verification.readBackProjection).toMatchObject({ source: 'live-intersection', dropped: [] })
+  })
+
   it('customerVisible: true sends publish 1 and reports the customer_visible scope from the LIVE label', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 91 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ id: 91, publish: 1 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 91, publish: 1 }))
 
     const out = await harness().ok('autotask_add_ticket_attachment', { ...ATTACH_ARGS, customerVisible: true })
 
@@ -1224,11 +1259,11 @@ describe('autotask_add_ticket_attachment — the create and its read-back', () =
     expect(out.attachment.visibility.scope).toBe('customer_visible')
   })
 
-  it('ROLLS BACK and FAILS when Autotask stored a different publish than requested', async () => {
+  it('a publish that did not stick: VERIFY_FAILED, fixableBy connector, rolled back, id and state in details', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })) // the POST
       .mockResolvedValueOnce(jsonResponse(200, {}))             // the rollback DELETE
-    getTicketAttachmentById
+    getAttachmentRecord
       .mockResolvedValueOnce(storedAttachment({ publish: 1 }))   // read-back: CUSTOMER-VISIBLE
       .mockResolvedValueOnce(null)                                // after the delete: gone
 
@@ -1238,81 +1273,119 @@ describe('autotask_add_ticket_attachment — the create and its read-back', () =
     expect(post.method).toBe('POST')
     expect(del).toMatchObject({ method: 'DELETE', path: 'Tickets/555/Attachments/90', impersonation: '1234' })
 
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
-    expect(String(failure.message)).toMatch(/stored publish 1 "All Autotask Users" \(customer_visible\) instead of the requested 2/)
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(failure.fixableBy).toBe('connector')
+    expect(String(failure.message)).toMatch(/publish \(asked for 2, stored 1\)/)
+    expect(String(failure.message)).toMatch(/customer_visible/)
     expect(String(failure.message)).toMatch(/REMOVED again and the removal confirmed/)
     expect(String(failure.message)).toMatch(/Do NOT report the file as attached/)
-    expect(String(failure.remediation)).toMatch(/must be added in the Autotask UI/)
     expect(failure.details).toMatchObject({
-      attachmentId: 90,
+      phase: 'readback',
+      createdAttachmentId: 90,
+      parentType: 'Tickets',
+      parentId: 555,
+      verificationState: 'rolled_back',
       mismatches: [{ field: 'publish', requested: 2, actual: 1 }],
       rollback: { attempted: true, deleted: true, confirmedAbsent: true },
     })
   })
 
-  it('says loudly when the rollback itself fails — the file is still there at the wrong visibility', async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-      .mockResolvedValueOnce(jsonResponse(500, { errors: ['internal error'] }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ publish: 1 }))
-
-    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
-    expect(String(failure.message)).toMatch(/COULD NOT be removed/)
-    expect(String(failure.message)).toMatch(/a human must delete it in Autotask NOW/)
-    expect(failure.details).toMatchObject({ rollback: { attempted: true, deleted: false } })
-  })
-
-  it('rolls back a file that landed on a different ticket', async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-      .mockResolvedValueOnce(jsonResponse(200, {}))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ ticketID: 556 })).mockResolvedValueOnce(null)
-
-    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
-    expect(String(failure.message)).toMatch(/landed with ticketID 556 instead of the requested 555/)
-    expect(requests()[1].method).toBe('DELETE')
-  })
-
-  it('a title that did not stick is PRECONDITION_FAILED but is NOT rolled back (visibility and parent are right)', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ title: 'renamed by autotask' }))
+  it('a title that did not stick is ALSO rolled back — the contract is removal on any verification mismatch', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ title: 'renamed by autotask' })).mockResolvedValueOnce(null)
 
     const failure = await harness().failure('autotask_add_ticket_attachment', { ...ATTACH_ARGS, title: 'Call transcript' })
 
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
     expect(String(failure.message)).toMatch(/title \(asked for "Call transcript", stored "renamed by autotask"\)/)
-    expect(String(failure.message)).toMatch(/left in place/)
-    expect(requests()).toHaveLength(1)
+    expect(requests()[1].method).toBe('DELETE')
+    expect(failure.details).toMatchObject({ createdAttachmentId: 90, verificationState: 'rolled_back' })
   })
 
-  it('stored bytes that differ from what was sent are a failure', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment())
+  it('DEFECT 1+2+3+4 together: a read-back that THROWS (the live 500) is VERIFY_FAILED / connector, names the id, and rolls back', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 28465 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord
+      .mockRejectedValueOnce(new Error('Autotask API query TimeEntryAttachments failed (500): {"errors":["Unable to find ticketNoteID in the TimeEntryAttachment Entity."]}'))
+      .mockResolvedValueOnce(null)
+
+    const failure = await harness().failure('autotask_add_time_entry_attachment', TE_ARGS)
+
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(failure.fixableBy).toBe('connector')
+    expect(failure.reasonCode).not.toBe('INVALID_INPUT')
+    expect(String(failure.message)).toMatch(/attachment id 28465 on time entry 13188/)
+    expect(String(failure.message)).toMatch(/read-back query .* FAILED/)
+    expect(requests()[1]).toMatchObject({ method: 'DELETE', path: 'TimeEntries/13188/Attachments/28465' })
+    expect(failure.details).toMatchObject({
+      phase: 'readback',
+      createdAttachmentId: 28465,
+      parentType: 'TimeEntries',
+      parentId: 13188,
+      verificationState: 'rolled_back',
+      readBackError: expect.stringContaining('Unable to find ticketNoteID'),
+    })
+  })
+
+  it('says loudly when the rollback itself fails — verificationState rollback_failed WITH the id, phase rollback', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
+      .mockResolvedValueOnce(jsonResponse(500, { errors: ['internal error'] }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ publish: 1 }))
+
+    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
+
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(String(failure.message)).toMatch(/COULD NOT be removed/)
+    expect(String(failure.message)).toMatch(/attachment 90 REMAINS/)
+    expect(String(failure.remediation)).toMatch(/autotask_delete_attachment\(\{ parentType: "ticket", parentId: 555, attachmentId: 90 \}\)/)
+    expect(failure.details).toMatchObject({ phase: 'rollback', createdAttachmentId: 90, verificationState: 'rollback_failed', rollback: { attempted: true, deleted: false } })
+  })
+
+  it('an accepted DELETE whose re-read STILL returns the row is rollback_failed, not rolled_back', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ publish: 1 })).mockResolvedValueOnce(storedAttachment({ publish: 1 }))
+
+    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(String(failure.message)).toMatch(/STILL RETURNS IT/)
+    expect(failure.details).toMatchObject({ createdAttachmentId: 90, verificationState: 'rollback_failed', rollback: { deleted: true, confirmedAbsent: false } })
+  })
+
+  it('a read-back returning NO ROW rolls back and reports the id', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+
+    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(String(failure.message)).toMatch(/returned NO ROW/)
+    expect(failure.details).toMatchObject({ createdAttachmentId: 90, verificationState: 'rolled_back', stored: null })
+  })
+
+  it('stored bytes that differ from what was sent are VERIFY_FAILED and rolled back', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment()).mockResolvedValueOnce(null)
     getAttachmentContent.mockResolvedValueOnce({ data: Buffer.from('truncated').toString('base64'), fileSize: 9 })
 
     const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
-    expect(String(failure.message)).toMatch(/stored bytes differ/)
-    expect(failure.details).toMatchObject({ dataVerified: false, fileSizeStored: 9 })
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(String(failure.message)).toMatch(/STORED BYTES differ/)
+    expect(failure.details).toMatchObject({ dataVerified: false, verificationState: 'rolled_back' })
   })
 
-  it('a bytes read-back that cannot run degrades to dataVerified null with the reason — never a default true', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment())
+  it('a bytes read-back that cannot run is VERIFY_FAILED too — never a default success', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment()).mockResolvedValueOnce(null)
     getAttachmentContent.mockRejectedValueOnce(new Error('Autotask API GET failed (503): busy'))
 
-    const out = await harness().ok('autotask_add_ticket_attachment', ATTACH_ARGS)
-    expect(out.verification.dataVerified).toBeNull()
-    expect(out.verification.dataNote).toMatch(/content was NOT compared/)
-    expect(out.verification.verifiedFields).not.toContain('data')
+    const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(String(failure.message)).toMatch(/stored bytes could not be read back/)
+    expect(failure.details).toMatchObject({ dataVerified: null, verificationState: 'rolled_back' })
   })
 
   it('reports a normalised contentType instead of failing on it', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ contentType: 'application/octet-stream' }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ contentType: 'application/octet-stream' }))
 
     const out = await harness().ok('autotask_add_ticket_attachment', ATTACH_ARGS)
     expect(out.verification.contentType).toEqual({ requested: 'text/plain', stored: 'application/octet-stream', matches: false })
@@ -1321,64 +1394,71 @@ describe('autotask_add_ticket_attachment — the create and its read-back', () =
 
   it('reports API-user attribution rather than claiming impersonation from the header', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(storedAttachment({ attachedByResourceID: 4, impersonatorCreatorResourceID: null }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ attachedByResourceID: 4, impersonatorCreatorResourceID: null }))
 
     const out = await harness().ok('autotask_add_ticket_attachment', ATTACH_ARGS)
     expect(out.attribution.attributedToSignedInTech).toBe(false)
     expect(out.attribution.basis).toMatch(/API user/)
   })
 
-  it('fails when the create returns no itemId, and when the read-back returns nothing', async () => {
+  it('a create that returns no itemId is VERIFY_FAILED / unverified with createdAttachmentId null (nothing to roll back)', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {}))
     const noId = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-    expect(noId.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(noId.reasonCode).toBe('VERIFY_FAILED')
     expect(String(noId.message)).toMatch(/returned no itemId/)
-
-    vi.mocked(fetch).mockReset()
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 }))
-    getTicketAttachmentById.mockResolvedValueOnce(null)
-    const noRow = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-    expect(noRow.reasonCode).toBe('PRECONDITION_FAILED')
-    expect(String(noRow.message)).toMatch(/under ticket 555 did not return it/)
+    expect(noId.details).toMatchObject({ phase: 'post', createdAttachmentId: null, verificationState: 'unverified' })
+    expect(requests()).toHaveLength(1)
   })
 
-  it('a vendor rejection of the POST is classified, not retried, and nothing is read back', async () => {
+  it('a vendor rejection of the POST is classified (INVALID_INPUT), phase post, nothing created, nothing read back', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(500, { errors: ['The file extension .txt is not allowed for attachments.'] }))
     const failure = await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
     expect(failure.reasonCode).toBe('INVALID_INPUT')
     expect(String(failure.remediation)).toMatch(/not allowed for attachments/)
+    expect(failure.details).toMatchObject({ phase: 'post', createdAttachmentId: null })
     expect(requests()).toHaveLength(1)
-    expect(getTicketAttachmentById).not.toHaveBeenCalled()
+    expect(getAttachmentRecord).not.toHaveBeenCalled()
   })
 })
 
 describe('autotask_add_time_entry_attachment', () => {
-  beforeEach(() => {
-    getTimeEntryById.mockReset()
-    getTimeEntryAttachmentById.mockReset()
-    getAttachmentContent.mockReset().mockResolvedValue({ data: TRANSCRIPT_B64, fileSize: Buffer.byteLength(TRANSCRIPT) })
-    picklistLabelMap.mockResolvedValue(new Map([[1, 'All Autotask Users'], [2, 'Internal Users Only'], [4, 'Internal & Co-Managed']]))
-  })
+  beforeEach(attachmentSetup)
+  afterEach(() => __setCapabilityFetcher(null))
 
-  it('POSTs to TimeEntries/{id}/Attachments, verifies timeEntryID, and points at the parent TICKET\'s activity', async () => {
-    getTimeEntryById.mockResolvedValueOnce({ id: 13188, ticketID: 555, resourceID: 1234, dateWorked: '2026-09-08', hoursWorked: 0.5 })
+  it('reads back with the TimeEntryAttachments projection: NO ticketNoteID, NO parentAttachmentID, taskID present', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 92 }))
-    getTimeEntryAttachmentById.mockResolvedValueOnce(storedAttachment({ id: 92, ticketID: 555, timeEntryID: 13188, parentID: 13188 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 92, ticketID: 555, timeEntryID: 13188, parentID: 13188 }))
 
-    const out = await harness().ok('autotask_add_time_entry_attachment', { timeEntryId: 13188, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
+    const out = await harness().ok('autotask_add_time_entry_attachment', TE_ARGS)
+
+    const [entity, parentField, parentId, id, fields] = getAttachmentRecord.mock.calls[0]
+    expect([entity, parentField, parentId, id]).toEqual(['TimeEntryAttachments', 'timeEntryID', 13188, 92])
+    expect(fields).toEqual(expect.arrayContaining(['id', 'timeEntryID', 'ticketID', 'taskID', 'parentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate', 'attachedByResourceID', 'impersonatorCreatorResourceID']))
+    expect(fields).not.toContain('ticketNoteID')
+    expect(fields).not.toContain('parentAttachmentID')
 
     expect(requests()[0]).toMatchObject({ method: 'POST', path: 'TimeEntries/13188/Attachments', impersonation: '1234' })
-    expect(requests()[0].body.publish).toBe(2)
-    expect(out.attachment).toMatchObject({ id: 92, timeEntryId: 13188, ticketId: 555, publish: 2 })
+    expect(out.attachment).toMatchObject({ id: 92, timeEntryId: 13188, ticketId: 555, parentType: 'TimeEntries', publish: 2 })
     expect(out.verification.verifiedFields).toContain('timeEntryID')
     expect(out.ticketUrl).toBe('https://ww15.autotask.net/ticket/555')
     expect(out.activityNote).toMatch(/autotask_ticket_activity\(\{ ticketId: 555 \}\)/)
     expect(getAttachmentContent).toHaveBeenCalledWith('TimeEntries', 13188, 92)
   })
 
+  it('when live metadata is unavailable the declared per-entity list is used — still without ticketNoteID', async () => {
+    __setCapabilityFetcher(() => Promise.reject(new Error('Autotask API GET failed (503): busy')))
+    clearCapabilityCache()
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 92 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 92, timeEntryID: 13188 }))
+
+    const out = await harness().ok('autotask_add_time_entry_attachment', TE_ARGS)
+    expect(getAttachmentRecord.mock.calls[0][4]).not.toContain('ticketNoteID')
+    expect(out.verification.readBackProjection.source).toBe('declared-fallback')
+  })
+
   it('a deliberately wrong time entry id is PRECONDITION_FAILED naming the id, and nothing is uploaded', async () => {
     getTimeEntryById.mockResolvedValueOnce(null)
-    const failure = await harness().failure('autotask_add_time_entry_attachment', { timeEntryId: 424242, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
+    const failure = await harness().failure('autotask_add_time_entry_attachment', { ...TE_ARGS, timeEntryId: 424242 })
     expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
     expect(String(failure.message)).toMatch(/No Autotask time entry has id 424242/)
     expect(String(failure.remediation)).toMatch(/TimeEntries\.id/)
@@ -1386,32 +1466,111 @@ describe('autotask_add_time_entry_attachment', () => {
   })
 
   it('rolls back through the TIME ENTRY child path when publish did not stick', async () => {
-    getTimeEntryById.mockResolvedValueOnce({ id: 13188, ticketID: 555, resourceID: 1234, dateWorked: '2026-09-08', hoursWorked: 0.5 })
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 92 })).mockResolvedValueOnce(jsonResponse(200, {}))
-    getTimeEntryAttachmentById.mockResolvedValueOnce(storedAttachment({ id: 92, timeEntryID: 13188, publish: 1 })).mockResolvedValueOnce(null)
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 92, timeEntryID: 13188, publish: 1 })).mockResolvedValueOnce(null)
 
-    const failure = await harness().failure('autotask_add_time_entry_attachment', { timeEntryId: 13188, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
-    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    const failure = await harness().failure('autotask_add_time_entry_attachment', TE_ARGS)
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
     expect(requests()[1]).toMatchObject({ method: 'DELETE', path: 'TimeEntries/13188/Attachments/92' })
-    expect(failure.details).toMatchObject({ rollback: { deleted: true, confirmedAbsent: true } })
+    expect(failure.details).toMatchObject({ parentType: 'TimeEntries', parentId: 13188, createdAttachmentId: 92, verificationState: 'rolled_back' })
   })
 
-  it('says a TASK time entry\'s attachment will not appear in any connector activity read', async () => {
+  it("says a TASK time entry's attachment will not appear in any connector activity read", async () => {
     getTimeEntryById.mockResolvedValueOnce({ id: 777, taskID: 31, resourceID: 1234, dateWorked: '2026-09-08', hoursWorked: 1 })
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 93 }))
-    getTimeEntryAttachmentById.mockResolvedValueOnce(storedAttachment({ id: 93, ticketID: null, timeEntryID: 777 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 93, ticketID: null, timeEntryID: 777 }))
 
-    const out = await harness().ok('autotask_add_time_entry_attachment', { timeEntryId: 777, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
+    const out = await harness().ok('autotask_add_time_entry_attachment', { ...TE_ARGS, timeEntryId: 777 })
     expect(out.attachment.ticketId).toBeNull()
     expect(out.ticketUrl).toBeUndefined()
     expect(out.activityNote).toMatch(/project TASK/)
   })
 })
 
+describe('autotask_add_ticket_note_attachment', () => {
+  beforeEach(attachmentSetup)
+  afterEach(() => __setCapabilityFetcher(null))
+
+  it('POSTs to TicketNotes/{id}/Attachments and reads back with the TicketNoteAttachments projection (no timeEntryID/taskID/parentAttachmentID)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 94 }))
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 94, ticketID: 555, ticketNoteID: 777, parentID: 777 }))
+
+    const out = await harness().ok('autotask_add_ticket_note_attachment', { ticketNoteId: 777, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
+
+    const [entity, parentField, parentId, id, fields] = getAttachmentRecord.mock.calls[0]
+    expect([entity, parentField, parentId, id]).toEqual(['TicketNoteAttachments', 'ticketNoteID', 777, 94])
+    expect(fields).toEqual(expect.arrayContaining(['id', 'ticketNoteID', 'ticketID', 'parentID', 'publish', 'title', 'fullPath']))
+    for (const absent of ['timeEntryID', 'taskID', 'parentAttachmentID']) expect(fields).not.toContain(absent)
+    expect(requests()[0]).toMatchObject({ method: 'POST', path: 'TicketNotes/777/Attachments', impersonation: '1234' })
+    expect(out.attachment).toMatchObject({ id: 94, ticketNoteId: 777, ticketId: 555, parentType: 'TicketNotes', publish: 2 })
+    expect(out.activityNote).toMatch(/parent\.ticketNoteId 777/)
+  })
+
+  it('a wrong note id is PRECONDITION_FAILED and nothing is uploaded', async () => {
+    getTicketNoteByNoteId.mockResolvedValueOnce(null)
+    const failure = await harness().failure('autotask_add_ticket_note_attachment', { ticketNoteId: 1, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toMatch(/No Autotask ticket note has id 1/)
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+})
+
+describe('autotask_delete_attachment', () => {
+  beforeEach(attachmentSetup)
+  afterEach(() => __setCapabilityFetcher(null))
+
+  it('pre-reads, DELETEs at the child URL impersonated, re-reads, and reports what was removed', async () => {
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment({ id: 28465, ticketID: 555, timeEntryID: 13188 })).mockResolvedValueOnce(null)
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {}))
+
+    const out = await harness().ok('autotask_delete_attachment', { parentType: 'time_entry', parentId: 13188, attachmentId: 28465 })
+
+    expect(getAttachmentRecord.mock.calls[0].slice(0, 4)).toEqual(['TimeEntryAttachments', 'timeEntryID', 13188, 28465])
+    expect(getAttachmentRecord.mock.calls[0][4]).not.toContain('ticketNoteID')
+    expect(requests()).toEqual([expect.objectContaining({ method: 'DELETE', path: 'TimeEntries/13188/Attachments/28465', impersonation: '1234' })])
+    expect(out).toMatchObject({ deleted: true, verified: true, attachment: { id: 28465, parentType: 'TimeEntries', parentId: 13188, title: 'call.txt', publish: 2, publishLabel: 'Internal Users Only' } })
+  })
+
+  it('refuses when the attachment is not under the named parent — PRECONDITION_FAILED, nothing deleted', async () => {
+    getAttachmentRecord.mockResolvedValueOnce(null)
+    const failure = await harness().failure('autotask_delete_attachment', { parentType: 'ticket', parentId: 555, attachmentId: 4242 })
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(failure.message)).toMatch(/No attachment with id 4242 exists under ticket 555/)
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+
+  it('a row still returned after the DELETE is VERIFY_FAILED, never "deleted"', async () => {
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment()).mockResolvedValueOnce(storedAttachment())
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {}))
+
+    const failure = await harness().failure('autotask_delete_attachment', { parentType: 'ticket', parentId: 555, attachmentId: 90 })
+    expect(failure.reasonCode).toBe('VERIFY_FAILED')
+    expect(failure.fixableBy).toBe('connector')
+    expect(String(failure.message)).toMatch(/STILL RETURNS the row/)
+    expect(failure.details).toMatchObject({ phase: 'readback', verificationState: 'unverified', attachmentId: 90 })
+  })
+
+  it('a vendor rejection of the DELETE is classified, phase post, and the pre-read attachment is reported', async () => {
+    getAttachmentRecord.mockResolvedValueOnce(storedAttachment())
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(500, { errors: ['Data violation: attachment 90 is referenced by an invoice.'] }))
+
+    const failure = await harness().failure('autotask_delete_attachment', { parentType: 'ticket', parentId: 555, attachmentId: 90 })
+    expect(failure.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(failure.details).toMatchObject({ phase: 'post', attachment: { id: 90 } })
+  })
+
+  it('exposes parentType as an enum of the three parents, all required', () => {
+    const schema = harness().schema('autotask_delete_attachment') as Record<string, { isOptional(): boolean; _def: { values?: string[] } }>
+    expect(Object.keys(schema).sort()).toEqual(['attachmentId', 'parentId', 'parentType'])
+    expect(schema.parentType._def.values).toEqual(['ticket', 'time_entry', 'ticket_note'])
+    for (const k of Object.keys(schema)) expect(schema[k].isOptional()).toBe(false)
+  })
+})
+
 describe('attachment tool contracts', () => {
-  it('both tools expose the same file parameters, with customerVisible OPTIONAL and the parent id required', () => {
+  it('the three create tools expose the same file parameters, with customerVisible OPTIONAL and the parent id required', () => {
     const h = harness()
-    for (const [tool, parent] of [['autotask_add_ticket_attachment', 'ticketId'], ['autotask_add_time_entry_attachment', 'timeEntryId']] as const) {
+    for (const [tool, parent] of [['autotask_add_ticket_attachment', 'ticketId'], ['autotask_add_time_entry_attachment', 'timeEntryId'], ['autotask_add_ticket_note_attachment', 'ticketNoteId']] as const) {
       const schema = h.schema(tool) as Record<string, { isOptional(): boolean }>
       expect(Object.keys(schema).sort()).toEqual([parent, 'content', 'contentBase64', 'contentType', 'customerVisible', 'filename', 'title'].sort())
       expect(schema[parent].isOptional()).toBe(false)
@@ -1421,46 +1580,21 @@ describe('attachment tool contracts', () => {
     }
   })
 
-  it('the descriptions state the default is INTERNAL, what customerVisible exposes, the read-back, the cap and the allowlist', () => {
+  it('the descriptions state the default is INTERNAL, what customerVisible exposes, the phases, the rollback, the cap and the allowlist', () => {
     const h = harness()
-    for (const tool of ['autotask_add_ticket_attachment', 'autotask_add_time_entry_attachment']) {
+    for (const tool of ['autotask_add_ticket_attachment', 'autotask_add_time_entry_attachment', 'autotask_add_ticket_note_attachment']) {
       const d = h.description(tool)
       expect(d).toMatch(/defaults to INTERNAL \(publish 2/)
       expect(d).toMatch(/Client Portal customers can open/)
       expect(d).toMatch(/READ BACK off the created attachment/)
-      expect(d).toMatch(/REMOVED again/)
+      expect(d).toMatch(/VERIFY_FAILED/)
+      expect(d).toMatch(/details\.createdAttachmentId/)
+      expect(d).toMatch(/verificationState/)
+      expect(d).toMatch(/validate \| post \| readback \| rollback/)
       expect(d).toMatch(/6,000,000 bytes/)
       expect(d).toMatch(/"6 to 7 MB"/)
       expect(d).toMatch(/text\/plain, text\/csv, text\/markdown, application\/json, application\/pdf/)
-      expect(d).toMatch(/does not expose attachment deletion/)
-      // No parameter can delete, and none can express "replace".
-      expect(d).not.toMatch(/\bdelete\b(?!.*not expose)/i)
+      expect(d).toMatch(/autotask_delete_attachment/)
     }
-  })
-})
-
-describe('attachment read-back queries carry the PARENT id, as Kaseya requires of attachment queries', () => {
-  it('ticket: queries by ticketID AND id, and re-checks the same way after a rollback', async () => {
-    getAttachmentContent.mockResolvedValue({ data: TRANSCRIPT_B64, fileSize: 1 })
-    picklistLabelMap.mockResolvedValue(new Map([[1, 'All Autotask Users'], [2, 'Internal Users Only']]))
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 90 })).mockResolvedValueOnce(jsonResponse(200, {}))
-    getTicketAttachmentById.mockReset().mockResolvedValueOnce(storedAttachment({ publish: 1 })).mockResolvedValueOnce(null)
-
-    await harness().failure('autotask_add_ticket_attachment', ATTACH_ARGS)
-
-    expect(getTicketAttachmentById).toHaveBeenNthCalledWith(1, 555, 90)
-    expect(getTicketAttachmentById).toHaveBeenNthCalledWith(2, 555, 90)
-  })
-
-  it('time entry: queries by timeEntryID AND id', async () => {
-    getAttachmentContent.mockResolvedValue({ data: TRANSCRIPT_B64, fileSize: 1 })
-    picklistLabelMap.mockResolvedValue(new Map([[2, 'Internal Users Only']]))
-    getTimeEntryById.mockReset().mockResolvedValueOnce({ id: 13188, ticketID: 555, resourceID: 1234, dateWorked: '2026-09-08', hoursWorked: 0.5 })
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 92 }))
-    getTimeEntryAttachmentById.mockReset().mockResolvedValueOnce(storedAttachment({ id: 92, timeEntryID: 13188 }))
-
-    await harness().ok('autotask_add_time_entry_attachment', { timeEntryId: 13188, filename: 'call.txt', contentType: 'text/plain', content: TRANSCRIPT })
-
-    expect(getTimeEntryAttachmentById).toHaveBeenCalledWith(13188, 92)
   })
 })

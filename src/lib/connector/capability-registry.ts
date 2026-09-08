@@ -495,22 +495,42 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   // operational row on one record, visible in the UI immediately. The risk
   // that matters here is VISIBILITY, and it is handled by verification plus a
   // rollback rather than by a gate — see the constraints.
-  autotask_add_ticket_attachment: atWrite(
-    'Creates a TicketAttachments record via POST Tickets/{ticketId}/Attachments — the ONLY create path the zone\'s Swagger exposes (no root POST)',
-    'publish defaults to INTERNAL (2 "Internal Users Only") and is ALWAYS sent; customerVisible: true is the explicit opt-in to publish 1 "All Autotask Users", which Client Portal customers can open',
-    'The stored publish is READ BACK with its live label and never claimed from the accepted POST. If Autotask stored a different visibility, or the file landed on a different parent, the attachment is REMOVED again and the call fails PRECONDITION_FAILED',
-    'Read-back VERIFIED: publish, ticketID, title, fullPath, attachmentType by re-query, and the stored BYTES fetched through the child URL and compared to what was sent. contentType is reported, not enforced',
-    `Size cap ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes (CHOSEN: lower bound of Kaseya's documented "6 to 7 MB" per-file limit) and a content-type allowlist (${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')}) — both enforced BEFORE any upload, as INVALID_INPUT`,
-    'Attachments cannot be updated (Autotask: canUpdate false) and deletion is deliberately not exposed — see knownLimits',
-  ),
-  autotask_add_time_entry_attachment: atWrite(
-    'Creates a TimeEntryAttachments record via POST TimeEntries/{timeEntryId}/Attachments — takes the TimeEntries.id, not a ticket id',
-    'publish defaults to INTERNAL (2 "Internal Users Only") and is ALWAYS sent; customerVisible: true is the explicit opt-in to publish 1 "All Autotask Users", which Client Portal customers can open',
-    'The stored publish is READ BACK with its live label and never claimed from the accepted POST. A wrong visibility or parent is rolled back (the row is removed again) and fails PRECONDITION_FAILED',
-    'Read-back VERIFIED: publish, timeEntryID, title, fullPath, attachmentType by re-query, and the stored BYTES compared to what was sent. contentType is reported, not enforced',
-    `Size cap ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes (CHOSEN: lower bound of the documented "6 to 7 MB") and a content-type allowlist (${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')}) — enforced BEFORE any upload, as INVALID_INPUT`,
-    'A time entry on a ticket: the attachment appears in autotask_ticket_activity for that ticket. A time entry on a project TASK: no connector activity read returns attachments, so it is verifiable only in the Autotask UI',
-  ),
+  ...(() => {
+    const shared = [
+      'publish defaults to INTERNAL (2 "Internal Users Only") and is ALWAYS sent; customerVisible: true is the explicit opt-in to publish 1 "All Autotask Users", which Client Portal customers can open',
+      'The stored publish is READ BACK with its live label and never claimed from the accepted POST',
+      'PHASE-TAGGED (validate | post | readback | rollback): anything failing AFTER the POST was accepted is VERIFY_FAILED / fixableBy connector, never INVALID_INPUT — and always carries details.createdAttachmentId, parentType, parentId and verificationState (rolled_back | rollback_failed | unverified)',
+      'A read-back that fails, returns nothing, or disagrees with the request ROLLS BACK: the created row is deleted and the removal confirmed by re-read; if the delete fails the id is reported so a human can remove it',
+      'Read-back projection is PER ENTITY, intersected with live entityInformation — a shared field list 500\'d every TimeEntryAttachments read-back on 2026-09-08 ("Unable to find ticketNoteID")',
+      `Size cap ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes (CHOSEN: lower bound of Kaseya's documented "6 to 7 MB" per-file limit) and a content-type allowlist (${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')}) — both enforced BEFORE any upload, as INVALID_INPUT`,
+      'Attachments cannot be updated (canUpdate false); remove a wrong one with autotask_delete_attachment and re-upload',
+    ]
+    return {
+      autotask_add_ticket_attachment: atWrite(
+        'Creates a TicketAttachments record via POST Tickets/{ticketId}/Attachments — the ONLY create path the zone\'s Swagger exposes (no root POST)',
+        ...shared,
+      ),
+      autotask_add_time_entry_attachment: atWrite(
+        'Creates a TimeEntryAttachments record via POST TimeEntries/{timeEntryId}/Attachments — takes the TimeEntries.id, not a ticket id',
+        ...shared,
+        'A time entry on a ticket: the attachment appears in autotask_ticket_activity for that ticket. A time entry on a project TASK: no connector activity read returns attachments, so it is verifiable only in the Autotask UI',
+      ),
+      autotask_add_ticket_note_attachment: atWrite(
+        'Creates a TicketNoteAttachments record via POST TicketNotes/{ticketNoteId}/Attachments — takes the TicketNotes.id, not a ticket id',
+        ...shared,
+        'Appears in autotask_ticket_activity for the note\'s ticket, tagged with parent.ticketNoteId',
+      ),
+    }
+  })(),
+  autotask_delete_attachment: {
+    ...atWrite(
+      'PERMANENT: deletes ONE attachment from a ticket, time entry or ticket note by parentType + parentId + attachmentId; there is no undo and attachments cannot be edited or restored',
+      'Pre-read: the attachment must exist under the named parent or the call is PRECONDITION_FAILED and nothing is deleted; the response reports what was removed',
+      'Verified by re-read: a row still returned after the DELETE is VERIFY_FAILED, never reported as deleted',
+      'Exists so a rollback_failed leftover from the create tools (or a wrong upload) can be removed through the connector — canDelete is true on all three attachment entities (live 2026-09-08)',
+    ),
+    risk: 'destructive',
+  },
 
   // ── Autotask: project / task / CRM reads ─────────────────────────────────
   autotask_get_task: r(

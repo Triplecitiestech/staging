@@ -7,9 +7,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   ATTACHMENT_CONTENT_TYPES,
+  ATTACHMENT_ENTITIES,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_PUBLISH,
   attachmentBytesMatch,
+  attachmentReadBackFields,
   buildAttachmentBody,
   describeAttribution,
   fileExtension,
@@ -182,10 +184,10 @@ describe('verifyAttachmentReadBack', () => {
     expect(v.rollbackWarranted).toBe(true)
   })
 
-  it('a title or path that did not stick is a mismatch but NOT a rollback', () => {
+  it('a title or path that did not stick is a mismatch AND warrants rollback — the contract is removal on any mismatch', () => {
     const v = verifyAttachmentReadBack(plan({ title: 'Call' }), { field: 'ticketID', id: 35437 }, { ...stored, title: 'Something else' })
     expect(v.mismatches).toEqual([{ field: 'title', requested: 'Call', actual: 'Something else' }])
-    expect(v.rollbackWarranted).toBe(false)
+    expect(v.rollbackWarranted).toBe(true)
   })
 
   it('a missing field fails closed rather than reading as a match', () => {
@@ -247,5 +249,69 @@ describe('small helpers', () => {
     expect(fileExtension('.bashrc')).toBe('')
     expect(fileExtension('trailing.')).toBe('')
     expect(fileExtension('noext')).toBe('')
+  })
+})
+
+describe('attachmentReadBackFields — the projection is PER ENTITY and intersected with live metadata', () => {
+  // Live entityInformation, 2026-09-08. The shared list that produced
+  // 500 "Unable to find ticketNoteID in the TimeEntryAttachment Entity."
+  // cannot be reconstructed from these.
+  const LIVE = {
+    TicketAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentAttachmentID', 'parentID', 'publish', 'ticketID', 'ticketNoteID', 'timeEntryID', 'title'],
+    TimeEntryAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentID', 'publish', 'taskID', 'ticketID', 'timeEntryID', 'title'],
+    TicketNoteAttachments: ['attachDate', 'attachedByContactID', 'attachedByResourceID', 'attachmentType', 'contentType', 'creatorType', 'data', 'fileSize', 'fullPath', 'id', 'impersonatorCreatorResourceID', 'opportunityID', 'parentID', 'publish', 'ticketID', 'ticketNoteID', 'title'],
+  } as const
+
+  it('TicketAttachments keeps ticketNoteID and parentAttachmentID; TimeEntryAttachments never requests them', () => {
+    const t = attachmentReadBackFields('TicketAttachments', LIVE.TicketAttachments)
+    expect(t.fields).toEqual(expect.arrayContaining(['id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'parentAttachmentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate', 'attachedByResourceID', 'impersonatorCreatorResourceID']))
+    const te = attachmentReadBackFields('TimeEntryAttachments', LIVE.TimeEntryAttachments)
+    expect(te.fields).toEqual(expect.arrayContaining(['id', 'timeEntryID', 'ticketID', 'taskID', 'parentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate', 'attachedByResourceID', 'impersonatorCreatorResourceID']))
+    expect(te.fields).not.toContain('ticketNoteID')
+    expect(te.fields).not.toContain('parentAttachmentID')
+    expect(te.dropped).toEqual([])
+    const tn = attachmentReadBackFields('TicketNoteAttachments', LIVE.TicketNoteAttachments)
+    for (const absent of ['timeEntryID', 'taskID', 'parentAttachmentID']) expect(tn.fields).not.toContain(absent)
+    expect(tn.fields).toEqual(expect.arrayContaining(['ticketNoteID', 'ticketID']))
+  })
+
+  it('never requests the three fields that error when queried', () => {
+    for (const e of Object.keys(ATTACHMENT_ENTITIES) as Array<keyof typeof LIVE>) {
+      const { fields } = attachmentReadBackFields(e, LIVE[e])
+      for (const bad of ['creatorType', 'data', 'fileSize']) expect(fields).not.toContain(bad)
+    }
+  })
+
+  it('DROPS a declared field the live metadata no longer carries, and reports it — degrade, not 500', () => {
+    const withoutParentAttachment = LIVE.TicketAttachments.filter((f) => f !== 'parentAttachmentID')
+    const r = attachmentReadBackFields('TicketAttachments', withoutParentAttachment)
+    expect(r.fields).not.toContain('parentAttachmentID')
+    expect(r.dropped).toEqual(['parentAttachmentID'])
+    expect(r.source).toBe('live-intersection')
+  })
+
+  it('always keeps id and the parent field, even if the metadata omits them', () => {
+    const r = attachmentReadBackFields('TimeEntryAttachments', ['publish', 'title'])
+    expect(r.fields).toEqual(expect.arrayContaining(['id', 'timeEntryID', 'publish', 'title']))
+    expect(r.dropped).toEqual(expect.arrayContaining(['ticketID', 'taskID', 'fullPath']))
+  })
+
+  it('uses the live spelling when case differs', () => {
+    const r = attachmentReadBackFields('TicketAttachments', ['ID', 'TicketID', 'Publish'])
+    expect(r.fields).toEqual(expect.arrayContaining(['ID', 'TicketID', 'Publish']))
+  })
+
+  it('falls back to the declared per-entity list when metadata is unavailable — which still cannot share fields across entities', () => {
+    const r = attachmentReadBackFields('TimeEntryAttachments', null)
+    expect(r.source).toBe('declared-fallback')
+    expect(r.fields).not.toContain('ticketNoteID')
+    expect(r.fields).toContain('taskID')
+  })
+
+  it('every entity config addresses the child collection of its own parent and verifies its own parent field', () => {
+    expect(ATTACHMENT_ENTITIES.TicketAttachments).toMatchObject({ parentEntity: 'Tickets', parentField: 'ticketID' })
+    expect(ATTACHMENT_ENTITIES.TimeEntryAttachments).toMatchObject({ parentEntity: 'TimeEntries', parentField: 'timeEntryID' })
+    expect(ATTACHMENT_ENTITIES.TicketNoteAttachments).toMatchObject({ parentEntity: 'TicketNotes', parentField: 'ticketNoteID' })
+    for (const cfg of Object.values(ATTACHMENT_ENTITIES)) expect(cfg.readBackFields).toContain(cfg.parentField)
   })
 })

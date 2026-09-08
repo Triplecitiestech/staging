@@ -121,6 +121,106 @@ export const ATTACHMENT_PUBLISH = {
 export const FILE_ATTACHMENT_TYPE = 'FILE_ATTACHMENT'
 
 // ---------------------------------------------------------------------------
+// The three attachment entities this connector writes, and how each is read back
+// ---------------------------------------------------------------------------
+//
+// 2026-09-08, live: the first real autotask_add_time_entry_attachment call
+// created row 28465 and then the read-back 500'd —
+//   {"errors":["Unable to find ticketNoteID in the TimeEntryAttachment Entity."]}
+// — because ONE field list was shared across entities. Verified against live
+// entityInformation the same day: TicketAttachments has ticketNoteID and
+// parentAttachmentID; TimeEntryAttachments has NEITHER (it has taskID instead);
+// TicketNoteAttachments has ticketNoteID but no timeEntryID, taskID or
+// parentAttachmentID. So the projection is declared PER ENTITY below, and then
+// intersected with the live field list at call time (attachmentReadBackFields),
+// so a vendor schema change drops a field from the read instead of failing it.
+
+export type AttachmentEntity = 'TicketAttachments' | 'TimeEntryAttachments' | 'TicketNoteAttachments'
+export type AttachmentParentEntity = 'Tickets' | 'TimeEntries' | 'TicketNotes'
+export type AttachmentParentField = 'ticketID' | 'timeEntryID' | 'ticketNoteID'
+
+export interface AttachmentEntityConfig {
+  entity: AttachmentEntity
+  /** Child-collection URL root: POST/GET/DELETE {parentEntity}/{parentId}/Attachments[/{id}]. */
+  parentEntity: AttachmentParentEntity
+  /** The field on the row that must equal the parent id the caller named. */
+  parentField: AttachmentParentField
+  /**
+   * Queryable fields wanted from a read-back — the maximal set for THIS entity.
+   * creatorType, data and fileSize are never here (they error when queried).
+   * Intersected with live entityInformation before use.
+   */
+  readBackFields: readonly string[]
+}
+
+const COMMON_READ_BACK = [
+  'id', 'parentID', 'publish', 'title', 'fullPath', 'attachmentType', 'contentType', 'attachDate',
+  'attachedByResourceID', 'attachedByContactID', 'impersonatorCreatorResourceID',
+] as const
+
+export const ATTACHMENT_ENTITIES: Readonly<Record<AttachmentEntity, AttachmentEntityConfig>> = {
+  TicketAttachments: {
+    entity: 'TicketAttachments',
+    parentEntity: 'Tickets',
+    parentField: 'ticketID',
+    readBackFields: [...COMMON_READ_BACK, 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentAttachmentID'],
+  },
+  TimeEntryAttachments: {
+    entity: 'TimeEntryAttachments',
+    parentEntity: 'TimeEntries',
+    parentField: 'timeEntryID',
+    readBackFields: [...COMMON_READ_BACK, 'timeEntryID', 'ticketID', 'taskID'],
+  },
+  TicketNoteAttachments: {
+    entity: 'TicketNoteAttachments',
+    parentEntity: 'TicketNotes',
+    parentField: 'ticketNoteID',
+    readBackFields: [...COMMON_READ_BACK, 'ticketNoteID', 'ticketID'],
+  },
+}
+
+/**
+ * The projection to request from a read-back, given the entity's LIVE field
+ * names. Names the live metadata does not carry are dropped and reported, so
+ * the query degrades to fewer columns instead of a 500. `id` and the parent
+ * field are always kept — without them there is nothing to verify against.
+ *
+ * `liveFieldNames` null = the metadata lookup failed; the declared per-entity
+ * list is used unfiltered, which is already entity-specific and therefore
+ * cannot reproduce the shared-list defect.
+ */
+export function attachmentReadBackFields(
+  entity: AttachmentEntity,
+  liveFieldNames: readonly string[] | null,
+): { fields: string[]; dropped: string[]; source: 'live-intersection' | 'declared-fallback' } {
+  const cfg = ATTACHMENT_ENTITIES[entity]
+  const declared = [...new Set([...cfg.readBackFields])]
+  if (!liveFieldNames) return { fields: declared, dropped: [], source: 'declared-fallback' }
+  const live = new Map(liveFieldNames.map((n) => [n.toLowerCase(), n]))
+  const fields: string[] = []
+  const dropped: string[] = []
+  for (const name of declared) {
+    const liveName = live.get(name.toLowerCase())
+    const mustKeep = name === 'id' || name === cfg.parentField
+    if (liveName) fields.push(liveName)
+    else if (mustKeep) fields.push(name)
+    else dropped.push(name)
+  }
+  return { fields, dropped, source: 'live-intersection' }
+}
+
+/** Which step of a write a failure belongs to. Set on every attachment envelope. */
+export type AttachmentPhase = 'validate' | 'post' | 'readback' | 'rollback'
+
+/**
+ * What was left behind when a write failed after Autotask accepted it.
+ *   unverified      — a record may exist; the connector could not remove or confirm it (no id, or rollback not attempted)
+ *   rolled_back     — the connector deleted the record it created
+ *   rollback_failed — the delete itself failed; the record with createdAttachmentId REMAINS and a human must remove it
+ */
+export type VerificationState = 'unverified' | 'rolled_back' | 'rollback_failed'
+
+// ---------------------------------------------------------------------------
 // Input → plan
 // ---------------------------------------------------------------------------
 
@@ -325,7 +425,10 @@ export interface StoredAttachmentFields {
   id?: number
   ticketID?: number | null
   timeEntryID?: number | null
+  ticketNoteID?: number | null
+  taskID?: number | null
   parentID?: number | null
+  parentAttachmentID?: number | null
   title?: string | null
   fullPath?: string | null
   contentType?: string | null
@@ -349,9 +452,11 @@ export interface AttachmentVerification {
   /** Requested fields whose stored value differs. Any entry here is a failure. */
   mismatches: AttachmentMismatch[]
   /**
-   * True when a mismatch concerns WHERE the file landed or WHO can see it —
-   * the parent id or publish. Those are the two cases where leaving the row in
-   * place is itself the harm, so the caller removes what it just created.
+   * True whenever the read-back disagrees with the request on ANY compared
+   * field. The tool contract (2026-09-08, owner-directed after row 28465 was
+   * left in place) is: a create that cannot be verified as stored-as-requested
+   * is removed again. The caller deletes what it just created and reports
+   * verificationState.
    */
   rollbackWarranted: boolean
   /**
@@ -375,7 +480,7 @@ const norm = (v: unknown): string => (v == null ? '' : String(v)).replace(/\r\n/
  */
 export function verifyAttachmentReadBack(
   plan: AttachmentPlan,
-  parent: { field: 'ticketID' | 'timeEntryID'; id: number },
+  parent: { field: AttachmentParentField; id: number },
   stored: StoredAttachmentFields,
 ): AttachmentVerification {
   const verifiedFields: string[] = []
@@ -400,7 +505,7 @@ export function verifyAttachmentReadBack(
   return {
     verifiedFields,
     mismatches,
-    rollbackWarranted: mismatches.some((m) => m.field === 'publish' || m.field === parent.field),
+    rollbackWarranted: mismatches.length > 0,
     contentType: {
       requested: plan.contentType,
       stored: stored.contentType ?? null,

@@ -127,12 +127,12 @@ export const DIRECT_WRITE_TOOLS: Record<string, Partial<Record<ConfigWriteOperat
   TaskNotes: { create: ['autotask_add_task_note'], update: ['autotask_update_task_note'] },
   ProjectNotes: { create: ['autotask_add_project_note'] },
   TimeEntries: { create: ['autotask_create_time_entry', 'autotask_create_task_time_entry'], update: ['autotask_update_time_entry'] },
-  // Attachments are create-only in practice: canUpdate is false upstream, and
-  // delete is deliberately withheld (known-limits.ts, POLICY_GATED). The one
-  // internal delete — the visibility rollback — is not a tool and is not
-  // listed, because listing it would make capability_check offer it.
-  TicketAttachments: { create: ['autotask_add_ticket_attachment'] },
-  TimeEntryAttachments: { create: ['autotask_add_time_entry_attachment'] },
+  // Attachments: create + delete (canUpdate is false upstream — a wrong file is
+  // deleted and re-uploaded). One delete tool covers all three entities by
+  // parentType, so it is listed under each.
+  TicketAttachments: { create: ['autotask_add_ticket_attachment'], delete: ['autotask_delete_attachment'] },
+  TimeEntryAttachments: { create: ['autotask_add_time_entry_attachment'], delete: ['autotask_delete_attachment'] },
+  TicketNoteAttachments: { create: ['autotask_add_ticket_note_attachment'], delete: ['autotask_delete_attachment'] },
   TaskSecondaryResources: { create: ['autotask_add_task_secondary_resource'], delete: ['autotask_remove_task_secondary_resource'] },
   TaskPredecessors: { create: ['autotask_add_task_predecessor'], delete: ['autotask_remove_task_predecessor'] },
   Companies: { create: ['autotask_create_company'], update: ['autotask_update_company'] },

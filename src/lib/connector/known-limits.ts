@@ -184,28 +184,20 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
         'Deleting a contact drops its association with the ticket history irrecoverably; deleting billable time silently changes what a customer owes. Both have a safe alternative that preserves the record — isActive false on a contact, autotask_update_time_entry on an entry — so the destructive form is withheld until someone asks for it with a concrete need. This is a blast-radius decision, not an API gap: say so rather than reporting it as impossible.',
     },
     {
-      capability: 'Edit an existing ticket or time-entry attachment (retitle, rename, change its visibility, replace the file)',
+      capability: 'Edit an existing attachment on a ticket, time entry or ticket note (retitle, rename, change its visibility, replace the file)',
       reason: 'VENDOR_NO_API',
       verifiedBy:
-        'entityInformation reports TicketAttachments.canUpdate FALSE and TimeEntryAttachments.canUpdate FALSE (canQuery/canCreate/canDelete true on both), read live 2026-09-08 via autotask_entity_capabilities and re-derived live on every call. Kaseya\'s "Working with attachments in the REST API": "Attachments support create, delete, and query functions only. It is not possible to update an attachment." The zone Swagger has no PATCH/PUT at any attachment path.',
+        'entityInformation reports canUpdate FALSE on TicketAttachments, TimeEntryAttachments and TicketNoteAttachments (canQuery/canCreate/canDelete true on all three), read live 2026-09-08 via autotask_entity_capabilities and re-derived live on every call. Kaseya\'s "Working with attachments in the REST API": "Attachments support create, delete, and query functions only. It is not possible to update an attachment." The zone Swagger has no PATCH/PUT at any attachment path.',
       notes:
-        'A wrong attachment can only be deleted and re-created. Creating IS implemented (autotask_add_ticket_attachment / autotask_add_time_entry_attachment, read-back verified); deletion is withheld — see the next row — so a correction is: a human deletes the wrong file in the Autotask UI, then the connector uploads the corrected one.',
+        'A wrong attachment is deleted and re-created: autotask_delete_attachment (parentType + parentId + attachmentId, pre-read and re-read verified) then autotask_add_ticket_attachment / autotask_add_time_entry_attachment / autotask_add_ticket_note_attachment. All four are implemented.',
     },
     {
-      capability: 'Delete a ticket or time-entry attachment',
-      reason: 'POLICY_GATED',
-      verifiedBy:
-        'NOT a vendor limit — entityInformation reports TicketAttachments.canDelete TRUE and TimeEntryAttachments.canDelete TRUE (read live 2026-09-08), and the zone Swagger exposes DELETE {Tickets|TimeEntries}/{parentId}/Attachments/{id}. No connector tool offers it, deliberately.',
-      notes:
-        'Same blast-radius decision as contact and time-entry deletion: an attachment is often the only copy of a customer document or a signed form on the ticket, and there is no soft alternative (attachments cannot be edited or hidden after the fact). The ONE internal delete that exists is the visibility ROLLBACK inside the two create tools — when the read-back shows Autotask stored a different publish (or a different parent) than requested, the row the tool created seconds earlier is removed again, by the id Autotask returned, and the removal is confirmed by re-read. It is not reachable by any parameter. Say "deliberately withheld", not "impossible".',
-    },
-    {
-      capability: 'Attachments on task notes, ticket notes, companies, projects, tasks, opportunities or configuration items; link-type attachments (FILE_LINK / FOLDER_LINK / URL); nested attachments',
+      capability: 'Attachments on companies, projects, tasks, task notes, opportunities or configuration items; link-type attachments (FILE_LINK / FOLDER_LINK / URL); nested attachments (parentAttachmentID)',
       reason: 'NOT_BUILT',
       verifiedBy:
-        'The zone Swagger exposes child Attachments collections for those parents too (e.g. TicketNotes/{parentId}/Attachments) and the attachmentType picklist carries File Link / Folder Link / URL alongside Attachment; only Tickets and TimeEntries with attachmentType FILE_ATTACHMENT are implemented. Read live 2026-09-08.',
+        'The zone Swagger exposes child Attachments collections for those parents too, and the attachmentType picklist carries File Link / Folder Link / URL alongside Attachment; only Tickets, TimeEntries and TicketNotes with attachmentType FILE_ATTACHMENT are implemented. Read live 2026-09-08.',
       priority: 'low',
-      notes: 'Built for the call-transcript pipeline, which needs exactly ticket + time entry. Widening to other parents is the same handler with a different parent entity and read-back query.',
+      notes: 'Built for the call-transcript pipeline. Widening to another parent is the same handler with a different entity config in src/lib/autotask-attachments.ts (ATTACHMENT_ENTITIES) and a per-entity read-back projection — never a shared field list.',
     },
     {
       capability: 'Read or write project CHARGES, expenses, or the project schedule/Gantt layout',
