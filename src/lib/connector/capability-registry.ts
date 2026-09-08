@@ -27,6 +27,11 @@
 
 import { KNOWN_LIMITS, type KnownLimit } from './known-limits'
 import { instrumentToolHandler, type ToolTelemetryFacts } from './telemetry'
+import {
+  authorizeToolCall,
+  logAuthorizationDenial,
+  restrictionFor,
+} from './tool-authorization'
 import { FIXABLE_BY, REASON_CODE_MEANING } from './failure-envelope'
 
 // ---------------------------------------------------------------------------
@@ -72,6 +77,48 @@ export interface ToolRegisteringServer {
  * synchronously during the createMcpHandler callback, so it is complete by the
  * time any tool handler can run.
  */
+/**
+ * Wrap one handler so a restricted surface refuses an unauthorised caller
+ * BEFORE the handler runs.
+ *
+ * A tool with no restriction is returned UNCHANGED — no wrapper, no added
+ * failure surface, and nothing to slow down the 180 tools this does not apply
+ * to. Task-capable handlers (objects with createTask) are left alone for the
+ * same reason instrumentToolHandler leaves them alone: wrapping would drop the
+ * method. registerTool never produces one, and a restricted surface does not
+ * use them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function authorizedToolHandler(name: string, handler: any): any {
+  if (!restrictionFor(name)) return handler
+  if (typeof handler !== 'function' || 'createTask' in handler) return handler
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return async (...args: any[]) => {
+    // The MCP SDK calls a handler as (args, extra) for a tool with an input
+    // schema and as (extra) for one without, so the identity is read from
+    // whichever argument carries authInfo rather than from a fixed position.
+    const email = args
+      .map((a) => a?.authInfo?.extra?.email)
+      .find((e: unknown) => typeof e === 'string' && e.length > 0)
+
+    const verdict = authorizeToolCall(name, email)
+    if (!verdict.allowed) {
+      logAuthorizationDenial(name, email)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Error: ${verdict.failure.message}\n\n${JSON.stringify({ failure: verdict.failure }, null, 2)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+    return handler(...args)
+  }
+}
+
 export function recordingServer<T extends ToolRegisteringServer>(
   server: T
 ): { server: T; recorded: RecordedTool[] } {
@@ -102,14 +149,22 @@ export function recordingServer<T extends ToolRegisteringServer>(
             // rather than taking the whole connector down.
             recorded.push({ name, description: '', params: [] })
           }
-          let instrumented = handler
+          // AUTHORIZATION, applied here for the same reason telemetry is: this
+          // proxy already sees every registration, so a restricted surface
+          // cannot be bypassed by a tool whose author did not know about the
+          // check. Unlike instrumentation, this is NOT best-effort — if the
+          // guard cannot be applied it must not silently fall through to the
+          // bare handler, so it wraps outside the try/catch below.
+          const guarded = authorizedToolHandler(name, handler)
+
+          let instrumented = guarded
           try {
-            instrumented = instrumentToolHandler(name, telemetryFactsFor(name), handler)
+            instrumented = instrumentToolHandler(name, telemetryFactsFor(name), guarded)
           } catch {
             // Instrumentation is observability, not function. If it cannot be
-            // applied, register the ORIGINAL handler — the tool keeps working
+            // applied, register the AUTHORIZED handler — the tool keeps working
             // and only its telemetry is lost.
-            instrumented = handler
+            instrumented = guarded
           }
           return target.registerTool(name, config, instrumented)
         }
@@ -973,6 +1028,12 @@ export interface CapabilityToolRow {
   stagedApprovalRequired: boolean
   enabled: boolean
   killSwitch?: string
+  /**
+   * Present when the tool's SURFACE is restricted to specific callers. Reported
+   * because a capability list that shows a restricted tool as freely callable is
+   * the same class of defect as one that shows a live tool as disabled.
+   */
+  restrictedTo?: { surface: string; reason: string }
   requiredParams: RecordedParam[]
   optionalParams: RecordedParam[]
   constraints?: string[]
@@ -990,6 +1051,8 @@ export interface CapabilityReport {
     writes: number
     stagedApprovalRequired: number
     disabledByKillSwitch: number
+    /** Tools whose SURFACE is limited to specific callers (see restrictedTo). */
+    callerRestricted: number
   }
   writeGuardrails: {
     model: string
@@ -1027,6 +1090,7 @@ export function buildCapabilityReport(
   let rows: CapabilityToolRow[] = recorded.map((t) => {
     const facts = TOOL_FACTS[t.name]
     const enabled = facts?.killSwitch ? flags[facts.killSwitch] === true : true
+    const restriction = restrictionFor(t.name)
     return {
       name: t.name,
       vendor: vendorOf(t.name),
@@ -1036,6 +1100,9 @@ export function buildCapabilityReport(
       stagedApprovalRequired: facts?.staged ?? false,
       enabled,
       killSwitch: facts?.killSwitch,
+      ...(restriction
+        ? { restrictedTo: { surface: restriction.surface, reason: restriction.reason } }
+        : {}),
       requiredParams: t.params.filter((p) => p.required),
       optionalParams: t.params.filter((p) => !p.required),
       constraints: facts?.constraints,
@@ -1088,6 +1155,7 @@ export function buildCapabilityReport(
       writes: rows.filter((r) => r.access === 'write').length,
       stagedApprovalRequired: rows.filter((r) => r.stagedApprovalRequired).length,
       disabledByKillSwitch: rows.filter((r) => !r.enabled).length,
+      callerRestricted: rows.filter((r) => r.restrictedTo).length,
     },
     writeGuardrails: {
       model:

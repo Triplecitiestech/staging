@@ -40,7 +40,7 @@ import {
   getScanMessage,
   uploadScanFile,
   RAVEN_SENDER,
-  SCAN_MAILBOX,
+  scanMailbox,
 } from '@/lib/scan-filing/graph'
 import { classifyDestination, validateScanFilename } from '@/lib/scan-filing/destinations'
 import {
@@ -145,7 +145,7 @@ export function registerScanTools(server: any) {
       title: 'Scan: read a Raven scan attachment',
       description:
         'READ. Fetch one PDF attachment from a scan email in ' +
-        SCAN_MAILBOX +
+        scanMailbox() +
         ' and return something readable: the extracted text when the PDF has a real text layer, otherwise ' +
         'the pages rendered as images. The raw file is NEVER returned — a single scan as base64 is on the ' +
         'order of 400,000 tokens, which is why this tool exists at all. ' +
@@ -300,7 +300,7 @@ export function registerScanTools(server: any) {
           listScanAttachments(args.messageId),
         ])
         return ok({
-          mailbox: SCAN_MAILBOX,
+          mailbox: scanMailbox(),
           message: {
             id: message.id,
             subject: message.subject,

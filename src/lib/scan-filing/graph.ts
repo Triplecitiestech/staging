@@ -30,8 +30,19 @@ import { structuredLog } from '@/lib/resilience'
 // Configuration
 // ---------------------------------------------------------------------------
 
-/** The one mailbox the app is scoped to read. Env-overridable for a re-scope. */
-export const SCAN_MAILBOX = process.env.SCAN_MAILBOX || 'kurtis@triplecitiestech.com'
+/**
+ * The one mailbox the app is scoped to read. Env-overridable for a re-scope.
+ *
+ * A FUNCTION, not a module-load constant, because it is also the source of
+ * truth for who may CALL the scan surface (see
+ * src/lib/connector/tool-authorization.ts). An authorization control must not
+ * read a snapshot taken when the lambda booted: re-scoping the mailbox has to
+ * move the authorised caller with it, and a value frozen at import time is also
+ * untestable.
+ */
+export function scanMailbox(): string {
+  return (process.env.SCAN_MAILBOX || 'kurtis@triplecitiestech.com').trim()
+}
 
 /** The scanner's sender address — reported so a caller can sanity-check origin. */
 export const RAVEN_SENDER = 'raw39v@import.raven.com'
@@ -216,7 +227,7 @@ export async function getScanMessage(messageId: string): Promise<ScanMessage> {
     hasAttachments?: boolean
     from?: { emailAddress?: { address?: string } }
   }>(
-    `/users/${encodeURIComponent(SCAN_MAILBOX)}/messages/${encodeURIComponent(messageId)}` +
+    `/users/${encodeURIComponent(scanMailbox())}/messages/${encodeURIComponent(messageId)}` +
       `?$select=id,subject,receivedDateTime,webLink,hasAttachments,from`
   )
   const fromAddress = m.from?.emailAddress?.address ?? null
@@ -240,7 +251,7 @@ export async function getScanMessage(messageId: string): Promise<ScanMessage> {
  */
 export async function listScanAttachments(messageId: string): Promise<ScanAttachmentMeta[]> {
   const res = await graph<{ value: Array<Record<string, unknown>> }>(
-    `/users/${encodeURIComponent(SCAN_MAILBOX)}/messages/${encodeURIComponent(messageId)}` +
+    `/users/${encodeURIComponent(scanMailbox())}/messages/${encodeURIComponent(messageId)}` +
       `/attachments?$select=id,name,contentType,size,isInline`
   )
   return (res?.value ?? []).map((a) => ({
@@ -307,7 +318,7 @@ export async function fetchScanAttachment(
   }
 
   const bytes = await graph<Uint8Array>(
-    `/users/${encodeURIComponent(SCAN_MAILBOX)}/messages/${encodeURIComponent(messageId)}` +
+    `/users/${encodeURIComponent(scanMailbox())}/messages/${encodeURIComponent(messageId)}` +
       `/attachments/${encodeURIComponent(attachmentId)}/$value`,
     { binary: true, timeoutMs: 30_000 }
   )

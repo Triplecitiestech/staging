@@ -21,7 +21,7 @@ const graphMock = vi.hoisted(() => ({
   getScanMessage: vi.fn(),
   uploadScanFile: vi.fn(),
   RAVEN_SENDER: 'raw39v@import.raven.com',
-  SCAN_MAILBOX: 'kurtis@triplecitiestech.com',
+  scanMailbox: () => 'kurtis@triplecitiestech.com',
 }))
 
 vi.mock('@/lib/scan-filing/graph', () => graphMock)
