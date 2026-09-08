@@ -33,6 +33,7 @@ import {
   restrictionFor,
 } from './tool-authorization'
 import { FIXABLE_BY, REASON_CODE_MEANING } from './failure-envelope'
+import { ATTACHMENT_CONTENT_TYPES, ATTACHMENT_MAX_BYTES } from '@/lib/autotask-attachments'
 
 // ---------------------------------------------------------------------------
 // Recorded registry
@@ -488,6 +489,28 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_assign_ticket: atWrite('Resource AND role together — Autotask rejects a lone assignedResourceID; the role defaults to Engineer (29683355)', 'Read-back VERIFIED — an accepted PATCH that did not stick returns PRECONDITION_FAILED, not success'),
   autotask_set_ticket_status: atWrite(),
   autotask_find_resource: R,
+
+  // ── Autotask: file attachments (impersonated, DIRECT) ────────────────────
+  // Direct for the same reason the note and time-entry writes are: one
+  // operational row on one record, visible in the UI immediately. The risk
+  // that matters here is VISIBILITY, and it is handled by verification plus a
+  // rollback rather than by a gate — see the constraints.
+  autotask_add_ticket_attachment: atWrite(
+    'Creates a TicketAttachments record via POST Tickets/{ticketId}/Attachments — the ONLY create path the zone\'s Swagger exposes (no root POST)',
+    'publish defaults to INTERNAL (2 "Internal Users Only") and is ALWAYS sent; customerVisible: true is the explicit opt-in to publish 1 "All Autotask Users", which Client Portal customers can open',
+    'The stored publish is READ BACK with its live label and never claimed from the accepted POST. If Autotask stored a different visibility, or the file landed on a different parent, the attachment is REMOVED again and the call fails PRECONDITION_FAILED',
+    'Read-back VERIFIED: publish, ticketID, title, fullPath, attachmentType by re-query, and the stored BYTES fetched through the child URL and compared to what was sent. contentType is reported, not enforced',
+    `Size cap ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes (CHOSEN: lower bound of Kaseya's documented "6 to 7 MB" per-file limit) and a content-type allowlist (${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')}) — both enforced BEFORE any upload, as INVALID_INPUT`,
+    'Attachments cannot be updated (Autotask: canUpdate false) and deletion is deliberately not exposed — see knownLimits',
+  ),
+  autotask_add_time_entry_attachment: atWrite(
+    'Creates a TimeEntryAttachments record via POST TimeEntries/{timeEntryId}/Attachments — takes the TimeEntries.id, not a ticket id',
+    'publish defaults to INTERNAL (2 "Internal Users Only") and is ALWAYS sent; customerVisible: true is the explicit opt-in to publish 1 "All Autotask Users", which Client Portal customers can open',
+    'The stored publish is READ BACK with its live label and never claimed from the accepted POST. A wrong visibility or parent is rolled back (the row is removed again) and fails PRECONDITION_FAILED',
+    'Read-back VERIFIED: publish, timeEntryID, title, fullPath, attachmentType by re-query, and the stored BYTES compared to what was sent. contentType is reported, not enforced',
+    `Size cap ${ATTACHMENT_MAX_BYTES.toLocaleString('en-US')} bytes (CHOSEN: lower bound of the documented "6 to 7 MB") and a content-type allowlist (${Object.keys(ATTACHMENT_CONTENT_TYPES).join(', ')}) — enforced BEFORE any upload, as INVALID_INPUT`,
+    'A time entry on a ticket: the attachment appears in autotask_ticket_activity for that ticket. A time entry on a project TASK: no connector activity read returns attachments, so it is verifiable only in the Autotask UI',
+  ),
 
   // ── Autotask: project / task / CRM reads ─────────────────────────────────
   autotask_get_task: r(

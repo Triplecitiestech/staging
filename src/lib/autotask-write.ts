@@ -248,6 +248,66 @@ export async function updateTicketNote(
   }
 }
 
+// ---------------------------------------------------------------------------
+// File attachments on tickets and time entries
+// ---------------------------------------------------------------------------
+//
+// Kaseya: "To create or delete attachments, you must use the child collection
+// URL for each attachment type" — and the zone's Swagger confirms it: POST
+// exists ONLY at Tickets/{parentId}/Attachments and
+// TimeEntries/{parentId}/Attachments; the root TicketAttachments /
+// TimeEntryAttachments resources have no POST. So there is exactly one
+// candidate path per parent and no fallback to try. writeAtFirstWorkingPath is
+// still used so the response can state the path and status that were actually
+// used, the same as every other create in this file.
+//
+// The body is shaped in autotask-attachments.ts (buildAttachmentBody). The
+// parent id is in the URL, never the body; impersonation is the header.
+// https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/API_Calls/REST_Attachments.htm
+
+export type AttachmentParentEntity = 'Tickets' | 'TimeEntries'
+
+export async function createAttachment(
+  parent: AttachmentParentEntity,
+  parentId: number,
+  body: { attachmentType: string; fullPath: string; title: string; publish: number; contentType: string; data: string },
+  impersonationResourceId?: number,
+): Promise<PathResolvedWrite<{ itemId?: number }>> {
+  return writeAtFirstWorkingPath<{ itemId?: number }>(
+    'POST',
+    [{ path: `${parent}/${parentId}/Attachments`, body }],
+    impersonationResourceId,
+  )
+}
+
+/**
+ * Remove an attachment THIS CONNECTOR JUST CREATED whose read-back showed it
+ * landed with the wrong visibility or on the wrong parent.
+ *
+ * This is NOT an exposed delete and must not become one. entityInformation
+ * reports canDelete true on both attachment entities, and the connector still
+ * withholds attachment deletion as a tool (see known-limits.ts, POLICY_GATED),
+ * for the same blast-radius reason time-entry and contact deletion are
+ * withheld. The single caller is the visibility rollback in
+ * mcp-write-tools.ts: when the stored `publish` is not the one requested — a
+ * customer-call transcript sitting in the Client Portal — leaving the row in
+ * place IS the harm, so the row the tool created seconds earlier, addressed by
+ * the id Autotask returned for it and scoped to the same parent, is removed
+ * again. The caller re-reads afterwards and reports whether the removal is
+ * confirmed; a failed rollback is reported loudly, never swallowed.
+ */
+export async function deleteAttachmentAfterFailedVerification(
+  parent: AttachmentParentEntity,
+  parentId: number,
+  attachmentId: number,
+  impersonationResourceId?: number,
+): Promise<{ status: number; ok: boolean }> {
+  const path = `${parent}/${parentId}/Attachments/${attachmentId}`
+  const res = await request('DELETE', path, undefined, impersonationResourceId)
+  if (!res.ok) throw writeError('DELETE', path, res)
+  return { status: res.status, ok: true }
+}
+
 // Create a ticket time entry. Autotask requires roleID for ticket time entries,
 // and SERVICE tickets additionally require a start AND stop time — so when
 // startDateTime/stopDateTime are supplied they are sent as startDateTime/
