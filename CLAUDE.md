@@ -275,19 +275,31 @@ Plan → Implement → Verify (build + lint + e2e) → Review (git diff) → Com
 
 *Every value below was read from the live instance on **2026-09-08** through the TCT MCP connector, and each block names the tool that proved it. Re-verify with that tool rather than trusting this table; a value here with no tool named is not a verified constant. These are **instance-specific picklists**, not Autotask defaults — the repo has already paid for that confusion five times (`docs/gotchas.md` → "Autotask task assignment, picklists and 500s"). This section exists because these ids were being re-derived in every new session from chat transcripts.*
 
-### Resources and roles
+### Resources and roles — THERE ARE TWO ROLE LISTS PER RESOURCE AND THEY DISAGREE
 
 **Autotask enforces resource↔role pairings and rejects an invalid combination.** A time entry or task assignment that pairs someone with a role they do not hold fails. Resolve the pairing before writing — never assume a shared "safe" role.
 
-| Person | Resource id | Roles actually held | Default role | Department |
-|---|---|---|---|---|
-| Kurtis Florance (kurtis@triplecitiestech.com) | **29682885** | Exactly **one**: **29682834 Administration** | 29682834 (isDefault true) | **2** |
+**The trap:** Autotask's Resource → Associations tab carries two separate role lists, and the REST API models them as two entities that are *not* kept in step:
 
-- Resource id proved by **`autotask_find_resource`** (`{ email: "kurtis@triplecitiestech.com" }` → `{ id: 29682885, found: true }`).
-- Role list proved by **`autotask_resource_roles`** (`{ resourceId: 29682885 }` → `roles: [{ roleID: 29682834, roleName: "Administration", departmentID: 2, isDefault: true, isDepartmentLead: false }]`, `resourceCount: 1`).
-- **Do not pair Kurtis with role 29683355 "Engineer"** — he does not hold it, so Autotask rejects the write. Engineer is held by only part of the team; that default already broke task assignment for four people on 2026-08-25.
-- Any other person's roles: call **`autotask_resource_roles`** with their id (omit `resourceId` for every active resource). Never infer one person's roles from another's.
+| Entity | What it is | Carries `departmentID`? | Used for |
+|---|---|---|---|
+| **`ResourceRoleDepartments`** | Role paired **with a department** | **Yes** | TASK assignment (which requires `departmentID`), `isDepartmentLead` |
+| **`ResourceServiceDeskRoles`** | The **Service Desk** role list | No | Service-desk role membership |
+
+Live state of **Kurtis Florance = resource `29682885`** (`autotask_find_resource`), read **2026-09-08 after he added every role in the instance**:
+
+- **`ResourceRoleDepartments` → ONE row.** `29682834` Administration, `departmentID 2`, `isDefault true`, `isActive true`. [`autotask_config_query({entity:"ResourceRoleDepartments", filters:[resourceID eq 29682885]})` → `count: 1`, unfiltered by isActive]
+- **`ResourceServiceDeskRoles` → TEN rows, all `isActive true`.** `29682834` Administration, **`29683355` Engineer (`isDefault: true`)**, `29683458` Developer, `29683459` Emergency Technician, `29683460` Network Engineer, `29683461` Project Manager, `29683464` Help Desk, `29683465` Low/High Voltage Technician, `29683466` After Hours Support, `29683467` vCIO. [`autotask_config_query({entity:"ResourceServiceDeskRoles", …})` → `count: 10`]
+
+**The two DEFAULTS differ** — Administration in one, Engineer in the other — so *omitting* a role can resolve to a different role depending on which list the write consults.
+
+**WHICH LIST A GIVEN AUTOTASK WRITE ENFORCES AGAINST IS NOT ESTABLISHED.** It cannot be determined from a read, and settling it needs a real write (a time entry is a billing record, so that is a deliberate decision, not a probe to run casually). What IS settled: a **task** assignment must come from `ResourceRoleDepartments`, because that is the only list carrying `departmentID`. For a ticket time entry, confirm with the technician rather than picking from the longer list because it is longer.
+
+- `autotask_resource_roles` now returns **both** lists — `departmentRoles` and `serviceDeskRoles`, each with its own default — plus a `divergence` block naming the roles in one and not the other. It previously read only `ResourceRoleDepartments`, so it reported ONE role while the UI showed ten. **Never treat one list as "the roles this person holds".**
+- **THE ROLE CHOSEN SETS THE BILL RATE**, and on this instance the rates are not uniform (`autotask_list_roles`): `145` for Administration, Engineer, Developer, Network Engineer, Project Manager, Help Desk and Low/High Voltage Technician; **`225`** for Emergency Technician (`hourlyFactor 1.25`), After Hours Support (`hourlyFactor 1.5`) and vCIO. While a person held one role this could not go wrong; now it can, in either direction. Choose the role that describes the work.
+- Any other person's roles: call **`autotask_resource_roles`** with their id (omit `resourceId` for every active resource). Never infer one person's roles from another's, and never carry a "default role" across people.
 - Task assignment needs **four fields together** — `assignedResourceID` + `assignedResourceRoleID` + `billingCodeID` + `departmentID`. Tickets need only resource + role.
+- Only **`departmentID 2`** (Administration) is paired for Kurtis, so that is the department every task assignment of his resolves to.
 
 ### Ticket queues (active)
 

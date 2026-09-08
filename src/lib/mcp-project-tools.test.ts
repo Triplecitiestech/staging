@@ -30,7 +30,7 @@ vi.hoisted(() => {
 })
 
 import { writeAtFirstWorkingPath, createTask, updateTask } from '@/lib/autotask-write'
-import { datesMatch, valueMatches, verifyWrittenFields, definedFields, splitByQueryability } from '@/lib/mcp-project-tools'
+import { datesMatch, valueMatches, verifyWrittenFields, definedFields, splitByQueryability, describeRoleDivergence } from '@/lib/mcp-project-tools'
 import { __setCapabilityFetcher, clearCapabilityCache } from '@/lib/connector/autotask-capability'
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -559,5 +559,75 @@ describe('resolvePicklistId — the durable fix for five wrong hardcoded ids', (
       expect(r.resolvedFrom).toBe('fallback')
       expect(r.id).toBe(99)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A resource has TWO role lists and they can disagree (2026-09-08)
+// ---------------------------------------------------------------------------
+//
+// autotask_resource_roles read only ResourceRoleDepartments, so when Kurtis
+// was given every role in the instance it kept reporting ONE. The roles had
+// landed in ResourceServiceDeskRoles - a separate entity, no department column,
+// its own isDefault - and the read could not see them. Reporting one list as
+// "the roles this person holds" is the same defect class as a hand-maintained
+// lookup table: the answer looks authoritative and is partial.
+//
+// These pin the reporting. They deliberately do NOT assert which list a given
+// Autotask write enforces against, because that was never established - and a
+// test asserting it would manufacture the certainty this note exists to deny.
+
+describe('describeRoleDivergence - two role lists, reported not merged', () => {
+  // The live 2026-09-08 state of resource 29682885.
+  const DEPT = [29682834]
+  const DESK = [29682834, 29683355, 29683458, 29683459, 29683460, 29683461, 29683464, 29683465, 29683466, 29683467]
+
+  it('reports the nine Service-Desk-only roles rather than merging them in', () => {
+    const d = describeRoleDivergence(DEPT, DESK, 29682834, 29683355)
+    expect(d.diverged).toBe(true)
+    expect(d.onlyInServiceDesk).toEqual([29683355, 29683458, 29683459, 29683460, 29683461, 29683464, 29683465, 29683466, 29683467])
+    expect(d.onlyInDepartmentRoles).toEqual([])
+  })
+
+  it('flags DIFFERENT defaults, because omitting a role then resolves differently per list', () => {
+    const d = describeRoleDivergence(DEPT, DESK, 29682834, 29683355)
+    expect(d.defaultsAgree).toBe(false)
+    expect(d.note).toMatch(/defaults also differ/)
+    expect(d.note).toMatch(/29682834/)
+    expect(d.note).toMatch(/29683355/)
+  })
+
+  it('never claims which list a write is enforced against', () => {
+    const d = describeRoleDivergence(DEPT, DESK, 29682834, 29683355)
+    expect(d.note).toMatch(/NOT established by this read/)
+    // A task assignment is the one case that IS settled - it needs departmentID.
+    expect(d.note).toMatch(/must come from departmentRoles/)
+  })
+
+  it('diverges on differing defaults even when both lists hold identical roles', () => {
+    const d = describeRoleDivergence([1, 2], [2, 1], 1, 2)
+    expect(d.onlyInServiceDesk).toEqual([])
+    expect(d.onlyInDepartmentRoles).toEqual([])
+    expect(d.diverged).toBe(true)
+    expect(d.defaultsAgree).toBe(false)
+  })
+
+  it('reports agreement when the lists and defaults match, order and duplicates aside', () => {
+    const d = describeRoleDivergence([2, 1, 1], [1, 2], 1, 1)
+    expect(d.diverged).toBe(false)
+    expect(d.note).toBe('Both lists hold the same roles with the same default.')
+  })
+
+  it('reports a department-paired role the Service Desk list lacks - divergence runs both ways', () => {
+    const d = describeRoleDivergence([1, 9], [1], 1, 1)
+    expect(d.diverged).toBe(true)
+    expect(d.onlyInDepartmentRoles).toEqual([9])
+    expect(d.note).toMatch(/Department-paired only: 9/)
+  })
+
+  it('treats two empty lists as agreeing rather than as a divergence to report', () => {
+    const d = describeRoleDivergence([], [], null, null)
+    expect(d.diverged).toBe(false)
+    expect(d.defaultsAgree).toBe(true)
   })
 })
