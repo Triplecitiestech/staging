@@ -284,7 +284,11 @@ export interface AutotaskTicketAttachment {
   ticketID?: number;
   ticketNoteID?: number;
   timeEntryID?: number;
+  /** TimeEntryAttachments only. */
+  taskID?: number;
   parentID?: number;
+  /** TicketAttachments only. */
+  parentAttachmentID?: number;
   title?: string;
   fullPath?: string;
   contentType?: string;
@@ -1750,37 +1754,35 @@ export class AutotaskClient {
     }
   }
 
-  /** Queryable attachment fields — creatorType, data and fileSize error when queried. */
-  private static readonly ATTACHMENT_QUERY_FIELDS = [
-    'id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'title', 'fullPath',
-    'contentType', 'attachmentType', 'publish', 'attachDate',
-    'attachedByResourceID', 'attachedByContactID', 'impersonatorCreatorResourceID',
-  ];
-
   /**
-   * One ticket attachment by id, scoped to its ticket, for read-back after a
-   * create. Kaseya's "Changes to Attachment entities": attachment queries
-   * "will require the inclusion of the object you wish to query. For example, a
-   * request to the [TicketAttachments] entity will require a value for the
-   * ticketID field" — so the parent id travels with the attachment id (same
-   * shape as getTicketNoteById). Null means the query succeeded and returned no
-   * row under that ticket; a lookup failure throws.
-   * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/General/AttachmentChanges.htm
+   * One attachment row by id, scoped to its parent, with an EXPLICIT field
+   * projection supplied by the caller.
+   *
+   * Two rules, both learned live on 2026-09-08:
+   *  - Attachment queries must carry the parent id (Kaseya, "Changes to
+   *    Attachment entities": "a request to the [TicketAttachments] entity will
+   *    require a value for the ticketID field"), so parentField = parentId is
+   *    ANDed with id = attachmentId.
+   *  - The projection is per ENTITY, never shared. A shared list that included
+   *    ticketNoteID made every TimeEntryAttachments read-back fail with
+   *    500 "Unable to find ticketNoteID in the TimeEntryAttachment Entity."
+   *    Callers build `fields` with attachmentReadBackFields() from live
+   *    entityInformation; this method sends exactly what it is given.
+   *
+   * Null means the query succeeded and returned no row under that parent; a
+   * lookup failure throws.
    */
-  async getTicketAttachmentById(ticketId: number, attachmentId: number): Promise<AutotaskTicketAttachment | null> {
-    const rows = await this.queryAll<AutotaskTicketAttachment>('TicketAttachments', [
-      { op: 'eq', field: 'ticketID', value: ticketId },
+  async getAttachmentRecord(
+    entity: 'TicketAttachments' | 'TimeEntryAttachments' | 'TicketNoteAttachments',
+    parentField: 'ticketID' | 'timeEntryID' | 'ticketNoteID',
+    parentId: number,
+    attachmentId: number,
+    fields: string[],
+  ): Promise<AutotaskTicketAttachment | null> {
+    const rows = await this.queryAll<AutotaskTicketAttachment>(entity, [
+      { op: 'eq', field: parentField, value: parentId },
       { op: 'eq', field: 'id', value: attachmentId },
-    ], AutotaskClient.ATTACHMENT_QUERY_FIELDS);
-    return rows[0] ?? null;
-  }
-
-  /** One time-entry attachment by id, scoped to its time entry, for read-back after a create. */
-  async getTimeEntryAttachmentById(timeEntryId: number, attachmentId: number): Promise<AutotaskTimeEntryAttachment | null> {
-    const rows = await this.queryAll<AutotaskTimeEntryAttachment>('TimeEntryAttachments', [
-      { op: 'eq', field: 'timeEntryID', value: timeEntryId },
-      { op: 'eq', field: 'id', value: attachmentId },
-    ], [...AutotaskClient.ATTACHMENT_QUERY_FIELDS, 'taskID']);
+    ], fields);
     return rows[0] ?? null;
   }
 
@@ -1798,7 +1800,7 @@ export class AutotaskClient {
    * Null means the GET returned no item; a transport failure throws.
    */
   async getAttachmentContent(
-    parent: 'Tickets' | 'TimeEntries',
+    parent: 'Tickets' | 'TimeEntries' | 'TicketNotes',
     parentId: number,
     attachmentId: number,
   ): Promise<{ data: string | null; fileSize: number | null } | null> {

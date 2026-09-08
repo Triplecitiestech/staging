@@ -44,9 +44,10 @@ export type ConnectorReasonCode =
   | 'PRECONDITION_FAILED'
   | 'INVALID_INPUT'
   | 'TRANSIENT'
+  | 'VERIFY_FAILED'
 
 /** Who owns the fix. Derived from the reason code, never passed in — see FIXABLE_BY. */
-export type FixableBy = 'claude_code' | 'tct_human' | 'vendor' | 'caller' | 'retry'
+export type FixableBy = 'claude_code' | 'tct_human' | 'vendor' | 'caller' | 'retry' | 'connector'
 
 /**
  * reasonCode → owner. This is a TOTAL function of the code, so it is derived
@@ -62,6 +63,11 @@ export const FIXABLE_BY: Record<ConnectorReasonCode, FixableBy> = {
   PRECONDITION_FAILED: 'tct_human',
   INVALID_INPUT: 'caller',
   TRANSIENT: 'retry',
+  // Added 2026-09-08 at the owner's direction, after a post-write read-back
+  // that 500'd was classified INVALID_INPUT / fixableBy caller. Nothing that
+  // fails AFTER the vendor accepted the write is the caller's to fix: the write
+  // happened, and whether it can be verified is the connector's problem.
+  VERIFY_FAILED: 'connector',
 }
 
 /** Plain-language meaning of each code, shipped to callers so it self-documents. */
@@ -78,6 +84,8 @@ export const REASON_CODE_MEANING: Record<ConnectorReasonCode, string> = {
     'Supported, implemented and permitted, but current state or the shape of the request blocks it (record drifted since staging, required parent missing, dependency unmet, a required field pair sent half-empty). Never retry unchanged.',
   INVALID_INPUT: 'Caller error — a bad or missing argument.',
   TRANSIENT: 'Rate limit, timeout, or upstream 5xx. Retrying may succeed.',
+  VERIFY_FAILED:
+    'The write was ACCEPTED upstream but the connector could not verify (or could not confirm) what was stored — a read-back failed, returned nothing, or disagreed with the request. A record may exist; details.createdAttachmentId / verificationState say what was left behind. Never the caller\'s to fix.',
 }
 
 /** Default next step per code, so `remediation` is never empty. */
@@ -94,6 +102,8 @@ const DEFAULT_REMEDIATION: Record<ConnectorReasonCode, string> = {
     'Re-read current state and start again from a fresh read; the world moved since the request was formed.',
   INVALID_INPUT: 'Correct the argument named in the message and call the tool again.',
   TRANSIENT: 'Wait briefly and retry the same call. If it persists, report it as an outage.',
+  VERIFY_FAILED:
+    'Do NOT retry blindly — the write may already have applied. Read details.verificationState: rolled_back means the connector removed what it created; rollback_failed or unverified means a record with details.createdAttachmentId may remain and a human must check or remove it. Report the envelope to Claude Code as a connector defect.',
 }
 
 // ---------------------------------------------------------------------------
@@ -554,5 +564,5 @@ export const FAILURE_ENVELOPE_TOOL_NOTE =
   'ON FAILURE this tool returns a structured envelope: {failure:{reasonCode, message, evidence, remediation, fixableBy}}. ' +
   'reasonCode is one of NOT_IMPLEMENTED (connector gap — Claude Code can build it), UPSTREAM_UNSUPPORTED (vendor API cannot do it — do not look for a workaround), ' +
   'POLICY_BLOCKED (a TCT guardrail held — never route around it), PERMISSION_DENIED (credential lacks the right), PRECONDITION_FAILED (state or request shape blocks it — re-read state or fix the shape; never retry unchanged), ' +
-  'INVALID_INPUT (fix the argument), TRANSIENT (retry). ' +
+  'INVALID_INPUT (fix the argument), TRANSIENT (retry), VERIFY_FAILED (the write was accepted but could not be verified — a connector defect; read details.verificationState before doing anything). ' +
   'SURFACE reasonCode, remediation and fixableBy to the user — do not flatten a failure to "that did not work", because who fixes it differs completely per code.'
