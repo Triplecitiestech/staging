@@ -370,14 +370,47 @@ Verified close sequence (proven end to end):
 Log the final time entry (start/stop, role, billing code, TCT-format summary).
 Set the Resolution field with a full client-ready summary (autotask_set_ticket_resolution).
 Confirm the Resolution is populated.
-THEN set status to Complete (autotask_set_ticket_status -> 5), which fires the completion email pulling from Resolution.
-Never set Complete before Resolution is populated.
+THEN set the closing status, which for status 5 Complete fires the completion
+email pulling from Resolution. Choose the closing status by the Notification
+decision below: 5 Complete when the close carries information the customer
+does not already have, 52 Complete - No Notify when it does not. Never set
+either before Resolution is populated - the Resolution field is the permanent
+client-readable record of the ticket regardless of whether an email goes out.
 
 Human gate on close: because setting Complete emails the customer, do NOT set Complete autonomously. Draft the resolution, stage the close, and require an explicit "close it" / "mark complete" from the user before setting Complete. Everything else in this skill runs as directed without a gate; this one final step is confirmed with the human first. (A human is already directing this skill, so this is a quick confirmation, not a separate approval layer.)
 
 Do not manually select the Ticket Contact under Quick Notification - the completion email fires automatically on Complete; selecting the contact causes a duplicate.
 
 Duplicate-email note: the "Notify Customer of Ticket Completion" rule fires on Complete for Help Desk and most queues. A separate Nexus completion rule fires only when the company UDF "Enabled for KHD" = Yes. For KHD-enabled companies, be aware both may fire.
+
+### Notification decision - which closing status
+
+Notify only when the close carries information the customer does not already
+have. Suppress when it does not. Sending a customer an email about something
+they watched happen is noise, and noise trains them to ignore the ones that
+matter. Decide from the table and state the choice; do not ask the user unless
+the row is genuinely ambiguous.
+
+52 Complete - No Notify:
+Resolved during a live call or remote session with the contact present and
+confirming the fix.
+Customer already told the outcome by phone, text, or an earlier
+customer-visible note on this ticket.
+Internal, administrative, or monitoring-generated ticket with no customer-side
+impact.
+
+5 Complete:
+Resolved asynchronously - the customer has not been told the outcome.
+Resolution requires action from them, or changes something they use or see.
+Anything with billing, scope, timeline, or expectation impact.
+Recurrence of a problem they previously reported, where the record of the fix
+matters to them.
+
+Genuinely ambiguous: ask once, bundled with the staged close, naming which of
+the two you would pick and why.
+
+This decision is about the EMAIL, not the record. Resolution is always written
+in full, client-ready form either way.
 
 ### Pre-close checklist - "what good looks like" before Complete
 
