@@ -296,6 +296,16 @@ export interface AutotaskTicketAttachment {
   impersonatorCreatorResourceID?: number;
 }
 
+/**
+ * TimeEntryAttachments row — the same queryable shape as TicketAttachments plus
+ * taskID (a time entry may hang off a task rather than a ticket). Same
+ * non-queryable exclusions apply (creatorType, data, fileSize).
+ * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/Entities/TimeEntryAttachmentsEntity.htm
+ */
+export interface AutotaskTimeEntryAttachment extends AutotaskTicketAttachment {
+  taskID?: number;
+}
+
 export interface AutotaskTimeEntry {
   id: number;
   taskID?: number;
@@ -1738,6 +1748,69 @@ export class AutotaskClient {
       console.error(`[AutotaskClient] getTicketAttachments failed for ticket ${ticketId}:`, err instanceof Error ? err.message : String(err));
       throw err;
     }
+  }
+
+  /** Queryable attachment fields — creatorType, data and fileSize error when queried. */
+  private static readonly ATTACHMENT_QUERY_FIELDS = [
+    'id', 'ticketID', 'ticketNoteID', 'timeEntryID', 'parentID', 'title', 'fullPath',
+    'contentType', 'attachmentType', 'publish', 'attachDate',
+    'attachedByResourceID', 'attachedByContactID', 'impersonatorCreatorResourceID',
+  ];
+
+  /**
+   * One ticket attachment by id, scoped to its ticket, for read-back after a
+   * create. Kaseya's "Changes to Attachment entities": attachment queries
+   * "will require the inclusion of the object you wish to query. For example, a
+   * request to the [TicketAttachments] entity will require a value for the
+   * ticketID field" — so the parent id travels with the attachment id (same
+   * shape as getTicketNoteById). Null means the query succeeded and returned no
+   * row under that ticket; a lookup failure throws.
+   * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/General/AttachmentChanges.htm
+   */
+  async getTicketAttachmentById(ticketId: number, attachmentId: number): Promise<AutotaskTicketAttachment | null> {
+    const rows = await this.queryAll<AutotaskTicketAttachment>('TicketAttachments', [
+      { op: 'eq', field: 'ticketID', value: ticketId },
+      { op: 'eq', field: 'id', value: attachmentId },
+    ], AutotaskClient.ATTACHMENT_QUERY_FIELDS);
+    return rows[0] ?? null;
+  }
+
+  /** One time-entry attachment by id, scoped to its time entry, for read-back after a create. */
+  async getTimeEntryAttachmentById(timeEntryId: number, attachmentId: number): Promise<AutotaskTimeEntryAttachment | null> {
+    const rows = await this.queryAll<AutotaskTimeEntryAttachment>('TimeEntryAttachments', [
+      { op: 'eq', field: 'timeEntryID', value: timeEntryId },
+      { op: 'eq', field: 'id', value: attachmentId },
+    ], [...AutotaskClient.ATTACHMENT_QUERY_FIELDS, 'taskID']);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * The STORED bytes (base64) and fileSize of one attachment, read through the
+   * child URL — the only read that returns them, since `data` and `fileSize`
+   * error on the query endpoints. Kaseya: "To view detailed information about
+   * an attachment, such as its contents, your request must observe the
+   * following hierarchy: Entity name → entity ID → Attachments → attachment
+   * ID", e.g. GET /v1.0/Tickets/7484/Attachments/90, whose documented response
+   * carries `data` and `fileSize` alongside the queryable fields.
+   * https://ww1.autotask.net/help/DeveloperHelp/Content/APIs/REST/API_Calls/REST_Attachments.htm
+   *
+   * Used to verify that what Autotask stored is byte-for-byte what was sent.
+   * Null means the GET returned no item; a transport failure throws.
+   */
+  async getAttachmentContent(
+    parent: 'Tickets' | 'TimeEntries',
+    parentId: number,
+    attachmentId: number,
+  ): Promise<{ data: string | null; fileSize: number | null } | null> {
+    const res = await this.get<{ items?: Array<{ data?: string | null; fileSize?: number | null }> }>(
+      `/v1.0/${parent}/${parentId}/Attachments/${attachmentId}`,
+    );
+    const item = res?.items?.[0];
+    if (!item) return null;
+    return {
+      data: typeof item.data === 'string' ? item.data : null,
+      fileSize: typeof item.fileSize === 'number' ? item.fileSize : null,
+    };
   }
 
   /**

@@ -127,6 +127,12 @@ export const DIRECT_WRITE_TOOLS: Record<string, Partial<Record<ConfigWriteOperat
   TaskNotes: { create: ['autotask_add_task_note'], update: ['autotask_update_task_note'] },
   ProjectNotes: { create: ['autotask_add_project_note'] },
   TimeEntries: { create: ['autotask_create_time_entry', 'autotask_create_task_time_entry'], update: ['autotask_update_time_entry'] },
+  // Attachments are create-only in practice: canUpdate is false upstream, and
+  // delete is deliberately withheld (known-limits.ts, POLICY_GATED). The one
+  // internal delete — the visibility rollback — is not a tool and is not
+  // listed, because listing it would make capability_check offer it.
+  TicketAttachments: { create: ['autotask_add_ticket_attachment'] },
+  TimeEntryAttachments: { create: ['autotask_add_time_entry_attachment'] },
   TaskSecondaryResources: { create: ['autotask_add_task_secondary_resource'], delete: ['autotask_remove_task_secondary_resource'] },
   TaskPredecessors: { create: ['autotask_add_task_predecessor'], delete: ['autotask_remove_task_predecessor'] },
   Companies: { create: ['autotask_create_company'], update: ['autotask_update_company'] },
