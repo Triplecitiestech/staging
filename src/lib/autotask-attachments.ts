@@ -185,24 +185,41 @@ export const ATTACHMENT_ENTITIES: Readonly<Record<AttachmentEntity, AttachmentEn
  * the query degrades to fewer columns instead of a 500. `id` and the parent
  * field are always kept — without them there is nothing to verify against.
  *
- * `liveFieldNames` null = the metadata lookup failed; the declared per-entity
+ * `liveFields` null = the metadata lookup failed; the declared per-entity
  * list is used unfiltered, which is already entity-specific and therefore
  * cannot reproduce the shared-list defect.
+ *
+ * A field the metadata reports `isQueryable: false` is dropped for the same
+ * reason a missing one is: it is present in the schema but ERRORS when named in
+ * a query, so requesting it fails the whole read-back exactly as a stale name
+ * does. Live entityInformation reports three such fields on every attachment
+ * entity today (`creatorType`, `data`, `fileSize`) and Kaseya documents them as
+ * erroring when queried; the declared lists already omit all three, so this
+ * check is not fixing a current bug — it closes the drift case the projection
+ * exists for, where a field that is queryable today stops being queryable.
+ * `isQueryable` ABSENT is treated as queryable: the flag's absence is not
+ * evidence of a restriction.
  */
 export function attachmentReadBackFields(
   entity: AttachmentEntity,
-  liveFieldNames: readonly string[] | null,
+  liveFields: readonly string[] | readonly { name: string; isQueryable?: boolean }[] | null,
 ): { fields: string[]; dropped: string[]; source: 'live-intersection' | 'declared-fallback' } {
   const cfg = ATTACHMENT_ENTITIES[entity]
   const declared = [...new Set([...cfg.readBackFields])]
-  if (!liveFieldNames) return { fields: declared, dropped: [], source: 'declared-fallback' }
-  const live = new Map(liveFieldNames.map((n) => [n.toLowerCase(), n]))
+  if (!liveFields) return { fields: declared, dropped: [], source: 'declared-fallback' }
+  const live = new Map(
+    liveFields.map((f) => {
+      const info = typeof f === 'string' ? { name: f } : f
+      return [info.name.toLowerCase(), info] as const
+    }),
+  )
   const fields: string[] = []
   const dropped: string[] = []
   for (const name of declared) {
-    const liveName = live.get(name.toLowerCase())
+    const found = live.get(name.toLowerCase())
+    const usable = found !== undefined && found.isQueryable !== false
     const mustKeep = name === 'id' || name === cfg.parentField
-    if (liveName) fields.push(liveName)
+    if (usable) fields.push(found.name)
     else if (mustKeep) fields.push(name)
     else dropped.push(name)
   }

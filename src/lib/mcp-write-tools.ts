@@ -1179,7 +1179,7 @@ export function registerWriteTools(server: any) {
   const readBackProjection = async (entity: AttachmentEntity) => {
     try {
       const { snapshot } = await getEntityCapabilitySnapshot(entity)
-      return attachmentReadBackFields(entity, snapshot.fields.map((f) => f.name))
+      return attachmentReadBackFields(entity, snapshot.fields.map((f) => ({ name: f.name, isQueryable: f.isQueryable })))
     } catch {
       return attachmentReadBackFields(entity, null)
     }
