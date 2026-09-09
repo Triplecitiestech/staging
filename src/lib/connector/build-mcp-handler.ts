@@ -23,6 +23,8 @@ import {
   TICKET_NOTES_EXCLUSIONS,
 } from '@/lib/autotask-activity'
 import * as unifi from '@/lib/ubiquiti'
+import { listLocalSites, proxyGetAll, UnifiProxyError } from '@/lib/ubiquiti-proxy'
+import { NO_SITE_DIMENSION, selectCachedDevices } from '@/lib/connector/unifi-device-cache'
 import { registerWriteTools } from '@/lib/mcp-write-tools'
 import { registerProjectTools } from '@/lib/mcp-project-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
@@ -34,12 +36,13 @@ import { registerScanTools } from '@/lib/mcp-scan-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
 import { registerKaseyaQuoteManagerTools } from '@/lib/mcp-kaseya-quote-manager-tools'
+import { registerRingCentralTools } from '@/lib/mcp-ringcentral-tools'
 import {
   recordingServer,
   buildCapabilityReport,
   type RecordedTool,
 } from '@/lib/connector/capability-registry'
-import { toolFailure } from '@/lib/connector/failure-envelope'
+import { failureResult, toolFailure } from '@/lib/connector/failure-envelope'
 
 let _autotask: AutotaskClient | null = null
 function autotask(): AutotaskClient {
@@ -121,7 +124,99 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       // ── UniFi (Site Manager cloud, read-only) ──────────────────────────────
       server.registerTool('unifi_list_sites', { title: 'UniFi: list sites', description: 'List all UniFi sites visible to the Site Manager API key.', inputSchema: {} }, async () => { try { return ok(await unifi.listSites()) } catch (e) { return fail(e) } })
       server.registerTool('unifi_list_hosts', { title: 'UniFi: list hosts', description: 'List UniFi hosts (consoles/controllers) with device counts.', inputSchema: {} }, async () => { try { return ok(await unifi.listHosts()) } catch (e) { return fail(e) } })
-      server.registerTool('unifi_list_devices', { title: 'UniFi: list devices', description: 'List all UniFi devices across sites, each with its owning host name.', inputSchema: {} }, async () => { try { return ok(await unifi.listDevices()) } catch (e) { return fail(e) } })
+      server.registerTool('unifi_list_devices', {
+        title: 'UniFi: list devices (CACHED fleet inventory — filter it)',
+        description: 'Search the UniFi / Ubiquiti fleet device INVENTORY across every customer, site, org and account: access points, switches, gateways, consoles — by device name, model, MAC address, IP address, customer/console name or free text. FILTER IT: unfiltered this is the whole fleet (547 devices on 2026-09-09), which blows the context window; pass consoleId, hostName or search, and page with limit (default 50, max 200) + offset. THE STATUS HERE IS CACHED, NOT LIVE — it is Site Manager\'s snapshot of what each console last reported, not a reachability test, so the vendor\'s "status" field is deliberately returned as cachedStatus beside cachedAt and you must never say a device or a customer network is down on the strength of it (live 2026-09-09 this list said offline for all three Blissful Buds devices while a per-site read showed all three ONLINE with 15, 13 and 42 days uptime). Pass live: true once a filter narrows the result to ONE console and it re-reads that console\'s real device state through the Cloud Connector Proxy instead. There is no siteId filter and there cannot be: the cache is grouped by console and its records carry no site id — use unifi_resolve_site then unifi_site_devices, which is per-site AND live.',
+        inputSchema: {
+          consoleId: z.string().optional().describe('Console/host id — the same identifier unifi_resolve_site returns as consoleId and Site Manager reports as hostId. A filter that matches no host is reported as filterMatchedNoHost with the real host names, never as an empty device list'),
+          hostName: z.string().optional().describe('Customer/console name, partial and case-insensitive, e.g. "Blissful"'),
+          search: z.string().optional().describe('Free text over device name, model, MAC, IP and console name'),
+          siteId: z.string().optional().describe('NOT SUPPORTED and never silently ignored — supplying it fails the call with the reason. The Site Manager cache has no site dimension; use unifi_resolve_site + unifi_site_devices instead'),
+          limit: z.number().int().min(1).max(200).optional().describe('Page size (default 50, max 200)'),
+          offset: z.number().int().min(0).optional().describe('Rows to skip, for paging (default 0)'),
+          live: z.boolean().optional().describe('Re-read real device state from the console instead of the cache. Only valid once consoleId/hostName/search narrows the result to exactly ONE console — otherwise the call fails rather than reading part of the fleet live'),
+        },
+      }, async ({ consoleId, hostName, search, siteId, limit, offset, live }) => {
+        try {
+          // Refuse a siteId rather than accepting and ignoring it. A filter that
+          // silently does nothing returns a plausible wrong answer, which is the
+          // failure shape this repo has paid for four times.
+          if (siteId !== undefined) {
+            return failureResult({
+              reasonCode: 'INVALID_INPUT',
+              message: `unifi_list_devices cannot filter by site, so nothing was read. ${NO_SITE_DIMENSION}`,
+              evidence: 'Site Manager /ea/devices groups devices by hostId and its device records carry no site id (src/lib/ubiquiti.ts UnifiDevice) — verified against the live response shape.',
+              remediation: 'Call unifi_resolve_site with the customer name to get consoleId + siteId, then unifi_site_devices — that read is per-site and live. Or call this tool again with consoleId / hostName / search instead of siteId.',
+              surface: 'unifi',
+              tool: 'unifi_list_devices',
+              details: { rejectedSiteId: String(siteId) },
+            })
+          }
+
+          const selection = selectCachedDevices(await unifi.listDevices(), { consoleId, hostName, search, limit, offset })
+
+          if (!live) return ok(selection)
+
+          // ── live: true ────────────────────────────────────────────────────
+          // Cheap only for a single console, because a live read is one proxy
+          // call per site on one console. Reading "live" across the fleet would
+          // be dozens of calls and a partial answer, so it is refused instead.
+          const hostIds = [...new Set(selection.devices.map((d) => d.hostId))]
+          if (hostIds.length !== 1) {
+            return failureResult({
+              reasonCode: 'INVALID_INPUT',
+              message: hostIds.length === 0
+                ? 'live: true needs a filter that matches at least one device on one console; this filter matched none, so there was nothing to read live.'
+                : `live: true is only available for a SINGLE console, but this filter spans ${hostIds.length}. Nothing was read live, and the cached rows are NOT a substitute.`,
+              evidence: 'A live read is one Cloud Connector Proxy call per site on one console. Across the fleet that is dozens of calls and any failure would leave a half-live answer indistinguishable from a whole one.',
+              remediation: 'Narrow with consoleId or hostName until the result covers one console, then call again with live: true. For a specific site, unifi_resolve_site + unifi_site_devices is the direct route.',
+              surface: 'unifi',
+              tool: 'unifi_list_devices',
+              details: { consolesMatched: hostIds.length, hostIds: hostIds.slice(0, 10) },
+            })
+          }
+
+          const targetConsole = hostIds[0]
+          try {
+            const sites = await listLocalSites(targetConsole)
+            const perSite = await Promise.all(sites.map(async (site) => {
+              const devices = await proxyGetAll<Record<string, unknown>>(targetConsole, `/sites/${site.id}/devices`)
+              return {
+                siteId: site.id,
+                siteName: site.name ?? site.internalReference ?? site.id,
+                totalCount: devices.totalCount,
+                truncated: devices.truncated,
+                devices: devices.items.map((d) => ({
+                  id: d.id, name: d.name, model: d.model, macAddress: d.macAddress,
+                  ipAddress: d.ipAddress, state: d.state, firmwareVersion: d.firmwareVersion,
+                })),
+              }
+            }))
+            return ok({
+              dataSource: 'live-console-read',
+              note: 'LIVE state read from the console\'s own Integration API through the Cloud Connector Proxy — this is what to quote about whether a device is up. The cached inventory is returned alongside for comparison; where the two disagree, the live read wins.',
+              consoleId: targetConsole,
+              consoleName: selection.devices[0]?.hostName ?? null,
+              live: perSite,
+              cachedForComparison: selection,
+            })
+          } catch (liveErr) {
+            // A failed live read must not silently degrade to the cache — the
+            // caller asked for live precisely because the cache is not
+            // trustworthy for this question.
+            const m = liveErr instanceof UnifiProxyError ? `[${liveErr.code}] ${liveErr.message}` : liveErr instanceof Error ? liveErr.message : String(liveErr)
+            return failureResult({
+              reasonCode: liveErr instanceof UnifiProxyError && liveErr.code === 'CONSOLE_OFFLINE' ? 'UPSTREAM_UNSUPPORTED' : 'TRANSIENT',
+              message: `The live read of console ${targetConsole} failed: ${m}. The cached rows are NOT returned as a substitute — they are what you asked to bypass.`,
+              evidence: 'Requested live state through the Cloud Connector Proxy; the proxy returned the typed error above.',
+              remediation: 'Retry once. If it keeps failing, unifi_console_capabilities tells you whether the console is offline, on unsupported firmware, or an auth problem — and an offline console is itself the answer about that site.',
+              surface: 'unifi',
+              tool: 'unifi_list_devices',
+              details: { consoleId: targetConsole, liveError: m },
+            })
+          }
+        } catch (e) { return fail(e) }
+      })
       server.registerTool('unifi_summary', { title: 'UniFi: fleet summary', description: 'Aggregated summary across all UniFi sites and devices.', inputSchema: {} }, async () => { try { return ok(await unifi.buildSummary()) } catch (e) { return fail(e) } })
       server.registerTool('unifi_site_networks', { title: 'UniFi: site networks', description: 'Network/VLAN configuration for one UniFi site. Provide siteId (from unifi_list_sites). Pass siteName for a labelled summary.', inputSchema: { siteId: z.string().describe('UniFi site id (from unifi_list_sites)'), siteName: z.string().optional().describe('Optional site label for a summarised view') } }, async ({ siteId, siteName }) => { try { return ok(siteName ? await unifi.buildSiteNetworkSummary(siteId, siteName) : await unifi.getSiteNetworks(siteId)) } catch (e) { return fail(e) } })
 
@@ -308,6 +403,16 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       // Auth mechanism is contradicted between the spec (header) and Kaseya's help
       // page (query param) — header is the default, kqm_probe_connection settles it.
       registerKaseyaQuoteManagerTools(server)
+
+      // ── RingCentral (read-only; replaces the RingCentral-hosted labs MCP) ───
+      // The labs server failed 4 of 4 calls on 2026-09-09 returning only "Tool
+      // execution failed" — no reason code, no vendor error. This surface is
+      // GET-only by construction (the client has no method parameter), so there
+      // is no staged-write gate. Default-OFF behind CONNECTOR_RINGCENTRAL_ENABLED,
+      // whose name is declared in TOOL_FACTS and read from that declaration.
+      // Every transcript carries a MEASURED coverage verdict, because RingCentral
+      // silently stops transcribing when a call becomes a three-way conference.
+      registerRingCentralTools(server)
 
       // ── Self-description (registered LAST so it sees every tool above) ──────
       // The keyword-rich description is deliberate: Claude discovers tools by

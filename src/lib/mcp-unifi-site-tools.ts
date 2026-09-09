@@ -43,7 +43,7 @@ import {
   type UnifiConsoleInfo,
   type UnifiLocalSite,
 } from '@/lib/ubiquiti-proxy'
-import { structuredLog } from '@/lib/resilience'
+import { structuredLog, withRetry } from '@/lib/resilience'
 import { listStagedWrites, cancelStagedWrite } from '@/lib/connector/staged-writes'
 import {
   assertUnifiWritesEnabled,
@@ -120,6 +120,71 @@ export function matchUnifiConsoles(
   const topHits = scored.filter((s) => s.score === top)
   const best = top >= 2 && topHits.length === 1 ? topHits[0].console : null
   return { best, candidates: scored.slice(0, 8).map((s) => s.console) }
+}
+
+/**
+ * List a console's local sites, but do not let ONE proxy hiccup become a claim
+ * that the console is offline.
+ *
+ * Live 2026-09-09: unifi_resolve_site('Blissful Buds') returned NOT_FOUND with
+ * "/sites returned 404 ... device is offline"; seconds later
+ * unifi_console_capabilities on the SAME console reported the Integration API
+ * available, Network 10.6.101, and the site listed. So the first answer was a
+ * transient proxy failure wearing an offline console's clothes — and a false
+ * "that site is unreachable" is exactly the kind of confident wrong answer this
+ * surface must not produce.
+ *
+ * Two changes, in order:
+ *   1. RETRY with backoff. `shouldRetry` is forced true for proxy errors
+ *      rather than left to classifyError()'s isTransient, because a proxied
+ *      404 is not transient by any general rule — it is transient in THIS
+ *      specific sense: the Cloud Connector Proxy answers 404 for a console it
+ *      cannot currently reach as well as for a path that does not exist.
+ *   2. On persistent failure, PROBE /info (what unifi_console_capabilities
+ *      does). That probe is the discriminator: if the Integration API answers,
+ *      the console is up and the /sites failure was ours to own, and the reason
+ *      string says so instead of blaming the customer's hardware.
+ *
+ * `probeSucceeded` is reported so the caller can tell the two apart, and it is
+ * null when the probe itself could not be completed — never defaulted.
+ */
+async function resolveLocalSites(
+  consoleId: string,
+): Promise<
+  | { ok: true; sites: UnifiLocalSite[] }
+  | { ok: false; error: UnifiProxyError; probeSucceeded: boolean | null; probeDetail: string | null }
+> {
+  try {
+    const sites = await withRetry(() => listLocalSites(consoleId), {
+      maxRetries: 2,
+      baseDelayMs: 600,
+      maxDelayMs: 2500,
+      // Retry any proxy-level error; a genuinely offline console simply fails
+      // all three attempts and then gets the probe below.
+      shouldRetry: () => true,
+    })
+    return { ok: true, sites }
+  } catch (err) {
+    if (!(err instanceof UnifiProxyError)) throw err
+
+    let probeSucceeded: boolean | null = null
+    let probeDetail: string | null = null
+    try {
+      const info = await proxyGet<{ applicationVersion?: string }>(consoleId, '/info', { isCapabilityProbe: true })
+      probeSucceeded = true
+      probeDetail = `Integration API answered /info${info?.applicationVersion ? ` (Network ${info.applicationVersion})` : ''}`
+    } catch (probeErr) {
+      // The probe FAILING is informative; the probe being unrunnable is not.
+      if (probeErr instanceof UnifiProxyError) {
+        probeSucceeded = false
+        probeDetail = `[${probeErr.code}] ${probeErr.message}`
+      } else {
+        probeSucceeded = null
+        probeDetail = null
+      }
+    }
+    return { ok: false, error: err, probeSucceeded, probeDetail }
+  }
 }
 
 function siteSummary(s: UnifiLocalSite) {
@@ -215,21 +280,29 @@ export function registerUnifiSiteTools(server: any) {
             candidates: candidates.map((c) => ({ consoleId: c.consoleId, name: c.name })),
           })
         }
-        let sites: UnifiLocalSite[]
-        try {
-          sites = await listLocalSites(best.consoleId)
-        } catch (err) {
-          if (err instanceof UnifiProxyError) {
-            // The console matched but its Integration API is unreachable —
-            // return the reason instead of failing the whole resolve.
-            return ok({
-              resolved: false,
-              console: { consoleId: best.consoleId, name: best.name },
-              reason: `Matched console '${best.name}' but its local API is unavailable: [${err.code}] ${err.message}`,
-            })
-          }
-          throw err
+        const attempt = await resolveLocalSites(best.consoleId)
+        if (!attempt.ok) {
+          // The console matched but its Integration API did not answer after
+          // retries. The /info probe decides WHOSE problem that is, so the
+          // reason never says "offline" about a console that is demonstrably up.
+          const { error, probeSucceeded, probeDetail } = attempt
+          const diagnosis =
+            probeSucceeded === true
+              ? `THIS IS PROBABLY NOT AN OFFLINE CONSOLE. After 3 attempts /sites still failed, but a capability probe on the same console SUCCEEDED (${probeDetail}) — so the console is reachable and this looks like a transient Cloud Connector Proxy failure. Try unifi_resolve_site once more before telling anyone this site is unreachable.`
+              : probeSucceeded === false
+                ? `The capability probe on the same console ALSO failed (${probeDetail}), so the console really does appear unreachable right now.`
+                : 'The capability probe could not be completed, so whether the console is reachable is UNKNOWN — do not report it as offline.'
+          return ok({
+            resolved: false,
+            console: { consoleId: best.consoleId, name: best.name },
+            reason: `Matched console '${best.name}' but its local API did not answer: [${error.code}] ${error.message}`,
+            attemptsMade: 3,
+            capabilityProbeSucceeded: probeSucceeded,
+            capabilityProbeDetail: probeDetail,
+            diagnosis,
+          })
         }
+        const sites: UnifiLocalSite[] = attempt.sites
         if (sites.length === 0) {
           return ok({
             resolved: false,

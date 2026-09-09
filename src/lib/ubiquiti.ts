@@ -41,7 +41,21 @@ interface UnifiDeviceHost {
   hostId: string
   hostName?: string
   devices: UnifiDevice[]
+  /** When Site Manager last refreshed this host's snapshot. The staleness measure. */
   updatedAt?: string
+}
+
+/**
+ * One flattened device from the Site Manager /ea/devices CACHE, with the
+ * provenance a caller needs to judge it: which console it came from and when
+ * that console's snapshot was last refreshed.
+ */
+export interface UnifiDeviceEntry {
+  device: UnifiDevice
+  hostName: string
+  hostId: string
+  /** Site Manager's own updatedAt for this host; null when it reported none. */
+  hostUpdatedAt: string | null
 }
 
 export interface UnifiSite {
@@ -171,7 +185,7 @@ export async function listHosts(): Promise<Array<{ hostId: string; hostName: str
  * List all devices globally. The /ea/devices endpoint returns devices
  * grouped by host (console/controller): { data: [{ hostId, hostName, devices: [...] }] }
  */
-export async function listDevices(): Promise<{ device: UnifiDevice; hostName: string }[]> {
+export async function listDevices(): Promise<UnifiDeviceEntry[]> {
   const config = getConfig()
   if (!config) return []
 
@@ -181,12 +195,21 @@ export async function listDevices(): Promise<{ device: UnifiDevice; hostName: st
 
   if (!response?.data) return []
 
-  // Flatten: extract devices from each host
-  const allDevices: { device: UnifiDevice; hostName: string }[] = []
+  // Flatten: extract devices from each host.
+  //
+  // `hostUpdatedAt` is carried through deliberately. /ea/devices is Site
+  // Manager's CACHE of what each console last reported, and `updatedAt` is the
+  // only field that says how old that snapshot is. It used to be dropped here,
+  // which is what let unifi_list_devices present a stale `status` as though it
+  // were live state: on 2026-09-09 it reported all three Blissful Buds devices
+  // "offline" while a per-site read seconds later showed all three ONLINE with
+  // 15, 13 and 42 days of uptime. A cached value with no timestamp cannot be
+  // judged by the caller, so the timestamp travels with it.
+  const allDevices: UnifiDeviceEntry[] = []
   for (const host of response.data) {
     const hostName = host.hostName ?? host.hostId ?? 'Unknown'
     for (const device of host.devices ?? []) {
-      allDevices.push({ device, hostName })
+      allDevices.push({ device, hostName, hostId: host.hostId, hostUpdatedAt: host.updatedAt ?? null })
     }
   }
 

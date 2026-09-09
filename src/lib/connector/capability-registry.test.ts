@@ -42,7 +42,7 @@ function fakeServer(): ToolRegisteringServer & { names: string[] } {
  */
 async function recordRealModules(): Promise<RecordedTool[]> {
   const { server, recorded } = recordingServer(fakeServer())
-  const [configRead, configWrite, write, project, itglue, unifi, hr, scan, datto, salesPricing, kqm] = await Promise.all([
+  const [configRead, configWrite, write, project, itglue, unifi, hr, scan, datto, salesPricing, kqm, ringcentral] = await Promise.all([
     import('@/lib/mcp-config-read-tools'),
     import('@/lib/mcp-config-write-tools'),
     import('@/lib/mcp-write-tools'),
@@ -54,6 +54,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
     import('@/lib/mcp-datto-rmm-tools'),
     import('@/lib/mcp-sales-pricing-tools'),
     import('@/lib/mcp-kaseya-quote-manager-tools'),
+    import('@/lib/mcp-ringcentral-tools'),
   ])
   configRead.registerConfigReadTools(server)
   configWrite.registerConfigWriteTools(server)
@@ -66,6 +67,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
   datto.registerDattoRmmTools(server)
   salesPricing.registerSalesPricingTools(server)
   kqm.registerKaseyaQuoteManagerTools(server)
+  ringcentral.registerRingCentralTools(server)
   return recorded
 }
 
@@ -376,17 +378,39 @@ describe('TOOL_FACTS completeness (the drift guard)', () => {
     }
   })
 
-  it('gives every kill-switched tool a real env var name', async () => {
-    const KNOWN = new Set([
-      'CONNECTOR_CONFIG_WRITES_ENABLED',
-      'CONNECTOR_UNIFI_WRITES_ENABLED',
-      'CONNECTOR_HR_WRITES_ENABLED',
-      'CONNECTOR_SCAN_WRITES_ENABLED',
-    ])
-    const bad = Object.entries(TOOL_FACTS)
-      .filter(([, f]) => f.killSwitch && !KNOWN.has(f.killSwitch))
+  // This assertion used to be a hand-written allowlist of the four switch
+  // names that existed at the time, which meant every NEW kill switch failed
+  // the test until someone retyped its name here — the same
+  // list-of-previously-seen-cases shape that has been the defect four times in
+  // this repo (periodType, parentIdField, the errors[] phrase list, and
+  // killSwitchState() itself reporting five live scan tools as disabled).
+  // A list cannot catch the typo it was copied from, either. So the check is
+  // now derived: the name must follow the CONNECTOR_*_ENABLED convention every
+  // switch in this codebase uses, and — the part that actually catches a typo —
+  // it must be a switch the capability report demonstrably READS.
+  it('gives every kill-switched tool a conventional name that the report actually reads', async () => {
+    const CONVENTION = /^CONNECTOR_[A-Z0-9_]+_ENABLED$/
+    const offConvention = Object.entries(TOOL_FACTS)
+      .filter(([, f]) => f.killSwitch && !CONVENTION.test(f.killSwitch))
       .map(([n, f]) => `${n} -> ${f.killSwitch}`)
-    expect(bad).toEqual([])
+    expect(
+      offConvention,
+      `Kill-switch names must match CONNECTOR_*_ENABLED so they are recognisable in Vercel and derivable from TOOL_FACTS: ${offConvention.join(', ')}`
+    ).toEqual([])
+
+    // Every declared switch must appear in the report's killSwitches map. That
+    // map is built by killSwitchState(), which derives its names from
+    // TOOL_FACTS — so a switch declared on a tool and absent from the map means
+    // the derivation broke, which is precisely the 2026-09-08c defect.
+    const declared = new Set(
+      Object.values(TOOL_FACTS).map((f) => f.killSwitch).filter((s): s is string => !!s)
+    )
+    const report = buildCapabilityReport(await recordRealModules())
+    const unread = [...declared].filter((s) => !(s in report.writeGuardrails.killSwitches))
+    expect(
+      unread,
+      `These kill switches are declared in TOOL_FACTS but the capability report never reads them, so it cannot report their state honestly: ${unread.join(', ')}`
+    ).toEqual([])
   })
 })
 
