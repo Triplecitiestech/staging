@@ -220,11 +220,27 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
 
   'IT Glue': [
     {
-      capability: 'Read or write passwords / credentials',
+      // CHANGED 2026-09-09. This row used to read "Read or write passwords /
+      // credentials — POLICY_GATED — do not fix it". That gate was OURS, not IT
+      // Glue's, and it became a blocker: a customer sent an invoice carrying a
+      // portal security code, asked for it to be documented, and the connector
+      // could only hand back a manual task. The gate is now narrowed rather
+      // than removed, and the "do not fix it" instruction is withdrawn because
+      // it was wrong about the write half.
+      capability: 'READ a password / retrieve a stored credential (list, search, get, reveal)',
       reason: 'POLICY_GATED',
       verifiedBy:
-        'Structural: no tool in src/lib/mcp-itglue-tools.ts ever calls the /passwords resource, and passwords are excluded on both ends of itglue_relate_items and itglue_upload_attachment.',
-      notes: 'This is a deliberate blast-radius decision, not an API limitation. Do not "fix" it.',
+        'Structural, and tested: no tool reads /passwords, the ItGlueClient has no getPassword/getPasswords/searchPasswords method and issues no GET against /passwords, and src/lib/mcp-itglue-passwords.test.ts fails if any of those appear. Passwords also remain excluded on both ends of itglue_relate_items and itglue_upload_attachment.',
+      notes:
+        'THE READ PATH STAYS CLOSED AND THIS ONE IS NOT TO BE "FIXED". Writing a credential in and reading one out are different risks: a write stores a secret the human already has, while a read would let anything holding an MCP token pull every customer credential out of the vault. If a stored credential is needed, a person opens the record in IT Glue.',
+    },
+    {
+      capability: 'WRITE a password — store a new credential, or rotate/update an existing one',
+      reason: 'POLICY_GATED',
+      verifiedBy:
+        'BUILT 2026-09-09: itglue_create_password and itglue_update_password, behind CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED (default false, name declared in TOOL_FACTS and read from that declaration).',
+      notes:
+        'AVAILABLE, not forbidden — this is a kill switch, not a refusal. Turn it on by setting CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED=true in Vercel. Guarantees, each held by a test: the secret is never echoed in the response, never written to the audit log (only WHICH fields were set, never their values, enforced by an allowlist), and never included in an error message — the client throws password errors WITHOUT the vendor body, because IT Glue validation text can quote the value it rejected. Every write is attributed to the signed-in technician by name, with the organization and record NAME logged; a session with no signed-in email is refused rather than written anonymously. Update needs the record id from the create response or the IT Glue UI, since there is deliberately no password search.',
     },
     {
       capability: 'Delete or archive a document',

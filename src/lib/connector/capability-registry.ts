@@ -496,6 +496,30 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   unifi_summary: R,
   unifi_site_networks: R,
 
+  itglue_create_password: {
+    access: 'write',
+    risk: 'low-risk write',
+    staged: false,
+    killSwitch: 'CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED',
+    constraints: [
+      'WRITE-ONLY BY CONSTRUCTION — there is no tool to read, list, search or retrieve a stored password, and none may be added: writing a credential in is a different risk from reading one out',
+      'The secret is never echoed in the response, never written to the audit log, and never included in an error message (password errors omit the vendor body, which can quote the rejected value)',
+      'Attributed to the signed-in technician by name; the organization, record id, record NAME and the FIELD NAMES set are logged — never their values',
+      'Refuses when no signed-in email is present: a credential write is not made anonymously',
+    ],
+  },
+  itglue_update_password: {
+    access: 'write',
+    risk: 'low-risk write',
+    staged: false,
+    killSwitch: 'CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED',
+    constraints: [
+      'WRITE-ONLY BY CONSTRUCTION — the current value cannot be read first, so a rotation replaces the value rather than being computed from it',
+      'The new secret is never echoed, never logged, and never in an error message',
+      'Needs the record id (from the create response or the IT Glue UI) — there is deliberately no password search tool',
+    ],
+  },
+
   itglue_org_locations: r(
     'The ONLY sound evidence about whether an organization has locations — a configuration\'s null location-id proves nothing, and reading it as "no locations" caused a duplicate location to be created on 2026-09-09',
   ),

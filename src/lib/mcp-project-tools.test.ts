@@ -597,11 +597,38 @@ describe('describeRoleDivergence - two role lists, reported not merged', () => {
     expect(d.note).toMatch(/29683355/)
   })
 
-  it('never claims which list a write is enforced against', () => {
+  // SUPERSEDED BY MEASUREMENT (2026-09-09). This test used to assert the note
+  // said "NOT established by this read", which was true and correct while
+  // nobody had measured it — and it stayed unmeasured across several sessions
+  // precisely because a read cannot settle it. It was then settled by
+  // experiment (scratch ticket 35754 on company 0, ten roles plus a negative
+  // control; see src/lib/connector/autotask-role-findings.ts), so the note now
+  // states the answer. What this test guards is that it states the answer
+  // WITHOUT overclaiming: the part that is proven, the part that is not, and
+  // the task case that was never tested.
+  it('reports the settled time-entry answer without overclaiming', () => {
     const d = describeRoleDivergence(DEPT, DESK, 29682834, 29683355)
-    expect(d.note).toMatch(/NOT established by this read/)
-    // A task assignment is the one case that IS settled - it needs departmentID.
-    expect(d.note).toMatch(/must come from departmentRoles/)
+
+    // What was proven: ResourceRoleDepartments is not the gate for a time entry.
+    expect(d.note).toMatch(/FOR A TICKET TIME ENTRY THIS IS NOW SETTLED/)
+    expect(d.note).toMatch(/definitively NOT what a time entry validates against/)
+    // The negative control is what makes the ten acceptances a result at all.
+    expect(d.note).toMatch(/nonexistent role id is refused/)
+
+    // What was NOT proven, stated as such. Kurtis holds every active role, so
+    // "Service Desk list" and "any active role" are indistinguishable here, and
+    // claiming either would be a conclusion the measurement never supported.
+    expect(d.note).toMatch(/remains unproven/)
+    expect(d.note).toMatch(/none it lacks to test with/)
+
+    // Task assignment was not part of the experiment and its constraint stands.
+    expect(d.note).toMatch(/FOR A TASK ASSIGNMENT the constraint is unchanged/)
+    expect(d.note).toMatch(/must come from that list/)
+
+    // And the consequence a technician has to act on: every role validates, so
+    // a wrong role bills wrong instead of being refused.
+    expect(d.note).toMatch(/it just bills wrong/)
+    expect(d.note).toMatch(/225\/hr/)
   })
 
   it('diverges on differing defaults even when both lists hold identical roles', () => {

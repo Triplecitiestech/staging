@@ -6,6 +6,7 @@
 // resource id -> ImpersonationResourceId header.
 
 import { z } from 'zod'
+import { ROLE_RATE_WARNING, suggestRoleForWork } from '@/lib/connector/autotask-role-findings'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import { classifyPublishVisibility, decideNotificationVerdict } from '@/lib/autotask-activity'
 import * as write from '@/lib/autotask-write'
@@ -648,14 +649,31 @@ export function registerWriteTools(server: any) {
 
   server.registerTool(
     'autotask_create_time_entry',
-    { title: 'Autotask: create time entry', description: 'WRITE, BILLABLE. Log time on a ticket, attributed to the signed-in technician. roleId is REQUIRED (resolve a role name via autotask_list_roles). Autotask SERVICE tickets require a start and stop time — pass startDateTime + stopDateTime (ISO 8601); hoursWorked is then optional and derived from the interval. For non-service tickets you may instead pass hoursWorked. summaryNotes follows TCT format: Actions Taken; Root Cause/Findings; Resolution; Next Steps/Escalation; Status - prose, no bullets, do not restate the issue. NOTE: summaryNotes does NOT populate the ticket Resolution field (which drives the customer completion email) — set appendSummaryToResolution=true (or use autotask_set_ticket_resolution) to write it there. Only call after the user approves the hours and text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), roleId: z.number().int().describe('Autotask role id (REQUIRED) — from autotask_list_roles'), summaryNotes: z.string().describe('Customer-visible work summary in TCT format'), startDateTime: z.string().optional().describe('Work start, ISO 8601 — REQUIRED for Service tickets'), stopDateTime: z.string().optional().describe('Work stop, ISO 8601 — REQUIRED for Service tickets'), hoursWorked: z.number().positive().optional().describe('Hours worked; optional if start/stop given (derived from the interval)'), internalNotes: z.string().optional().describe('Internal-only notes'), dateWorked: z.string().optional().describe('YYYY-MM-DD; defaults to the start date or today'), billingCodeId: z.number().int().optional().describe('Autotask billing code id (work type), if required'), appendSummaryToResolution: z.boolean().optional().describe('Also append summaryNotes to the ticket Resolution field (mirrors Autotask\'s checkbox) so the customer completion email has content') } },
+    { title: 'Autotask: create time entry', description: `WRITE, BILLABLE. Log time on a ticket, attributed to the signed-in technician. roleId is REQUIRED (resolve a role name via autotask_list_roles). ${ROLE_RATE_WARNING} Settled 2026-09-09: every active role validates for this instance's resources, so an inappropriate role is NOT refused — it bills wrong. The response reports a suggestedRole derived from your summaryNotes; it is ADVISORY and the roleId you pass is what is written, because auto-selecting a 225/hr role from keyword matching would be a billing decision made by a regex. Autotask SERVICE tickets require a start and stop time — pass startDateTime + stopDateTime (ISO 8601); hoursWorked is then optional and derived from the interval. For non-service tickets you may instead pass hoursWorked. summaryNotes follows TCT format: Actions Taken; Root Cause/Findings; Resolution; Next Steps/Escalation; Status - prose, no bullets, do not restate the issue. NOTE: summaryNotes does NOT populate the ticket Resolution field (which drives the customer completion email) — set appendSummaryToResolution=true (or use autotask_set_ticket_resolution) to write it there. Only call after the user approves the hours and text.`, inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), roleId: z.number().int().describe('Autotask role id (REQUIRED) — from autotask_list_roles. Network/infrastructure/connectivity work: Network Engineer 29683460. Account/billing/vendor administration: Administration 29682834. Strategic/advisory: vCIO 29683467 (225/hr). Routine end-user support: Help Desk 29683464'), summaryNotes: z.string().describe('Customer-visible work summary in TCT format'), startDateTime: z.string().optional().describe('Work start, ISO 8601 — REQUIRED for Service tickets'), stopDateTime: z.string().optional().describe('Work stop, ISO 8601 — REQUIRED for Service tickets'), hoursWorked: z.number().positive().optional().describe('Hours worked; optional if start/stop given (derived from the interval)'), internalNotes: z.string().optional().describe('Internal-only notes'), dateWorked: z.string().optional().describe('YYYY-MM-DD; defaults to the start date or today'), billingCodeId: z.number().int().optional().describe('Autotask billing code id (work type), if required'), appendSummaryToResolution: z.boolean().optional().describe('Also append summaryNotes to the ticket Resolution field (mirrors Autotask\'s checkbox) so the customer completion email has content') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, roleId, summaryNotes, startDateTime, stopDateTime, hoursWorked, internalNotes, dateWorked, billingCodeId, appendSummaryToResolution }: any, extra: any) => {
       try {
         const rid = await resolveResourceId(emailOf(extra))
         const result = await write.createTicketTimeEntry({ ticketID: ticketId, resourceID: rid, roleID: roleId, hoursWorked, dateWorked, startDateTime, stopDateTime, summaryNotes, internalNotes, billingCodeID: billingCodeId }, rid)
         if (appendSummaryToResolution && summaryNotes) await appendResolution(ticketId, summaryNotes, rid)
-        return okTicket(ticketId, result)
+
+        // Role guidance, reported AFTER the write and never applied to it. The
+        // entry is written with exactly the roleId the caller passed; this only
+        // tells them whether the role they chose matches the work they
+        // described, because since 2026-09-09 we know every active role
+        // validates and therefore a wrong role bills wrong instead of failing.
+        const suggestion = suggestRoleForWork(String(summaryNotes ?? ''), { resourceId: rid })
+        const roleMismatch = suggestion.matched && suggestion.roleId !== roleId
+        return okTicket(ticketId, {
+          ...(result && typeof result === 'object' ? result : { result }),
+          roleUsed: roleId,
+          suggestedRole: suggestion,
+          ...(roleMismatch
+            ? {
+                roleAdvisory: `HEADS UP — the entry was written with role ${roleId} as you asked, and nothing has been changed. But the work you described reads like ${suggestion.roleName} (${suggestion.roleId}, ${suggestion.hourlyRate}/hr): ${suggestion.rationale} If ${suggestion.roleName} is the right role, edit the entry with autotask_update_time_entry — the role sets the bill rate, so this is a billing difference, not a cosmetic one.`,
+              }
+            : {}),
+        })
       } catch (e) { return fail(e) }
     }
   )
