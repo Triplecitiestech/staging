@@ -22,6 +22,7 @@
 //     assumed and never hardcoded
 
 import { z } from 'zod'
+import { ROLE_RATE_WARNING, TIME_ENTRY_ROLE_FINDING, TIME_ENTRY_ROLE_TRIALS } from '@/lib/connector/autotask-role-findings'
 import {
   AutotaskClient,
   getAutotaskProjectUrl,
@@ -318,7 +319,14 @@ export function describeRoleDivergence(
     defaultsAgree
       ? ''
       : `The defaults also differ (department-paired ${departmentDefault ?? 'none'} vs Service Desk ${serviceDeskDefault ?? 'none'}), so OMITTING a role can resolve to a DIFFERENT role depending on which list the write consults.`,
-    `Which list a given Autotask write enforces against is NOT established by this read — do not assume. A TASK assignment must come from departmentRoles because it needs departmentID; for a ticket time entry, confirm with the technician rather than picking from the longer list because it is longer.`,
+    // Settled by experiment on 2026-09-09 — see autotask-role-findings.ts.
+    // This used to say the question could not be determined from a read, which
+    // was true and stayed true across several sessions because nobody measured
+    // it. It has now been measured, so the note states the answer and the
+    // precise limit of that answer.
+    `FOR A TICKET TIME ENTRY THIS IS NOW SETTLED: neither list is the gate in the restrictive sense — all ten active roles were accepted for resource 29682885 on 2026-09-09, including the nine absent from its department-paired list, so ResourceRoleDepartments is definitively NOT what a time entry validates against. Autotask still validates the field (a nonexistent role id is refused), and it remains unproven whether the gate is the Service Desk list or simply "any active role", because this resource holds every active role and so there is none it lacks to test with.`,
+    `FOR A TASK ASSIGNMENT the constraint is unchanged and was NOT part of that experiment: a task needs departmentID, which only departmentRoles carries, so a task role must come from that list.`,
+    `BECAUSE EVERY ROLE VALIDATES, AN INAPPROPRIATE ROLE IS NOT REFUSED — it just bills wrong. ${ROLE_RATE_WARNING}`,
   ]
   return { diverged, onlyInServiceDesk, onlyInDepartmentRoles, defaultsAgree, note: parts.filter(Boolean).join(' ') }
 }
@@ -894,6 +902,23 @@ export function registerProjectTools(server: any) {
             'To assign one of these people to a TASK you need four fields together: assignedResourceID, assignedResourceRoleID, billingCodeID (autotask_list_billing_codes) and departmentID. The role and department MUST come from departmentRoles — a serviceDeskRoles entry carries no department. autotask_create_task and autotask_update_task fill in the role and department for you if you omit them, using the departmentRoles row marked isDefault.',
           rateNote:
             'THE ROLE CHOSEN SETS THE BILL RATE. Roles carry their own hourlyRate and hourlyFactor (autotask_list_roles), and on this instance they are not uniform — several sit at 145 while Emergency Technician, After Hours Support and vCIO sit at 225 with factors up to 1.5. Once a resource holds several roles, picking the wrong one misbills the customer in one direction or the other. Choose the role that describes the work, not the first one that validates.',
+          // The empirical answer travels WITH the divergence report, so a
+          // caller who reads "the two lists disagree" also reads what that
+          // does and does not mean for the write they are about to make.
+          // Recorded once in autotask-role-findings.ts and cited here.
+          timeEntryRoleValidation: {
+            settled: true,
+            finding: TIME_ENTRY_ROLE_FINDING,
+            experiment: {
+              date: '2026-09-09',
+              resourceId: 29682885,
+              scratchTicket: 'T20260909.0028 (id 35754) on company 0 — Triple Cities Tech\'s OWN record, never a customer\'s',
+              method: 'One variable only (roleId): ten identical 1-minute time entries, one per active role, plus a negative control using a role id that does not exist in the instance.',
+              whyTheNegativeControl:
+                'Without it, ten acceptances could not be distinguished from Autotask not validating the field at all. The control was refused, so the acceptances are a real result.',
+              trials: TIME_ENTRY_ROLE_TRIALS,
+            },
+          },
         })
       } catch (e) { return fail(e, TOOL) }
     }

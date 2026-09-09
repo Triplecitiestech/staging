@@ -717,6 +717,144 @@ export class ItGlueClient {
   }
 
   /**
+   * Create an IT Glue PASSWORD record.
+   *
+   * ── WHY THIS EXISTS, AND WHY ONLY WRITES ──────────────────────────────────
+   * Passwords were previously excluded from this client by construction. That
+   * was a deliberate blast-radius decision — OUR decision, not an IT Glue
+   * limitation — and it became a blocker: a customer sent an invoice
+   * containing a portal security code, asked for it to be documented, and the
+   * connector could only hand back a manual task.
+   *
+   * The gate is now narrowed rather than removed. WRITING a credential IN and
+   * READING one OUT are different risks: a write puts a secret the human
+   * already has into the vault, while a read would let anything holding an MCP
+   * token pull every customer credential out of it. So this client gains
+   * create and update ONLY. There is deliberately NO get, NO list and NO
+   * search for passwords, and none may be added — the read path stays closed.
+   *
+   * ── THE SECRET NEVER COMES BACK ──────────────────────────────────────────
+   * Both methods return only IT Glue's own metadata for the record, and the
+   * caller-facing tools strip it further. The `password` value is sent and
+   * never echoed, never logged, and never placed in an error message. An error
+   * from IT Glue is truncated before it is thrown for exactly that reason: a
+   * validation message can quote the offending value.
+   */
+  async createPassword(input: {
+    organizationId: string | number
+    name: string
+    password: string
+    username?: string
+    url?: string
+    notes?: string
+    /** IT Glue password category id, if the account uses them. */
+    passwordCategoryId?: string | number
+    /** Restrict visibility to the record's own permissions. */
+    restricted?: boolean
+  }): Promise<{ id: string; name: string; organizationId: number | null; url: string | null; updatedAt: string | null }> {
+    const attributes: Record<string, unknown> = {
+      'organization-id': Number(input.organizationId),
+      name: input.name,
+      password: input.password,
+    }
+    if (input.username) attributes.username = input.username
+    if (input.url) attributes.url = input.url
+    if (input.notes) attributes.notes = input.notes
+    if (input.passwordCategoryId != null && String(input.passwordCategoryId).trim() !== '') {
+      attributes['password-category-id'] = Number(input.passwordCategoryId)
+    }
+    if (input.restricted != null) attributes.restricted = input.restricted
+
+    const data = await this.sendWithoutEchoingSecrets<{ data: { id: string; attributes?: Record<string, unknown> } }>(
+      'POST',
+      '/passwords',
+      { data: { type: 'passwords', attributes } },
+    )
+    return this.slimPassword(data.data)
+  }
+
+  /**
+   * Update an existing IT Glue password record.
+   *
+   * Only the fields supplied are sent. Unlike flexible assets, this does NOT
+   * GET-merge first — and it must not: a merge would require READING the
+   * existing record, and reading a password is the thing this surface refuses
+   * to do. IT Glue's password PATCH honours a partial attribute set.
+   */
+  async updatePassword(
+    id: string,
+    changes: { name?: string; password?: string; username?: string; url?: string; notes?: string; passwordCategoryId?: string | number; restricted?: boolean },
+  ): Promise<{ id: string; name: string; organizationId: number | null; url: string | null; updatedAt: string | null }> {
+    const attributes: Record<string, unknown> = {}
+    if (changes.name !== undefined) attributes.name = changes.name
+    if (changes.password !== undefined) attributes.password = changes.password
+    if (changes.username !== undefined) attributes.username = changes.username
+    if (changes.url !== undefined) attributes.url = changes.url
+    if (changes.notes !== undefined) attributes.notes = changes.notes
+    if (changes.passwordCategoryId !== undefined && String(changes.passwordCategoryId).trim() !== '') {
+      attributes['password-category-id'] = Number(changes.passwordCategoryId)
+    }
+    if (changes.restricted !== undefined) attributes.restricted = changes.restricted
+
+    const data = await this.sendWithoutEchoingSecrets<{ data: { id: string; attributes?: Record<string, unknown> } }>(
+      'PATCH',
+      `/passwords/${id}`,
+      { data: { type: 'passwords', id: String(id), attributes } },
+    )
+    return this.slimPassword(data.data)
+  }
+
+  /** Metadata only. The password value is structurally absent from this shape. */
+  private slimPassword(d: { id: string; attributes?: Record<string, unknown> }) {
+    const a = d.attributes ?? {}
+    return {
+      id: d.id,
+      name: typeof a.name === 'string' ? a.name : '',
+      organizationId: typeof a['organization-id'] === 'number' ? a['organization-id'] : null,
+      url: typeof a['resource-url'] === 'string' ? a['resource-url'] : null,
+      updatedAt: typeof a['updated-at'] === 'string' ? a['updated-at'] : null,
+    }
+  }
+
+  /**
+   * Like `send`, but the request body is NEVER included in a thrown error and
+   * the response body is truncated hard.
+   *
+   * `send` puts 300 characters of IT Glue's response into its Error message.
+   * For every other resource that is exactly what we want. For a password it is
+   * a leak channel: a validation error can quote the value it rejected, and
+   * that message then travels into logs, tool output and the conversation. So
+   * this variant reports the STATUS and the resource, and deliberately not the
+   * body.
+   */
+  private async sendWithoutEchoingSecrets<T>(method: string, path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        'x-api-key': this.apiKey,
+        'Content-Type': 'application/vnd.api+json',
+        Accept: 'application/vnd.api+json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    })
+
+    if (!res.ok) {
+      // Body deliberately NOT read into the message. Status codes are enough to
+      // act on, and IT Glue's validation text can echo the submitted value.
+      throw new Error(
+        `IT Glue API ${method} ${path} failed (${res.status}). The response body is deliberately NOT included: ` +
+          'this is the password resource, and a validation message can quote the value that was submitted. ' +
+          `Common causes for ${res.status}: 422 a missing required field (name, organization-id, password) or an unknown password-category-id; ` +
+          '403 the API key lacks password write permission; 404 the record or organization id does not exist.',
+      )
+    }
+
+    const text = await res.text()
+    return (text ? JSON.parse(text) : {}) as T
+  }
+
+  /**
    * Create a document folder under an organization. IT Glue's documented shape
    * is { type: 'document-folders', attributes: { name, 'parent-id'?, restricted } }
    * on the org's document_folders relationship (org inferred from the URL).

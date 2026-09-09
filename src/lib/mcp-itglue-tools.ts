@@ -8,8 +8,27 @@
 // set, otherwise falls back to IT_GLUE_API_KEY (the read key the compliance
 // engine uses). Using a dedicated connector key keeps blast radius isolated.
 //
-// PASSWORDS ARE OUT OF SCOPE BY CONSTRUCTION: no tool here ever calls the IT
-// Glue /passwords resource, so the connector cannot read or write credentials.
+// PASSWORDS: WRITE-ONLY, AND THE READ PATH STAYS CLOSED (changed 2026-09-09).
+// Until now no tool here touched /passwords at all. That was OUR blast-radius
+// decision, not an IT Glue limitation, and it became a blocker: a customer sent
+// an invoice carrying a portal security code, asked for it to be documented,
+// and the connector could only hand back a manual task.
+//
+// The gate is narrowed rather than removed, because writing a credential IN and
+// reading one OUT are different risks. A write puts a secret the human already
+// has into the vault. A read would let anything holding an MCP token pull every
+// customer credential out of it. So there is itglue_create_password and
+// itglue_update_password and NOTHING ELSE — no get, no list, no search, no
+// retrieval of a stored secret — and none may be added. Passwords also remain
+// excluded on both ends of itglue_relate_items and itglue_upload_attachment.
+//
+// Behind CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED, default false, whose name is
+// declared in TOOL_FACTS and read from that declaration.
+//
+// THE SECRET NEVER COMES BACK AND IS NEVER RECORDED: it is not echoed in the
+// tool response, not written to the audit log, and not included in an error
+// message — the client throws password errors WITHOUT the response body,
+// because IT Glue's validation text can quote the value it rejected.
 //
 // Attribution note: IT Glue's API has no per-user impersonation (unlike
 // Autotask), so writes are recorded under the API key's identity, not the
@@ -19,6 +38,8 @@ import { z } from 'zod'
 import { DOCUMENT_FOLDER_MOVE_UNSUPPORTED, ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder, type ItGlueLocation } from '@/lib/it-glue'
 import { searchDocIndex, TCT_ORG_ID } from '@/lib/itglue-doc-index'
 import { failureResult } from '@/lib/connector/failure-envelope'
+import { structuredLog } from '@/lib/resilience'
+import { randomUUID } from 'crypto'
 import { ITGLUE_HTML_FIELD_NOTE, toItGlueHtml } from '@/lib/itglue-html'
 import {
   MAX_LENGTH_PROVENANCE,
@@ -137,6 +158,57 @@ function traitValidationFailure(
     tool,
     details: { ...details, problems: verdict.problems },
   })
+}
+
+
+// ---------------------------------------------------------------------------
+// Password writes
+// ---------------------------------------------------------------------------
+
+export const ITGLUE_PASSWORD_WRITES_KILL_SWITCH = 'CONNECTOR_ITGLUE_PASSWORD_WRITES_ENABLED'
+
+/** Default false: an unset switch is OFF, never on. */
+export function itGluePasswordWritesEnabled(): boolean {
+  return process.env[ITGLUE_PASSWORD_WRITES_KILL_SWITCH] === 'true'
+}
+
+/**
+ * Audit one password write.
+ *
+ * WHAT IS RECORDED: who did it, which organization, the record NAME and id, and
+ * WHICH FIELDS were set. WHAT IS NEVER RECORDED: the value of any of them. The
+ * field NAMES are the useful audit signal ("the password was rotated on
+ * 2026-09-09 by kurtis@") and they carry no secret; the values are the thing an
+ * audit log must never become a copy of.
+ *
+ * The allowlist below is the enforcement, not a convention: only these keys can
+ * reach the log line, so adding a `password` field to the tool later cannot
+ * accidentally start logging it.
+ */
+const AUDITABLE_FIELDS = ['name', 'username', 'url', 'notes', 'passwordCategoryId', 'restricted', 'password'] as const
+
+export function passwordAuditRecord(input: {
+  action: 'create' | 'update'
+  actor: string
+  organizationId?: string | null
+  recordId?: string | null
+  recordName?: string | null
+  suppliedKeys: string[]
+}): { correlationId: string; operation: string } & Record<string, unknown> {
+  return {
+    correlationId: randomUUID(),
+    operation: `connector_itglue_password_${input.action}`,
+    actor: input.actor,
+    organizationId: input.organizationId ?? null,
+    recordId: input.recordId ?? null,
+    // The record NAME is deliberately logged — it is how a human finds the
+    // record later — and is never the secret. TCT's naming convention puts the
+    // system and account in the name, not the credential.
+    recordName: input.recordName ?? null,
+    // Field names only. No values, ever.
+    fieldsSet: input.suppliedKeys.filter((k) => (AUDITABLE_FIELDS as readonly string[]).includes(k)),
+    secretLogged: false,
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -457,4 +529,118 @@ export function registerItGlueTools(server: any) {
         ...(prep.htmlConversions.length ? { htmlConversions: prep.htmlConversions } : {}),
       })
     } catch (e) { return fail(e) } })
+
+  // ── Password writes (create + update only; no read path exists) ───────────
+  const passwordDisabled = (tool: string) =>
+    failureResult({
+      reasonCode: 'POLICY_BLOCKED',
+      message: `${tool} is turned off: the ${ITGLUE_PASSWORD_WRITES_KILL_SWITCH} kill switch is not set to "true", so nothing was written and no credential left this session.`,
+      evidence: `Read ${ITGLUE_PASSWORD_WRITES_KILL_SWITCH} from the environment at call time; it is off by default.`,
+      remediation: `Kurtis: set ${ITGLUE_PASSWORD_WRITES_KILL_SWITCH}=true in the Vercel project and redeploy to allow password WRITES. Reading passwords back out is a separate matter and is not implemented at all — there is no tool for it and none is planned.`,
+      surface: 'itglue',
+      tool,
+    })
+
+  const requireActor = (extra: unknown): string => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const email = (extra as any)?.authInfo?.extra?.email
+    if (typeof email !== 'string' || !email) {
+      throw new Error(
+        'Cannot attribute this password write: no signed-in user email on the connector session. A credential write is not made anonymously — sign in so the write is recorded under your name.',
+      )
+    }
+    return email
+  }
+
+  server.registerTool('itglue_create_password', { title: 'IT Glue: create a password record (write-only)', description: 'WRITE. Store a credential in IT Glue as a PASSWORD record — a login, portal account, security code, PIN, API key or licence key — under a customer organization, so it lives in the vault instead of in an email or an invoice. WRITE ONLY, AND DELIBERATELY ONE-DIRECTIONAL: this tool puts a secret IN. There is no companion tool to read, list, search or retrieve a stored password, and none will be added — writing a credential the human already has is a different risk from being able to pull every customer credential out. The secret you pass is never echoed back in the response, never written to the audit log, and never included in an error message (IT Glue password errors are returned WITHOUT the vendor body, because a validation message can quote the value it rejected). The write is attributed to you by name, with the organization and record name logged and the values not. ALWAYS confirm the exact record name, username and value with the user before calling, and follow the TCT naming convention (System - Account) so the record is findable. Gated by a kill switch that is OFF by default.', inputSchema: { organizationId: z.string().describe('IT Glue organization id (from itglue_search_orgs)'), name: z.string().describe('Record name, TCT convention "System - Account", e.g. "Spectrum Business - Portal Login". This IS logged, so keep the secret out of it'), password: z.string().describe('The credential value. Never echoed, never logged, never in an error message'), username: z.string().optional().describe('Username / login / account identifier'), url: z.string().optional().describe('Login URL for the system'), notes: z.string().optional().describe('Context — what this is for, who provided it, any expiry. Do NOT put the credential here'), passwordCategoryId: z.string().optional().describe('IT Glue password category id, if the account uses categories'), restricted: z.boolean().optional().describe('Restrict visibility to the record\'s own permissions') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args: any, extra: any) => {
+      const TOOL = 'itglue_create_password'
+      if (!itGluePasswordWritesEnabled()) return passwordDisabled(TOOL)
+      try {
+        const actor = requireActor(extra)
+        const c = itglue(); ensureConfigured(c)
+        const record = await c.createPassword({
+          organizationId: args.organizationId,
+          name: args.name,
+          password: args.password,
+          username: args.username,
+          url: args.url,
+          notes: args.notes,
+          passwordCategoryId: args.passwordCategoryId,
+          restricted: args.restricted,
+        })
+        structuredLog.info(
+          passwordAuditRecord({
+            action: 'create',
+            actor,
+            organizationId: String(args.organizationId),
+            recordId: record.id,
+            recordName: record.name,
+            suppliedKeys: Object.keys(args ?? {}),
+          }),
+          `IT Glue password record created by ${actor}`,
+        )
+        return ok({
+          created: true,
+          // Metadata only, by construction — the client's return shape has no
+          // password field to leak.
+          record,
+          attributedTo: actor,
+          note: 'Stored. The credential value is not returned here and is not in any log — to see it, open the record in IT Glue. There is no connector tool that can read it back.',
+        })
+      } catch (e) { return fail(e) }
+    })
+
+  server.registerTool('itglue_update_password', { title: 'IT Glue: update a password record (write-only)', description: 'WRITE. Update an existing IT Glue PASSWORD record — rotate the credential, correct the username or URL, or add notes. Pass only the fields you want to change. WRITE ONLY: like the create tool there is no way to read the current value first, and that is deliberate, so a rotation replaces the value rather than being computed from it. The new secret is never echoed back, never logged and never included in an error message. Attributed to you by name, with the record id and the FIELD NAMES you changed recorded — never their values. You need the record id, which comes from the create response or from the IT Glue UI; there is no password search tool. Confirm the change with the user first. Gated by a kill switch that is OFF by default.', inputSchema: { id: z.string().describe('IT Glue password record id'), password: z.string().optional().describe('New credential value. Never echoed, never logged'), name: z.string().optional().describe('New record name'), username: z.string().optional().describe('New username / login'), url: z.string().optional().describe('New login URL'), notes: z.string().optional().describe('New notes. Do NOT put the credential here'), passwordCategoryId: z.string().optional().describe('IT Glue password category id'), restricted: z.boolean().optional().describe('Restrict visibility to the record\'s own permissions') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args: any, extra: any) => {
+      const TOOL = 'itglue_update_password'
+      if (!itGluePasswordWritesEnabled()) return passwordDisabled(TOOL)
+
+      const changeKeys = Object.keys(args ?? {}).filter((k) => k !== 'id' && args[k] !== undefined)
+      if (changeKeys.length === 0) {
+        return failureResult({
+          reasonCode: 'INVALID_INPUT',
+          message: 'Nothing was written: no fields to change were supplied.',
+          evidence: 'Checked before any request was made.',
+          remediation: 'Pass at least one of password, name, username, url, notes, passwordCategoryId or restricted.',
+          surface: 'itglue',
+          tool: TOOL,
+          details: { id: String(args?.id ?? '') },
+        })
+      }
+
+      try {
+        const actor = requireActor(extra)
+        const c = itglue(); ensureConfigured(c)
+        const record = await c.updatePassword(String(args.id), {
+          password: args.password,
+          name: args.name,
+          username: args.username,
+          url: args.url,
+          notes: args.notes,
+          passwordCategoryId: args.passwordCategoryId,
+          restricted: args.restricted,
+        })
+        structuredLog.info(
+          passwordAuditRecord({
+            action: 'update',
+            actor,
+            organizationId: record.organizationId != null ? String(record.organizationId) : null,
+            recordId: record.id,
+            recordName: record.name,
+            suppliedKeys: changeKeys,
+          }),
+          `IT Glue password record updated by ${actor}`,
+        )
+        return ok({
+          updated: true,
+          record,
+          fieldsChanged: changeKeys,
+          attributedTo: actor,
+          note: 'Updated. No credential value is returned here or in any log, and no connector tool can read it back — open the record in IT Glue to see it.',
+        })
+      } catch (e) { return fail(e) }
+    })
 }
