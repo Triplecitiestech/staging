@@ -1067,8 +1067,15 @@ export async function updateContact(
   imp?: number,
 ): Promise<PathResolvedWrite<unknown>> {
   const body = { id: contactID, ...fields }
-  const candidates: WriteCandidate[] = [{ path: 'Contacts', body }]
+  // COMPANY-SCOPED PATH FIRST. Live 2026-09-09: PATCH Contacts answered 404 and
+  // the company-scoped fallback answered 200, so the flat path cost a wasted
+  // round trip on every contact update that supplied a company. Ordering it
+  // second — not deleting it — keeps the fallback for a caller that has the
+  // contact id but not the company id, which is the only case it serves.
   // != null — company id 0 is a real Autotask company (TCT's own).
-  if (companyID != null) candidates.push({ path: `Companies/${companyID}/Contacts`, body })
+  const candidates: WriteCandidate[] =
+    companyID != null
+      ? [{ path: `Companies/${companyID}/Contacts`, body }, { path: 'Contacts', body }]
+      : [{ path: 'Contacts', body }]
   return writeAtFirstWorkingPath('PATCH', candidates, imp)
 }

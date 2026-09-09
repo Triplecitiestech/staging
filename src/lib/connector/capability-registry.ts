@@ -318,6 +318,7 @@ export const VENDORS = {
   scan: 'Microsoft Graph — Raven scan filing (Kurtis mailbox + SharePoint)',
   sales: 'TCT Sales Calculator (our own pricing)',
   kqm: 'Kaseya Quote Manager (Datto Commerce)',
+  ringcentral: 'RingCentral (RingEX + RingSense)',
   tct: 'TCT connector (meta)',
 } as const
 
@@ -388,6 +389,44 @@ const igWrite = (...constraints: string[]): ToolFacts => ({
 export const TOOL_FACTS: Record<string, ToolFacts> = {
   // ── Meta ─────────────────────────────────────────────────────────────────
   tct_connector_capabilities: r('Generated from the live tool registry at request time'),
+
+  // ── RingCentral (read-only; default-OFF kill switch) ─────────────────────
+  // Reads only — the client exposes no method parameter, so there is no write
+  // surface to stage or gate. The kill switch is declared here and the set of
+  // switches the connector reads is DERIVED from these declarations, never
+  // retyped: a hand-maintained switch list is the defect shape that reported
+  // five live scan tools as disabled (2026-09-08c).
+  ringcentral_list_calls: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_RINGCENTRAL_ENABLED',
+    constraints: [
+      'Call log is queried BY DATE RANGE — there is no query-by-id endpoint, so a date is always required',
+      'transcriptAvailable means only that a recording exists; whether its transcript covers the whole call is measured separately by ringcentral_get_call_transcript',
+    ],
+  },
+  ringcentral_get_call_transcript: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_RINGCENTRAL_ENABLED',
+    constraints: [
+      'RingCentral STOPS TRANSCRIBING when a call becomes a three-way conference and gives no sign the transcript is partial — so coverageComplete is measured against the call duration on every response',
+      'coverageComplete is TRI-STATE: true / false / null for not-measured. null is NEVER a pass and must not be reported as a complete transcript',
+      'RingSense requires the RingSense app scope AND a credential belonging to a RingCentral super admin user',
+    ],
+  },
+  ringcentral_get_call_summary: {
+    access: 'read',
+    risk: 'read',
+    staged: false,
+    killSwitch: 'CONNECTOR_RINGCENTRAL_ENABLED',
+    constraints: [
+      'The summary is generated FROM the transcript, so a truncated transcript yields a summary of only the part RingCentral saw — coverageComplete is returned here for the same reason',
+      'RingSense requires the RingSense app scope AND a super-admin credential',
+    ],
+  },
 
   // ── UniFi: Site Manager aggregates (cloud, read-only) ────────────────────
   unifi_list_sites: R,
