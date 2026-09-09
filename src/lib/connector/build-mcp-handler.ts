@@ -40,6 +40,7 @@ import { registerRingCentralTools } from '@/lib/mcp-ringcentral-tools'
 import {
   recordingServer,
   buildCapabilityReport,
+  buildBootstrapReport,
   type RecordedTool,
 } from '@/lib/connector/capability-registry'
 import { failureResult, toolFailure } from '@/lib/connector/failure-envelope'
@@ -221,7 +222,7 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       server.registerTool('unifi_site_networks', { title: 'UniFi: site networks', description: 'Network/VLAN configuration for one UniFi site. Provide siteId (from unifi_list_sites). Pass siteName for a labelled summary.', inputSchema: { siteId: z.string().describe('UniFi site id (from unifi_list_sites)'), siteName: z.string().optional().describe('Optional site label for a summarised view') } }, async ({ siteId, siteName }) => { try { return ok(siteName ? await unifi.buildSiteNetworkSummary(siteId, siteName) : await unifi.getSiteNetworks(siteId)) } catch (e) { return fail(e) } })
 
       // ── Autotask PSA (read-only) ───────────────────────────────────────────
-      server.registerTool('autotask_search_companies', { title: 'Autotask: search companies', description: 'Fuzzy search Autotask companies by name.', inputSchema: { query: z.string().describe('Company name or partial name') } }, async ({ query }) => { try { return ok(await autotask().searchCompanies(query)) } catch (e) { return failAt(e) } })
+      server.registerTool('autotask_search_companies', { title: 'Autotask: search companies', description: 'Find an Autotask COMPANY / CUSTOMER / CLIENT / ACCOUNT by name (fuzzy, partial ok) and get its numeric companyID. This is the starting point for almost any customer question — tickets, contacts, contracts and reports all take the companyID this returns. Also use it for "which customers do we have called…", "look up this client", "what is this account\'s id".', inputSchema: { query: z.string().describe('Company name or partial name') } }, async ({ query }) => { try { return ok(await autotask().searchCompanies(query)) } catch (e) { return failAt(e) } })
       server.registerTool('autotask_get_company', { title: 'Autotask: get company', description: 'Get a single Autotask company by numeric ID.', inputSchema: { companyId: z.number().int().describe('Autotask company ID') } }, async ({ companyId }) => { try { return ok(await autotask().getCompany(companyId)) } catch (e) { return failAt(e) } })
       server.registerTool('autotask_company_projects', { title: 'Autotask: company projects', description: 'List projects for an Autotask company by numeric ID.', inputSchema: { companyId: z.number().int().describe('Autotask company ID') } }, async ({ companyId }) => { try { return ok(await autotask().getProjectsByCompany(companyId)) } catch (e) { return failAt(e) } })
       server.registerTool('autotask_company_tickets', { title: 'Autotask: company tickets', description: 'List recent tickets for an Autotask company. days defaults to 30. Set openOnly=true to return only not-completed (open) tickets via a server-side filter. Returns { count, activityGapAdvisory, tickets[] }; each ticket carries lastActivityDate + activityGap. Ticket FIELDS only — no notes or time entries, so this read is never evidence that work was not done (use autotask_ticket_activity).', inputSchema: { companyId: z.number().int().describe('Autotask company ID'), days: z.number().int().min(1).max(365).optional().describe('Look-back window in days (default 30)'), openOnly: z.boolean().optional().describe('Only tickets with no completed date (open); default false') } }, async ({ companyId, days, openOnly }) => { try { const rows = await autotask().getCompanyTickets(companyId, days ?? 30, openOnly ?? false); return ok({ count: rows.length, activityGapAdvisory: ticketReadAdvisory(rows.length), tickets: rows.map(ticketWithGap) }) } catch (e) { return failAt(e) } })
@@ -413,6 +414,22 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       // Every transcript carries a MEASURED coverage verdict, because RingCentral
       // silently stops transcribing when a call becomes a three-way conference.
       registerRingCentralTools(server)
+
+      // ── Bootstrap (registered LAST so it sees every tool above) ────────────
+      // Tool discovery was the largest hidden cost of the 2026-09-09 session:
+      // ~20 tool_search calls, several needing two or three rewordings before
+      // an existing tool surfaced. This loads the common working set in one
+      // call. The tool NAMES are reviewed data in BOOTSTRAP_TOOLS; every detail
+      // about each tool comes from the live registry, so it cannot misdescribe
+      // one, and a working-set name that is not registered is reported rather
+      // than silently dropped.
+      server.registerTool('tct_bootstrap', {
+        title: 'TCT: load the common working set of tools in one call',
+        description: 'START HERE. Loads the tools a normal Triple Cities Tech session actually uses — Autotask company / customer / client / account lookup, tickets, ticket activity, contacts, time entries, ticket status and resolution, plus the instance-specific picklists (queue, status, priority, billing code / work type, role), IT Glue organization / org / customer documentation search and quick notes, the UniFi site / console resolver, and the connector capability report — in a single call, with each tool\'s real parameters. Call this at the start of a session INSTEAD of searching for tools one at a time: the 2026-09-09 session needed roughly twenty tool searches, several requiring two or three rewordings, for tools that existed the whole time. It is NOT the full tool surface, and absence from this list is NEVER evidence a capability is missing — tct_connector_capabilities is the authority on that. Read-only, no side effects.',
+        inputSchema: {},
+      }, async () => {
+        try { return ok(buildBootstrapReport(recorded)) } catch (e) { return failConnector(e) }
+      })
 
       // ── Self-description (registered LAST so it sees every tool above) ──────
       // The keyword-rich description is deliberate: Claude discovers tools by

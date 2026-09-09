@@ -16,9 +16,16 @@
 // individual signed-in technician.
 
 import { z } from 'zod'
-import { DOCUMENT_FOLDER_MOVE_UNSUPPORTED, ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder } from '@/lib/it-glue'
+import { DOCUMENT_FOLDER_MOVE_UNSUPPORTED, ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder, type ItGlueLocation } from '@/lib/it-glue'
 import { searchDocIndex, TCT_ORG_ID } from '@/lib/itglue-doc-index'
 import { failureResult } from '@/lib/connector/failure-envelope'
+import { ITGLUE_HTML_FIELD_NOTE, toItGlueHtml } from '@/lib/itglue-html'
+import {
+  MAX_LENGTH_PROVENANCE,
+  normaliseFields,
+  validateTraits,
+  type NormalisedField,
+} from '@/lib/itglue-flexible-asset-schema'
 
 function itglue(): ItGlueClient {
   return new ItGlueClient({ apiKey: process.env.IT_GLUE_CONNECTOR_API_KEY || process.env.IT_GLUE_API_KEY })
@@ -74,23 +81,122 @@ function slimFolder(f: ItGlueDocumentFolder) {
   }
 }
 
+
+/**
+ * Fetch a type's schema, validate the caller's traits against it, and convert
+ * any Textbox (HTML) trait from plain text.
+ *
+ * ONE helper for create and update so the two cannot drift apart on what they
+ * validate — the whole point of the fix is that a caller gets the same answer
+ * either way.
+ */
+async function prepareTraits(
+  c: ItGlueClient,
+  flexibleAssetTypeId: string,
+  traits: Record<string, unknown>,
+  mode: 'create' | 'update',
+): Promise<
+  | { ok: true; traits: Record<string, unknown>; fields: NormalisedField[]; htmlConversions: Array<{ nameKey: string; notes: string[] }> }
+  | { ok: false; problems: ReturnType<typeof validateTraits>; fields: NormalisedField[] }
+> {
+  const fields = normaliseFields(await c.getFlexibleAssetTypeFields(String(flexibleAssetTypeId)))
+
+  // Convert BEFORE validating: conversion changes the string length, and the
+  // length cap must be judged on what is actually written.
+  const prepared: Record<string, unknown> = { ...traits }
+  const htmlConversions: Array<{ nameKey: string; notes: string[] }> = []
+  for (const f of fields) {
+    if (!f.storesHtml) continue
+    const v = prepared[f.nameKey]
+    if (typeof v !== 'string' || !v.trim()) continue
+    const converted = toItGlueHtml(v)
+    if (converted.html !== v) {
+      prepared[f.nameKey] = converted.html
+      htmlConversions.push({ nameKey: f.nameKey, notes: converted.notes })
+    }
+  }
+
+  const verdict = validateTraits(fields, prepared, mode)
+  if (!verdict.valid) return { ok: false, problems: verdict, fields }
+  return { ok: true, traits: prepared, fields, htmlConversions }
+}
+
+function traitValidationFailure(
+  tool: string,
+  verdict: ReturnType<typeof validateTraits>,
+  details: Record<string, unknown>,
+) {
+  return failureResult({
+    reasonCode: 'INVALID_INPUT',
+    message: `NOTHING WAS WRITTEN. ${verdict.combinedMessage}`,
+    evidence:
+      'Validated locally against the type\'s own field schema (required flags, Select options and Tag targets come from IT Glue; the length cap is derived from the field kind — see maxLengthProvenance on itglue_flexible_asset_type_fields) BEFORE any request was sent.',
+    remediation:
+      'Fix every problem listed above in ONE go and call again. They are all reported together on purpose: IT Glue returns only the first failure per attempt, which is why creating a single asset previously took four round trips.',
+    surface: 'itglue',
+    tool,
+    details: { ...details, problems: verdict.problems },
+  })
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function registerItGlueTools(server: any) {
   // ── IT Glue reads ────────────────────────────────────────────────────────
-  server.registerTool('itglue_search_orgs', { title: 'IT Glue: search organizations', description: 'Search IT Glue organizations by name (partial ok). Returns matches with id + name; use the id in other IT Glue tools.', inputSchema: { query: z.string().describe('Organization name or partial name') } },
+  server.registerTool('itglue_search_orgs', { title: 'IT Glue: search organizations', description: 'Find a customer / client / company / account / org / site in IT GLUE by name (partial ok) and get its numeric organization id. This is the entry point to all of a customer\'s documentation — every other IT Glue tool (documents, SOPs, configurations, locations, flexible assets, quick notes, passwords) takes the organizationId this returns. Note this is IT Glue\'s own id, which is DIFFERENT from the Autotask companyID.', inputSchema: { query: z.string().describe('Organization name or partial name') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ query }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.searchOrganizations(query)) } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_org_configurations', { title: 'IT Glue: org configurations', description: 'List IT Glue configurations (assets/devices) for an organization id.', inputSchema: { organizationId: z.string().describe('IT Glue organization id') } },
+  server.registerTool('itglue_org_configurations', { title: 'IT Glue: org configurations', description: 'List a customer\'s CONFIGURATIONS in IT Glue — their documented assets, devices, hardware and equipment: servers, workstations, firewalls, switches, access points, printers, NAS and so on, with make/model, serial, IP and status. Takes the numeric IT Glue organizationId from itglue_search_orgs (NOT an Autotask company id, and NOT a customer name). For a customer\'s sites and addresses use itglue_org_locations instead; a configuration\'s null location-id says nothing about whether locations exist.', inputSchema: { organizationId: z.string().describe('IT Glue organization id') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ organizationId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getConfigurations(organizationId)) } catch (e) { return fail(e) } })
+
+  server.registerTool('itglue_org_locations', { title: 'IT Glue: org locations (site addresses + their numeric ids)', description: 'List an IT Glue organization\'s LOCATIONS — its sites, offices, branches and addresses — returning each one\'s NUMERIC ID, name, full address and whether it is the primary location. Use it whenever you need a location id: Tag fields of type "Locations" (such as the required "Location(s)" trait on the Internet/WAN flexible asset type) take an ARRAY OF THESE NUMERIC IDS, not names. Nothing else in the connector returns a location id, so on 2026-09-09 the technician had to open the record in a browser and copy the id out of the URL. IMPORTANT — this tool is also the ONLY sound way to answer "does this customer have any locations": a configuration with a null location-id says nothing about whether locations exist, and reading it that way led to a duplicate location being created for a site that already had one. An empty list here is the only evidence of no locations. Read-only.', inputSchema: { organizationId: z.string().describe('IT Glue organization id (from itglue_search_orgs)') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ organizationId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const rows = await c.getLocations(String(organizationId))
+      const slim = rows.map((l: ItGlueLocation) => ({
+        id: l.id,
+        name: l.attributes.name,
+        primary: l.attributes.primary === true,
+        address: [l.attributes['address-1'], l.attributes['address-2'], l.attributes.city, l.attributes['region-name'], l.attributes['postal-code'], l.attributes['country-name']]
+          .filter((p) => typeof p === 'string' && p.trim())
+          .join(', ') || null,
+        phone: l.attributes.phone ?? null,
+      }))
+      return ok({
+        organizationId: String(organizationId),
+        count: slim.length,
+        note: slim.length
+          ? 'Use the numeric id values for any Tag field whose tagType is "Locations" — pass them as an array, e.g. { "location-s": [12345] }.'
+          : 'This organization has NO locations in IT Glue. That is established by this read returning an empty list — it is the only thing that establishes it. Before creating one, confirm with the user, because a location created in error is a duplicate someone has to clean up.',
+        locations: slim,
+      })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_flexible_asset_types', { title: 'IT Glue: flexible asset types', description: 'List all flexible asset types (structured documentation templates) in the account.', inputSchema: {} },
     async () => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getFlexibleAssetTypes()) } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_flexible_asset_type_fields', { title: 'IT Glue: flexible asset type fields', description: 'List the fields (schema) of a flexible asset type. The field name-keys are the trait keys to use when creating/updating a flexible asset.', inputSchema: { flexibleAssetTypeId: z.string().describe('IT Glue flexible asset type id') } },
+  server.registerTool('itglue_flexible_asset_type_fields', { title: 'IT Glue: flexible asset type fields + their constraints', description: 'Get the SCHEMA of an IT Glue flexible asset type — every field, its trait name-key, and the constraints that decide whether a write will be accepted: whether it is REQUIRED, its MAXIMUM LENGTH, its input type, the exact permitted values for a Select, and for a Tag field the resource the tag points at plus how to resolve its ids. CALL THIS BEFORE itglue_create_flexible_asset OR itglue_update_flexible_asset. It exists because IT Glue rejects one problem per attempt: creating a single Internet/WAN asset on 2026-09-09 took four tries (link type blank, then location(s) blank, then a 255-character overflow) since none of those constraints were readable from the old raw payload. The create/update tools now validate against this schema locally and return every problem at once. NOTE ON maxLength: IT Glue publishes no length attribute, so it is DERIVED from the field kind and labelled as such — null means NOT KNOWN, never unlimited.', inputSchema: { flexibleAssetTypeId: z.string().describe('IT Glue flexible asset type id (from itglue_flexible_asset_types)'), includeRaw: z.boolean().optional().describe('Also return IT Glue\'s untouched JSON:API payload (default false — it is large and its constraints are already normalised above)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ flexibleAssetTypeId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getFlexibleAssetTypeFields(flexibleAssetTypeId)) } catch (e) { return fail(e) } })
+    async ({ flexibleAssetTypeId, includeRaw }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const raw = await c.getFlexibleAssetTypeFields(flexibleAssetTypeId)
+      const fields = normaliseFields(raw)
+      const required = fields.filter((f) => f.required && !f.presentational)
+      return ok({
+        flexibleAssetTypeId: String(flexibleAssetTypeId),
+        fieldCount: fields.length,
+        requiredFieldKeys: required.map((f) => f.nameKey),
+        writeChecklist: required.length
+          ? `${required.length} field(s) MUST be set on create or IT Glue refuses the write: ${required.map((f) => `${f.nameKey} (${f.kind}${f.tagType ? ` → ${f.tagType}` : ''})`).join(', ')}.`
+          : 'No fields on this type are required.',
+        maxLengthProvenance: MAX_LENGTH_PROVENANCE,
+        htmlFieldKeys: fields.filter((f) => f.storesHtml).map((f) => f.nameKey),
+        fields,
+        ...(includeRaw ? { raw } : {}),
+      })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_org_flexible_assets', { title: 'IT Glue: org flexible assets', description: 'List an organization\'s flexible assets of a given type (IT Glue requires the flexible asset type id).', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), flexibleAssetTypeId: z.string().describe('IT Glue flexible asset type id') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,7 +264,15 @@ export function registerItGlueTools(server: any) {
   // ── IT Glue writes (confirm exact content with the user before calling) ────
   server.registerTool('itglue_create_document', { title: 'IT Glue: create document', description: 'WRITE. Create a new IT Glue document under an organization with a rich-text body (HTML), optionally publishing it (default: draft). RESOLVE THE DESTINATION FOLDER FIRST — THIS IS THE ONLY CHANCE TO SET IT: IT Glue accepts document_folder_id on create and REJECTS it on every update, so a document that lands in the org root can only be moved by a human in the IT Glue UI (itglue_move_document cannot do it). Call itglue_list_document_folders and pass the matching folder id as documentFolderId; if no suitable folder exists, create one with itglue_create_document_folder or ask the user which folder to use BEFORE creating the document. Only leave documentFolderId unset when the user explicitly wants a root-level document. NEVER put passwords/credentials in a document. Only call after the user has approved the exact title, content, and folder placement.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Document title'), html: z.string().describe('Document body as HTML'), publish: z.boolean().optional().describe('Publish immediately; default false (draft)'), documentFolderId: z.string().optional().describe('Destination folder id from itglue_list_document_folders / itglue_create_document_folder. Omit ONLY for an explicitly root-level document — never default to root for SOPs') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ organizationId, name, html, publish, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.createDocumentWithBody({ organizationId, name, html, publish: publish ?? false, documentFolderId })) } catch (e) { return fail(e) } })
+    async ({ organizationId, name, html, publish, documentFolderId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const converted = toItGlueHtml(String(html ?? ''))
+      const result = await c.createDocumentWithBody({ organizationId, name, html: converted.html, publish: publish ?? false, documentFolderId })
+      return ok({
+        ...result,
+        ...(converted.structureAdded || converted.charactersEscaped > 0 ? { htmlConversion: converted.notes } : {}),
+      })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_create_document_folder', { title: 'IT Glue: create document folder', description: 'WRITE. Create a document folder under an organization; optional parentId nests it inside an existing folder. Check itglue_list_document_folders FIRST and reuse an existing folder instead of creating a near-duplicate name. Confirm the exact folder name and location with the user before calling. (The public API supports folder create/rename; folder DELETION is deliberately not exposed — do it in the IT Glue UI.)', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Folder name'), parentId: z.string().optional().describe('Optional parent folder id (from itglue_list_document_folders); omit for a top-level folder') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,13 +319,34 @@ export function registerItGlueTools(server: any) {
       })
     })
 
-  server.registerTool('itglue_add_document_section', { title: 'IT Glue: add document section', description: 'WRITE. Append a content section to an existing document. resourceType is Document::Text (default), Document::Heading (needs level 1-6), or Document::Step (optional duration in minutes). Confirm the exact content with the user first. IMPORTANT: section changes land on the document\'s DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.', inputSchema: { documentId: z.string().describe('IT Glue document id'), content: z.string().describe('Section content: HTML for Text/Step, plain text for Heading'), resourceType: z.enum(['Document::Text', 'Document::Heading', 'Document::Step']).optional().describe('Section type (default Document::Text)'), level: z.number().int().min(1).max(6).optional().describe('Heading level, Document::Heading only'), duration: z.number().int().positive().optional().describe('Duration in minutes, Document::Step only') } },
+  server.registerTool('itglue_add_document_section', { title: 'IT Glue: add document section', description: `WRITE. Append a content section to an existing document. resourceType is Document::Text (default), Document::Heading (needs level 1-6), or Document::Step (optional duration in minutes). ${ITGLUE_HTML_FIELD_NOTE} (A Document::Heading is plain text by definition and is NOT converted.) Confirm the exact content with the user first. IMPORTANT: section changes land on the document's DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.`, inputSchema: { documentId: z.string().describe('IT Glue document id'), content: z.string().describe('Section content: plain text or HTML for Text/Step (plain text is converted); plain text for Heading'), resourceType: z.enum(['Document::Text', 'Document::Heading', 'Document::Step']).optional().describe('Section type (default Document::Text)'), level: z.number().int().min(1).max(6).optional().describe('Heading level, Document::Heading only'), duration: z.number().int().positive().optional().describe('Duration in minutes, Document::Step only') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ documentId, content, resourceType, level, duration }: any) => { try { const c = itglue(); ensureConfigured(c); const section = await c.addDocumentSection(documentId, { content, resourceType, level, duration }); return ok({ section, note: 'Saved to the document DRAFT. The published version techs see is unchanged until itglue_publish_document is called.' }) } catch (e) { return fail(e) } })
+    async ({ documentId, content, resourceType, level, duration }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      // A Heading is plain text by definition, so it is not run through the
+      // HTML converter — wrapping a heading in <p> would corrupt it.
+      const isHeading = resourceType === 'Document::Heading'
+      const converted = isHeading ? null : toItGlueHtml(String(content ?? ''))
+      const section = await c.addDocumentSection(documentId, { content: converted ? converted.html : content, resourceType, level, duration })
+      return ok({
+        section,
+        ...(converted && (converted.structureAdded || converted.charactersEscaped > 0) ? { htmlConversion: converted.notes } : {}),
+        note: 'Saved to the document DRAFT. The published version techs see is unchanged until itglue_publish_document is called.',
+      })
+    } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_update_document_section', { title: 'IT Glue: update document section', description: 'WRITE. Replace the content of an existing document section (find its id with itglue_document_sections). Confirm the exact content with the user first. IMPORTANT: section changes land on the document\'s DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.', inputSchema: { documentId: z.string().describe('IT Glue document id'), sectionId: z.string().describe('Document section id'), content: z.string().describe('New section content (HTML for Text/Step)') } },
+  server.registerTool('itglue_update_document_section', { title: 'IT Glue: update document section', description: `WRITE. Replace the content of an existing document section (find its id with itglue_document_sections). ${ITGLUE_HTML_FIELD_NOTE} Confirm the exact content with the user first. IMPORTANT: section changes land on the document's DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.`, inputSchema: { documentId: z.string().describe('IT Glue document id'), sectionId: z.string().describe('Document section id'), content: z.string().describe('New section content — plain text or HTML; plain text is converted') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ documentId, sectionId, content }: any) => { try { const c = itglue(); ensureConfigured(c); const section = await c.updateDocumentSection(documentId, sectionId, { content }); return ok({ section, note: 'Saved to the document DRAFT. The published version techs see is unchanged until itglue_publish_document is called.' }) } catch (e) { return fail(e) } })
+    async ({ documentId, sectionId, content }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const converted = toItGlueHtml(String(content ?? ''))
+      const section = await c.updateDocumentSection(documentId, sectionId, { content: converted.html })
+      return ok({
+        section,
+        ...(converted.structureAdded || converted.charactersEscaped > 0 ? { htmlConversion: converted.notes } : {}),
+        note: 'Saved to the document DRAFT. The published version techs see is unchanged until itglue_publish_document is called.',
+      })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_publish_document', { title: 'IT Glue: publish a document', description: 'WRITE. Publish an existing document so its current DRAFT becomes the version techs see, then VERIFIES via a read-back that published-at/draft actually flipped (a publish that silently no-ops is reported as published:false, not success). Required after itglue_add_document_section / itglue_update_document_section — section edits alone never change the published version. CAUTION: publishing pushes the ENTIRE current draft live, including any earlier unpublished edits by others — confirm with the user before calling.', inputSchema: { documentId: z.string().describe('IT Glue document id') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -272,11 +407,54 @@ export function registerItGlueTools(server: any) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ resourceType, resourceId, fileName, base64Content }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.uploadAttachment({ resourceType, resourceId, fileName, base64Content })) } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_create_flexible_asset', { title: 'IT Glue: create flexible asset', description: 'WRITE. Create a structured flexible asset. First call itglue_flexible_asset_type_fields to get valid trait keys (use each field\'s name-key). Confirm the values with the user first.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), flexibleAssetTypeId: z.string().describe('IT Glue flexible asset type id'), traits: z.record(z.string(), z.any()).describe('Object keyed by field name-key -> value') } },
+  server.registerTool('itglue_create_flexible_asset', { title: 'IT Glue: create flexible asset (validated first)', description: `WRITE. Create a structured IT Glue flexible asset. Call itglue_flexible_asset_type_fields first for the trait name-keys and their constraints. THIS TOOL VALIDATES LOCALLY BEFORE WRITING and returns EVERY problem in one combined error — missing required fields, values over the length cap, values that are not one of a Select's permitted options, Tag fields not given an array of numeric ids, and unrecognised trait keys (which IT Glue silently ignores, so you would otherwise believe a field was set when it was dropped). This exists because IT Glue reports one failure per attempt: a single Internet/WAN asset took four round trips on 2026-09-09. For a Tag field of type Locations, get the numeric ids from itglue_org_locations — never pass a location name. ${ITGLUE_HTML_FIELD_NOTE} Confirm the values with the user first.`, inputSchema: { organizationId: z.string().describe('IT Glue organization id'), flexibleAssetTypeId: z.string().describe('IT Glue flexible asset type id'), traits: z.record(z.string(), z.any()).describe('Object keyed by field name-key -> value. Tag fields take an array of numeric ids; Textbox fields accept plain text and are converted to HTML for you') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ organizationId, flexibleAssetTypeId, traits }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.createFlexibleAsset({ organizationId, flexibleAssetTypeId, traits })) } catch (e) { return fail(e) } })
+    async ({ organizationId, flexibleAssetTypeId, traits }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const prep = await prepareTraits(c, flexibleAssetTypeId, traits ?? {}, 'create')
+      if (!prep.ok) {
+        return traitValidationFailure('itglue_create_flexible_asset', prep.problems, { organizationId, flexibleAssetTypeId })
+      }
+      const asset = await c.createFlexibleAsset({ organizationId, flexibleAssetTypeId, traits: prep.traits })
+      return ok({
+        asset,
+        validatedLocally: true,
+        ...(prep.htmlConversions.length ? { htmlConversions: prep.htmlConversions } : {}),
+      })
+    } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_update_flexible_asset', { title: 'IT Glue: update flexible asset', description: 'WRITE. Update traits on an existing flexible asset. Pass ONLY the traits you want to change — existing traits are preserved (the tool GET-merges before PATCH, because IT Glue PATCH is otherwise destructive). Confirm with the user first.', inputSchema: { id: z.string().describe('IT Glue flexible asset id'), traits: z.record(z.string(), z.any()).describe('Changed traits, keyed by field name-key') } },
+  server.registerTool('itglue_update_flexible_asset', { title: 'IT Glue: update flexible asset (validated first)', description: `WRITE. Update traits on an existing IT Glue flexible asset. Pass ONLY the traits you want to change — existing traits are preserved (the tool GET-merges before PATCH, because IT Glue PATCH is otherwise destructive). VALIDATED LOCALLY BEFORE WRITING, returning every problem at once: length caps, Select options, Tag id arrays, and unrecognised trait keys. A required field you simply do not mention is fine here (an update is a patch of named fields), but explicitly setting a required field BLANK is refused, because IT Glue would reject it. ${ITGLUE_HTML_FIELD_NOTE} Confirm with the user first.`, inputSchema: { id: z.string().describe('IT Glue flexible asset id'), traits: z.record(z.string(), z.any()).describe('Changed traits, keyed by field name-key'), flexibleAssetTypeId: z.string().optional().describe('The asset\'s type id. Optional — it is read off the asset when omitted, which costs one extra request') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ id, traits }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.updateFlexibleAsset(id, traits)) } catch (e) { return fail(e) } })
+    async ({ id, traits, flexibleAssetTypeId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      // The type id is needed to validate. Read it off the asset when the
+      // caller did not supply it, rather than skipping validation — an
+      // unvalidated update is the defect, not a fallback.
+      let typeId = flexibleAssetTypeId ? String(flexibleAssetTypeId) : null
+      if (!typeId) {
+        const current = await c.getFlexibleAsset(String(id))
+        if (!current) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `Nothing was written: flexible asset ${id} was not found, so its type could not be read and the traits could not be validated.`,
+            evidence: 'Read the asset before writing in order to resolve its flexible-asset-type-id.',
+            remediation: 'Check the id with itglue_org_flexible_assets, or pass flexibleAssetTypeId explicitly.',
+            surface: 'itglue',
+            tool: 'itglue_update_flexible_asset',
+            details: { id: String(id) },
+          })
+        }
+        typeId = String(current.attributes['flexible-asset-type-id'])
+      }
+      const prep = await prepareTraits(c, typeId, traits ?? {}, 'update')
+      if (!prep.ok) {
+        return traitValidationFailure('itglue_update_flexible_asset', prep.problems, { id: String(id), flexibleAssetTypeId: typeId })
+      }
+      const asset = await c.updateFlexibleAsset(String(id), prep.traits)
+      return ok({
+        asset,
+        validatedLocally: true,
+        ...(prep.htmlConversions.length ? { htmlConversions: prep.htmlConversions } : {}),
+      })
+    } catch (e) { return fail(e) } })
 }

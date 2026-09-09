@@ -334,6 +334,63 @@ export function vendorOf(toolName: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// The common working set (tct_bootstrap)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tools a normal TCT working session reaches for, loaded in ONE call.
+ *
+ * WHY: tool discovery was the largest hidden cost of the 2026-09-09 session —
+ * roughly TWENTY tool_search calls, several needing two or three rewordings
+ * before an existing tool surfaced. Tools that failed a natural first query
+ * included autotask_search_companies, autotask_ticket_statuses,
+ * autotask_list_queues, autotask_company_contacts, itglue_search_orgs,
+ * itglue_org_configurations, unifi_resolve_site and datto_rmm_alerts — all of
+ * which existed the whole time. Keyword padding (done in each tool's own
+ * description) makes a search more likely to hit; this makes the search
+ * unnecessary for the tools that are wanted almost every time.
+ *
+ * THE NAMES HERE ARE REVIEWED DATA, exactly like TOOL_FACTS: "is this tool
+ * part of the common working set?" is a judgement that belongs in a diff. But
+ * NOTHING ELSE about a tool is written here — purpose, parameters, access,
+ * risk and gating all come from the live registry at request time, so a
+ * bootstrap entry cannot describe a tool inaccurately.
+ *
+ * And a name in this list that is NOT registered is REPORTED, never silently
+ * dropped: a bootstrap that quietly omits a tool it promised is a bootstrap
+ * that teaches the reader the tool does not exist. capability-registry.test.ts
+ * asserts the list is fully resolvable against the real surface.
+ *
+ * Derived from actual usage in the 2026-09-09 session.
+ */
+export const BOOTSTRAP_TOOLS: readonly string[] = [
+  // Autotask — finding and working a ticket
+  'autotask_search_companies',
+  'autotask_company_tickets',
+  'autotask_get_ticket_by_number',
+  'autotask_ticket_activity',
+  'autotask_search_tickets',
+  'autotask_company_contacts',
+  'autotask_create_ticket',
+  'autotask_create_time_entry',
+  'autotask_set_ticket_status',
+  'autotask_set_ticket_resolution',
+  // Autotask — the instance-specific picklists that must never be hardcoded
+  'autotask_list_queues',
+  'autotask_ticket_statuses',
+  'autotask_list_priorities',
+  'autotask_list_billing_codes',
+  'autotask_resource_roles',
+  // IT Glue — customer documentation
+  'itglue_search_orgs',
+  'itglue_get_quick_notes',
+  // UniFi — the resolver every other per-site tool depends on
+  'unifi_resolve_site',
+  // Meta
+  'tct_connector_capabilities',
+] as const
+
+// ---------------------------------------------------------------------------
 // Per-tool facts that code cannot tell us
 // ---------------------------------------------------------------------------
 
@@ -389,6 +446,10 @@ const igWrite = (...constraints: string[]): ToolFacts => ({
 export const TOOL_FACTS: Record<string, ToolFacts> = {
   // ── Meta ─────────────────────────────────────────────────────────────────
   tct_connector_capabilities: r('Generated from the live tool registry at request time'),
+  tct_bootstrap: r(
+    'Tool details are generated from the live registry at request time — only WHICH tools are in the working set is reviewed data',
+    'A working-set name that is not registered is REPORTED as unresolved, never silently omitted',
+  ),
 
   // ── RingCentral (read-only; default-OFF kill switch) ─────────────────────
   // Reads only — the client exposes no method parameter, so there is no write
@@ -434,6 +495,10 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   unifi_list_devices: R,
   unifi_summary: R,
   unifi_site_networks: R,
+
+  itglue_org_locations: r(
+    'The ONLY sound evidence about whether an organization has locations — a configuration\'s null location-id proves nothing, and reading it as "no locations" caused a duplicate location to be created on 2026-09-09',
+  ),
 
   // ── Autotask: operational reads ──────────────────────────────────────────
   autotask_search_companies: R,
@@ -1161,6 +1226,53 @@ function purposeOf(t: RecordedTool): string {
   if (t.title) return t.title
   const first = t.description.split(/(?<=\.)\s/)[0] ?? t.description
   return first.length > 160 ? `${first.slice(0, 157)}…` : first
+}
+
+export interface BootstrapReport {
+  purpose: string
+  toolCount: number
+  /** Working-set names that are not registered. MUST be empty; reported if not. */
+  unresolved: string[]
+  unresolvedWarning?: string
+  instanceConstantsNote: string
+  tools: CapabilityToolRow[]
+  notInHere: string
+}
+
+/**
+ * Build the bootstrap payload from the LIVE registry.
+ *
+ * Reuses buildCapabilityReport's own row shape rather than describing tools a
+ * second way: two descriptions of one tool is two things to drift.
+ */
+export function buildBootstrapReport(recorded: RecordedTool[]): BootstrapReport {
+  const full = buildCapabilityReport(recorded, { includeParams: true })
+  const byName = new Map(full.tools.map((t) => [t.name, t]))
+
+  const tools: CapabilityToolRow[] = []
+  const unresolved: string[] = []
+  for (const name of BOOTSTRAP_TOOLS) {
+    const row = byName.get(name)
+    if (row) tools.push(row)
+    else unresolved.push(name)
+  }
+
+  return {
+    purpose:
+      'The tools a normal Triple Cities Tech session reaches for, in one call, so you do not have to search for them. Loading this at the start of a session replaces roughly twenty tool searches. It is NOT the full surface — call tct_connector_capabilities for that, and never conclude a capability is missing because it is absent from this list.',
+    toolCount: tools.length,
+    unresolved,
+    ...(unresolved.length
+      ? {
+          unresolvedWarning: `${unresolved.length} tool(s) in the working set are NOT registered on this build: ${unresolved.join(', ')}. This is reported rather than quietly omitted — a bootstrap that silently drops a promised tool teaches the reader it does not exist. Treat these as a connector defect to fix, not as unavailable capabilities.`,
+        }
+      : {}),
+    instanceConstantsNote:
+      'Autotask statuses, priorities, queues, billing codes and roles on this instance are INSTANCE-SPECIFIC PICKLISTS, not Autotask defaults, and hardcoding one has been wrong five times here. Resolve them with the picklist tools included above rather than from memory. Two that matter: ticket/task "In Progress" is 8 and there is NO id 4; task priority 1 is HIGH, not Low.',
+    tools,
+    notInHere:
+      'Deliberately not in this set, but available: Datto RMM (datto_rmm_*), the per-site UniFi surface (unifi_site_*), IT Glue documents and flexible assets (itglue_*), Kaseya Quote Manager (kqm_*), HR records (hr_*), scan filing (scan_*), sales pricing (sales_pricing_*), RingCentral calls and transcripts (ringcentral_*), and the Autotask project/task/CRM writes. Search for those by vendor prefix, or list everything with tct_connector_capabilities.',
+  }
 }
 
 export function buildCapabilityReport(

@@ -53,7 +53,7 @@ export function registerConfigReadTools(server: any) {
     'autotask_ticket_statuses',
     {
       title: 'Autotask: ticket statuses (full config)',
-      description: 'LIVE read of this instance\'s ticket status picklist with FULL API metadata: id, label, isActive, isSystem, isDefaultValue, sortOrder. HONEST LIMIT: the status→SLA-event mapping (Admin > Service Desk > Task & Ticket Statuses) is NOT exposed by the Autotask REST API — verified against the API schema. slaEventMapping is therefore either the owner-maintained overlay from OUR database (clearly labelled manual_overlay, with last-verified date; update it via the gated write flow, area status_sla_overlay) or an explicit not-available notice. Never treat overlay values as API data.',
+      description: 'Get the numeric STATUS ids for Autotask tickets on this instance — the id to pass as `status` when creating a ticket or setting a ticket status (New, In Progress, Complete, Waiting Customer, Re-open and the rest). CALL THIS INSTEAD OF ASSUMING AN ID: these are instance-specific picklists, not Autotask defaults, and a hardcoded id has been wrong five times here — "In Progress" is 8 and there is NO status id 4. LIVE read with FULL API metadata: id, label, isActive, isSystem, isDefaultValue, sortOrder. HONEST LIMIT: the status→SLA-event mapping (Admin > Service Desk > Task & Ticket Statuses) is NOT exposed by the Autotask REST API — verified against the API schema. slaEventMapping is therefore either the owner-maintained overlay from OUR database (clearly labelled manual_overlay, with last-verified date; update it via the gated write flow, area status_sla_overlay) or an explicit not-available notice. Never treat overlay values as API data.',
       inputSchema: { includeInactive: z.boolean().optional().describe('Include inactive status values (default false)') },
     },
     async ({ includeInactive }: { includeInactive?: boolean }) => {
@@ -109,7 +109,7 @@ export function registerConfigReadTools(server: any) {
     'autotask_list_queues',
     {
       title: 'Autotask: queues (config + membership)',
-      description: 'LIVE ticket queues with full picklist metadata (id, label, isSystem, isDefaultValue, sortOrder) PLUS queue membership — which active technicians work each queue, from ResourceRoleQueues. HONEST LIMIT: queue routing, inbound-email processing, and queue notification settings are UI-only (not in the REST API). Read-only.',
+      description: 'Get the numeric QUEUE ids for Autotask tickets on this instance — the id to pass as `queueID` when creating a ticket, and the queue a ticket is routed to or assigned in (Level I Support, Help Desk, Administration, Monitoring Alert, Dispatch and the rest). Instance-specific picklist, so resolve it here rather than assuming an id. LIVE ticket queues with full picklist metadata (id, label, isSystem, isDefaultValue, sortOrder) PLUS queue membership — which active technicians work each queue, from ResourceRoleQueues. HONEST LIMIT: queue routing, inbound-email processing, and queue notification settings are UI-only (not in the REST API). Read-only.',
       inputSchema: { includeMembers: z.boolean().optional().describe('Include per-queue technician membership (default true)') },
     },
     async ({ includeMembers }: { includeMembers?: boolean }) => {

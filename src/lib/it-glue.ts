@@ -46,6 +46,35 @@ export interface ItGlueConfiguration {
   }
 }
 
+/**
+ * An IT Glue LOCATION. Needed because Tag fields of tag-type "Locations" —
+ * such as the required "Location(s)" trait on the Internet/WAN flexible asset
+ * type — take an array of numeric location ids, and nothing in the connector
+ * returned one. On 2026-09-09 the technician had to open the record in a
+ * browser and copy the id out of the URL. Worse, a wrong inference was drawn
+ * on the way: one configuration's null location-id was read as "this org has
+ * no locations", which sent him to create a location that already existed.
+ */
+export interface ItGlueLocation {
+  id: string
+  attributes: {
+    name: string
+    'organization-id': number
+    'organization-name'?: string | null
+    primary: boolean
+    'address-1'?: string | null
+    'address-2'?: string | null
+    city?: string | null
+    'region-name'?: string | null
+    'postal-code'?: string | null
+    'country-name'?: string | null
+    phone?: string | null
+    notes?: string | null
+    'created-at'?: string
+    'updated-at'?: string
+  }
+}
+
 export interface ItGlueFlexibleAssetType {
   id: string
   attributes: {
@@ -325,6 +354,27 @@ export class ItGlueClient {
       `/configurations?filter[organization-id]=${orgId}&page[size]=${pageSize}&page[number]=${page}`
     )
     return data.data ?? []
+  }
+
+  /**
+   * List an organization's locations.
+   *
+   * Paged to the end rather than capped at one page: a missing location reads
+   * as "this org has no locations", which is the exact wrong inference that
+   * caused a duplicate location to be created on 2026-09-09.
+   */
+  async getLocations(orgId: string): Promise<ItGlueLocation[]> {
+    const out: ItGlueLocation[] = []
+    const pageSize = 100
+    for (let page = 1; page <= 20; page += 1) {
+      const data = await this.request<{ data: ItGlueLocation[] }>(
+        `/organizations/${orgId}/relationships/locations?page[size]=${pageSize}&page[number]=${page}`
+      )
+      const rows = data.data ?? []
+      out.push(...rows)
+      if (rows.length < pageSize) break
+    }
+    return out
   }
 
   /** List flexible asset types */

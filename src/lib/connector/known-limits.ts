@@ -79,8 +79,10 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
     {
       capability: 'Read or write the status→SLA-event mapping (Admin > Task & Ticket Statuses)',
       reason: 'VENDOR_NO_API',
-      verifiedBy: SPEC_AUDIT_PENDING,
-      notes: 'Served from an owner-maintained overlay in our own database, labelled manual_overlay. Never presented as API data.',
+      verifiedBy:
+        'SETTLED, not a prior: there is no status entity in the Autotask REST API, and the ticket-status PICKLIST metadata carries no SLA field — checked against the API schema, and re-confirmed live on 2026-09-09, where autotask_ticket_statuses returned slaEventMapping { available: false } with that reason. The mapping exists only in Admin > Features & Settings > Service Desk (Tickets) > Task & Ticket Statuses, which has no API surface.',
+      notes:
+        'DO NOT GO LOOKING FOR THIS AGAIN — this row exists so the search is not repeated every session. It can be served from an owner-maintained overlay in our own database, labelled manual_overlay and never presented as API data, staged via autotask_stage_config_write area status_sla_overlay. As of 2026-09-09 THAT OVERLAY IS NOT POPULATED, so the correct answer to "what SLA event is this status mapped to" is currently "cannot be determined from available telemetry" — not a guess from the status name.',
     },
     {
       capability: 'Read or write dashboards and widgets',
@@ -273,9 +275,34 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       priority: 'medium',
       notes: 'The vendor API DOES support these. Exposing them is a deliberate future decision requiring the staged-approval gate, not an API gap.',
     },
+    {
+      capability: 'Device online/offline HISTORY — when a device went down, when it came back, how long a site was dark',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'The Datto RMM activity-log endpoint carries platform AUDIT entries (who did what in the console), not device up/down transitions — so no endpoint the connector can reach holds this. Established while withdrawing datto_rmm_activity_logs on 2026-09-09.',
+      notes:
+        'The nearest real sources: datto_rmm_alerts, where an offline alert carries its raised and resolved timestamps; datto_rmm_get_device for status and lastSeen right now; and for a whole site going dark, the Domotz collector-connectivity report. Do not go looking for a device-history endpoint again — this row exists so that search is not repeated.',
+    },
+    {
+      capability: 'The platform activity / audit log (datto_rmm_activity_logs)',
+      reason: 'BLOCKED',
+      failureMode:
+        'Asked for a ~15-day from/until window on 2026-09-09 it returned exactly ONE row whose date was the Unix epoch (1970) — a value no real activity can carry. Output that is answer-shaped but not an answer.',
+      verifiedBy: 'Reproduced live on 2026-09-09 during a client session.',
+      notes:
+        'The tool is still REGISTERED but reads nothing and always refuses, so the reason is discoverable rather than guessable (same pattern as itglue_move_document). Repair was deliberately ruled out: console auditing is not something TCT needs from the connector, and a tool that looks like an answer and is not is worse than no tool. Use the Datto RMM console for auditing.',
+    },
   ],
 
   'UniFi / Ubiquiti': [
+    {
+      capability: 'A verified UI path for allowing inbound ICMP echo (ping) on a Network 10.x gateway WAN',
+      reason: 'VENDOR_NO_API',
+      verifiedBy:
+        'Searched for official Ubiquiti documentation on 2026-09-09 and found none for Network 10.x — only third-party guidance and community posts, which this repo does not accept as a source for a UI navigation path.',
+      notes:
+        'So NO verified click-path can be given for this, and one must not be invented or recalled from training: an unverified UI path sends a technician hunting for a menu that may not exist in their version. If it is needed, either get it confirmed by Ubiquiti support or have someone read the current UI back before writing it into an SOP. Separately, the Integration API exposes no WAN-ICMP setting, so the connector cannot make this change either.',
+    },
     {
       capability: 'Port forwards, static routes, port profiles, gateway settings',
       reason: 'VENDOR_NO_API',
@@ -308,6 +335,14 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       verifiedBy:
         'The connector authenticates with a dedicated Entra app holding Sites.Selected granted write on ONLY that one site — not the staff-SSO app.',
       notes: 'Chosen deliberately to keep an internet-reachable file-write credential out of the SSO/PTO/CFO secret. No mail, no Teams, no other site, no directory access.',
+    },
+    {
+      capability: 'The support@triplecitiestech.com SHARED MAILBOX (via the Microsoft 365 connector)',
+      reason: 'POLICY_GATED',
+      failureMode: 'Microsoft Graph returns ErrorAccessDenied for that mailbox.',
+      verifiedBy: 'Reproduced live on 2026-09-09: the M365 connector has no access to that mailbox and Graph refuses with ErrorAccessDenied.',
+      notes:
+        'THIS IS A DELIBERATE DECISION, NOT A BUG TO FIX. Do not troubleshoot it, do not propose a permission change, and do not report it to the user as something broken. The support mailbox is not in scope for the M365 connector. If a support email needs to be read, ask a person to forward it, or work from the Autotask ticket the mailbox created.',
     },
     {
       capability: 'Mailbox conversion, delegate access, licence changes (M365 offboarding actions)',
@@ -390,6 +425,34 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       reason: 'NOT_BUILT',
       verifiedBy: 'src/lib/datto-saas.ts and src/lib/datto-bcdr.ts exist; zero tools registered.',
       priority: 'medium',
+    },
+  ],
+
+  'RingCentral (RingEX + RingSense)': [
+    {
+      capability: 'A complete transcript of a call that became a three-way conference',
+      reason: 'VENDOR_NO_API',
+      failureMode:
+        'RingCentral STOPS TRANSCRIBING the moment a call becomes a three-way conference, and returns the partial transcript with NO indication that it is partial.',
+      verifiedBy:
+        'Reproduced in production on 2026-09-09: a call beginning 10:41 AM ET had its transcript truncated at 10:46 AM, omitting the entire vendor conversation that contained the actual outcome. Nothing in the RingSense response marked it partial.',
+      notes:
+        'DO NOT TRY TO FIX THIS — it is RingCentral platform behaviour, not a connector defect. The defence is already built: ringcentral_get_call_transcript measures transcript coverage against the call duration and returns coverageComplete (true / false / null-for-not-measured, never defaulted to true) plus coverageEndsAt. If coverageComplete is anything other than true, the missing part must be got from the recording or the participants — never presented as though the transcript were whole.',
+    },
+    {
+      capability: 'Call recordings or transcripts as Autotask ATTACHMENTS',
+      reason: 'POLICY_GATED',
+      verifiedBy:
+        'Structural: the Autotask attachment allowlist in src/lib/autotask-attachments.ts contains no audio content type, and no tool passes one.',
+      notes:
+        'Deliberate. Call recordings belong in the SharePoint archive with links posted in an Autotask INTERNAL note — not attached to the ticket. Do not add an audio type to the allowlist.',
+    },
+    {
+      capability: 'Any RingCentral WRITE — placing a call, sending SMS, changing presence or settings',
+      reason: 'POLICY_GATED',
+      verifiedBy:
+        'Structural: src/lib/ringcentral.ts exposes only an internal GET helper with no method or body parameter, so no tool can issue anything but a GET.',
+      notes: 'The vendor API supports these. Exposing any of them is a separate deliberate decision, not an API gap.',
     },
   ],
 }
