@@ -10,7 +10,7 @@
 
 Everything in the work order shipped except one item that is genuinely blocked, and one small piece I deliberately left alone. The RingCentral phone tools are built and the third-party "labs" server we did not control is out of the picture — but **they cannot be switched on until you add one credential**, so that item is Partial rather than Done: I could write the code and test the logic, but I could not make a single real RingCentral call from where I was working, and the work order told me to say so plainly rather than build around it. Everything else is Done and, where it was possible, verified against the live systems: the UniFi fix that nearly had us telling a client their network was down is verified in production, the IT Glue four-attempts-to-save-one-record problem is fixed and the exact failure replayed as a test, and the Autotask role question that has been costing time across sessions is now **settled by experiment** rather than argued about — all ten roles work, and the note from 5 September saying one of them was rejected was simply wrong. The one piece I left alone is the Monday.com text-formatting bug: it lives on a server run by Monday, not by us, and I cannot reach it from here.
 
-A word on what "verified" means below. Three things landed in production while I worked, so I could test them for real. The rest is verified by **1349 automated tests** (99 of them new), a clean lint, and a successful build — plus live reads from Autotask, IT Glue and UniFi to establish the facts the fixes are built on. Anything I could not test for real is marked as such.
+A word on what "verified" means below. Three things landed in production while I worked, so I could test them for real. The rest is verified by **1349 automated tests** (99 of them new), a clean lint, and a successful build — plus live reads from Autotask, IT Glue and UniFi to establish the facts the fixes are built on. Anything I could not test for real is marked as such. One thing to flag up front: the **browser test suite did not run** on either merged pull request, because it broke while installing its own browser before any test started — Google's software repository was serving inconsistent files. That is not our code and it flagged nothing, but you should know it did not run; the detail is at the end under Verification.
 
 ---
 
@@ -186,6 +186,30 @@ The rejection came back as Autotask's own message, quoted exactly:
 | Live reads to establish facts | IT Glue field schemas for three real types; Autotask roles, priorities and queues; UniFi live device state |
 
 Two notes on honesty. `npm run build` cannot run where I work because it starts by contacting the database; I ran the compile step directly and the CI gate runs the full command with real credentials. And one pre-existing type error in an unrelated Datto test file is untouched — I confirmed it was already there by stashing my changes and re-running.
+
+### The browser test suite did not run — and it is not our code
+
+Worth stating plainly, because the project rules say a failed browser-test run on merged code must never be ignored.
+
+The `e2e-preview` job **failed on both merged pull requests**. It is deliberately non-blocking, which is why they merged anyway. I investigated both, and in each case the job died **before a single test ran** — at the step that installs the test browser, on this:
+
+```
+E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/.../Packages.gz
+   Hash Sum mismatch
+Failed to install browsers
+```
+
+That is Google's own software repository serving inconsistent index files — their release file was stamped 17:16 while the package index it referenced was from 09:41, i.e. a stale cache on their side. Nothing to do with this work, and it reproduced identically on two different commits. The give-away is that **no test results were produced at all** in either run: the job never got as far as opening a browser.
+
+**So the usual worry does not apply here.** A red browser-test run normally means production is live with something the tests flagged. In this case the tests flagged nothing, because they never executed. What we do know positively: the production build compiled every page, 1349 unit tests pass, and this work changed **no page and no API route** — only connector library code, which the browser suite does not exercise.
+
+I also tried to run the suite myself rather than reason about it, and could not:
+
+- The **preview site is password-walled** by Vercel and needs an automation bypass secret I do not have.
+- The one read-only public-page test file **can** point at production, but the test browser available where I work is build 1194 while the project pins one that wants 1208, so it refuses to launch. Every test "failed" in three milliseconds with `Executable doesn't exist` — a launch error on my side, not a finding about the site, and I am not counting it as one.
+- The other candidate file fires sixteen POST and DELETE calls at live endpoints including blog generation and contact invitations. I was not willing to point that at production on my own initiative.
+
+**A suggestion, not something I changed.** The install step runs `playwright install --with-deps` on every run, which reaches out to Google's apt repository each time — so any hiccup on their end takes the whole gate down, as it did twice today. Caching the browsers between runs, or dropping `--with-deps` once the system packages are present, would make it robust. I have deliberately **not** done it: it is CI configuration and outside what you asked for. Say the word and it is a small change.
 
 One thing worth flagging about the UniFi verification: when I re-checked live, the stored data had refreshed and now **agreed** with the live reading. So the specific wrong value from the session is not reproducible right now. What is verified is the labelling — the field is renamed, the age is shown, and the warning appears — which is the actual fix. The point was never that the cache is always wrong; it is that a stored snapshot with no date on it cannot be judged, and now it has one.
 
