@@ -261,7 +261,7 @@ export function registerUnifiSiteTools(server: any) {
     'unifi_resolve_site',
     {
       title: 'UniFi: resolve a site name to consoleId + siteId',
-      description: 'Fuzzy-match a customer/site name against all UniFi consoles (cached /v1/hosts), then list that console\'s local sites through the Cloud Connector Proxy. Returns { resolved: true, consoleId, siteId } only when the match is unambiguous — ambiguous names return candidates to show the user; NEVER pick one yourself. Every other unifi_site_* tool takes the consoleId + siteId this returns.',
+      description: 'START HERE FOR ANY UNIFI / UBIQUITI QUESTION ABOUT ONE CUSTOMER. Resolve a customer / client / company / account / site / location / console / controller name into the consoleId + siteId that every other unifi_site_* tool requires — network and VLAN config, clients, devices, WLANs, firewall policies, ACLs, DNS, vouchers. Fuzzy-matches the name against all UniFi consoles (cached /v1/hosts), then lists that console\'s local sites through the Cloud Connector Proxy. Returns { resolved: true, consoleId, siteId } only when the match is unambiguous — ambiguous names return candidates to show the user; NEVER pick one yourself. Every other unifi_site_* tool takes the consoleId + siteId this returns.',
       inputSchema: {
         query: z.string().describe('Customer or site name (partial ok), e.g. "EZ Red" or "Montrose"'),
         siteName: z.string().optional().describe('Disambiguates when one console hosts multiple local sites'),

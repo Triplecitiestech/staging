@@ -174,8 +174,31 @@ describe('registration', () => {
 })
 
 describe('GET-only by construction', () => {
+  // datto_rmm_activity_logs is WITHDRAWN (2026-09-09): it never held device
+  // online/offline history, and in its one live test a ~15-day window returned
+  // a single row with a 1970 epoch-zero timestamp. It is still registered so
+  // the reason is discoverable rather than guessable, but it issues NO request
+  // and always refuses — so it is exempted from the "none error" sweep below
+  // and asserted separately, on the stronger contract that it touches nothing.
+  const WITHDRAWN = new Set(['datto_rmm_activity_logs'])
+
+  it('the withdrawn activity-log tool refuses WITHOUT issuing any request', async () => {
+    const before = calledPaths.length
+    const res = await tools.get('datto_rmm_activity_logs')!.handler({ from: '2026-07-01', until: '2026-07-16' })
+    expect(res.isError).toBe(true)
+    expect(res.content[0].text).toMatch(/UPSTREAM_UNSUPPORTED/)
+    // The whole point: no call is made, so it cannot return answer-shaped
+    // non-answers, and it cannot burn a vendor request either.
+    expect(calledPaths.length).toBe(before)
+    expect(res.content[0].text).toMatch(/requestIssued/)
+    // It must route the caller to the sources that DO answer the real question.
+    expect(res.content[0].text).toMatch(/datto_rmm_alerts/)
+    expect(res.content[0].text).toMatch(/lastSeen/)
+  })
+
   it('exercising EVERY tool touches only getV2, only /api/v2/ paths, and none error', async () => {
     for (const [name, args] of Object.entries(INVOCATIONS)) {
+      if (WITHDRAWN.has(name)) continue
       const tool = tools.get(name)
       expect(tool, `tool ${name} missing`).toBeDefined()
       const res = await tool!.handler(args)
@@ -237,11 +260,10 @@ describe('console deep links (from the API\'s own portalUrl fields)', () => {
     expect(out.alerts[0].site.consoleUrl).toBe(site1.portalUrl)
   })
 
-  it('activity-log rows carry the referenced site console link', async () => {
-    const out = parse(await tools.get('datto_rmm_activity_logs')!.handler({ from: '2026-07-01' }))
-    expect(out.activities[0].site.consoleUrl).toBe(site1.portalUrl)
-    expect(out.nextSearchAfter).toEqual(['1721217000000', 'abc'])
-  })
+  // The activity-log link test is gone with the tool's data path: it is
+  // withdrawn and returns no rows to carry a link. Its refusal contract is
+  // asserted in the GET-only block above.
+
 })
 
 describe('secret redaction', () => {

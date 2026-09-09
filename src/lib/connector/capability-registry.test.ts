@@ -14,6 +14,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   recordingServer,
   buildCapabilityReport,
+  buildBootstrapReport,
+  BOOTSTRAP_TOOLS,
   TOOL_FACTS,
   vendorOf,
   type RecordedTool,
@@ -313,7 +315,7 @@ describe('TOOL_FACTS completeness (the drift guard)', () => {
     const live = new Set(recorded.map((t) => t.name))
     // Tools registered inline in the route file cannot be imported here, so
     // they are allowlisted by prefix rather than checked by name.
-    const ROUTE_INLINE = /^(unifi_(list_sites|list_hosts|list_devices|summary|site_networks)|autotask_(search_companies|get_company|company_projects|company_tickets|get_ticket|get_ticket_by_number|ticket_notes|ticket_time_entries|ticket_activity|time_entries_search|active_projects|list_roles|company_contacts|get_contact|list_priorities|list_ticket_types|search_tickets|list_slas|ticket_sla_results|list_companies|list_contracts|list_resources|search_time_entries|survey_results)|tct_connector_capabilities)$/
+    const ROUTE_INLINE = /^(unifi_(list_sites|list_hosts|list_devices|summary|site_networks)|autotask_(search_companies|get_company|company_projects|company_tickets|get_ticket|get_ticket_by_number|ticket_notes|ticket_time_entries|ticket_activity|time_entries_search|active_projects|list_roles|company_contacts|get_contact|list_priorities|list_ticket_types|search_tickets|list_slas|ticket_sla_results|list_companies|list_contracts|list_resources|search_time_entries|survey_results)|tct_connector_capabilities|tct_bootstrap)$/
     const stale = Object.keys(TOOL_FACTS).filter((n) => !live.has(n) && !ROUTE_INLINE.test(n))
     expect(stale, `TOOL_FACTS describes tools that are not registered anywhere: ${stale.join(', ')}`).toEqual([])
   })
@@ -388,6 +390,45 @@ describe('TOOL_FACTS completeness (the drift guard)', () => {
   // now derived: the name must follow the CONNECTOR_*_ENABLED convention every
   // switch in this codebase uses, and — the part that actually catches a typo —
   // it must be a switch the capability report demonstrably READS.
+  // 2026-09-09: tool discovery cost ~20 searches in one session, several
+  // needing two or three rewordings for tools that existed the whole time.
+  // tct_bootstrap fixes that by loading the working set in one call — but a
+  // bootstrap that silently omits a tool it promised teaches the reader the
+  // tool does not exist, which is the same class of harm. So a name in the
+  // working set that resolves to nothing must be caught here, not in a session.
+  it('resolves every name in the bootstrap working set to a real tool', async () => {
+    const recorded = await recordRealModules()
+    const live = new Set(recorded.map((t) => t.name))
+    const ROUTE_INLINE = /^(unifi_(list_sites|list_hosts|list_devices|summary|site_networks)|autotask_(search_companies|get_company|company_projects|company_tickets|get_ticket|get_ticket_by_number|ticket_notes|ticket_time_entries|ticket_activity|time_entries_search|active_projects|list_roles|company_contacts|get_contact|list_priorities|list_ticket_types|search_tickets|list_slas|ticket_sla_results|list_companies|list_contracts|list_resources|search_time_entries|survey_results)|tct_connector_capabilities|tct_bootstrap)$/
+    const unresolved = BOOTSTRAP_TOOLS.filter((n) => !live.has(n) && !ROUTE_INLINE.test(n))
+    expect(
+      unresolved,
+      `These BOOTSTRAP_TOOLS names are not registered anywhere, so tct_bootstrap would report them as unresolved instead of loading them. Fix the name or remove it: ${unresolved.join(', ')}`
+    ).toEqual([])
+  })
+
+  it('classifies every bootstrap tool in TOOL_FACTS, so the bootstrap payload can state access and risk', () => {
+    const unclassified = BOOTSTRAP_TOOLS.filter((n) => !TOOL_FACTS[n])
+    expect(unclassified).toEqual([])
+  })
+
+  it('reports an unresolved bootstrap name rather than quietly dropping it', () => {
+    // Drives buildBootstrapReport with a registry that is missing a working-set
+    // tool, and asserts the omission is announced. A bootstrap that shrinks
+    // silently is indistinguishable from one whose tools do not exist.
+    const partial = BOOTSTRAP_TOOLS.slice(1).map((name) => ({
+      name,
+      description: `${name} does a thing.`,
+      params: [],
+    }))
+    const report = buildBootstrapReport(partial)
+    expect(report.unresolved).toEqual([BOOTSTRAP_TOOLS[0]])
+    expect(report.unresolvedWarning).toMatch(/NOT registered/)
+    expect(report.toolCount).toBe(BOOTSTRAP_TOOLS.length - 1)
+    // And it must never imply the missing tool is an unavailable capability.
+    expect(report.unresolvedWarning).toMatch(/connector defect/)
+  })
+
   it('gives every kill-switched tool a conventional name that the report actually reads', async () => {
     const CONVENTION = /^CONNECTOR_[A-Z0-9_]+_ENABLED$/
     const offConvention = Object.entries(TOOL_FACTS)
