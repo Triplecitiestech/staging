@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCT Low Voltage Field Playbook</title>
+<style>
+  :root{--ink:#14213d;--ink-2:#4a5568;--paper:#fff;--panel:#f1f4f8;--line:#cfd6e0;--go:#2b7a4b;--stop:#c2410c;--stop-bg:#fff1e8;--go-bg:#eaf5ee;--tct:#1d4ed8;--tct-bg:#e8efff;}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);line-height:1.45;font-size:17px}
+  a{color:var(--tct)}
+  h1,h2,h3{line-height:1.15;margin:0 0 .5rem}
+  h1{font-size:2rem;font-weight:800;letter-spacing:-.01em}
+  h2{font-size:1.5rem;font-weight:800;padding-top:1.75rem;border-top:6px solid var(--ink);margin-top:2.5rem}
+  h3{font-size:1.15rem;font-weight:700;margin-top:1.5rem}
+  p{margin:.4rem 0 .8rem;max-width:72ch}
+  ul,ol{padding-left:1.35rem;max-width:72ch}
+  li{margin:.3rem 0}
+  code,kbd{font-family:Consolas,"SF Mono",Menlo,monospace;background:var(--panel);padding:.1rem .35rem;border-radius:3px;font-size:.92em}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.9rem 1rem;font-family:Consolas,"SF Mono",Menlo,monospace;font-size:.92rem;white-space:pre-wrap;max-width:72ch}
+  .bar{position:sticky;top:0;z-index:20;background:var(--ink);color:#fff;padding:.6rem 1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+  .bar .brand{font-weight:800;font-size:1.05rem;margin-right:auto}
+  .bar nav{display:flex;gap:.25rem;flex-wrap:wrap}
+  .bar nav a{color:#fff;text-decoration:none;font-size:.92rem;padding:.4rem .6rem;border-radius:6px;background:rgba(255,255,255,.08)}
+  .bar nav a:hover,.bar nav a:focus-visible{background:rgba(255,255,255,.22);outline:2px solid #fff;outline-offset:1px}
+  .bar button{background:#fff;color:var(--ink);border:0;font-weight:700;padding:.45rem .8rem;border-radius:6px;cursor:pointer}
+  .wrap{max-width:1040px;margin:0 auto;padding:1.25rem 1rem 4rem}
+  .rules{background:var(--ink);color:#fff;border-radius:14px;padding:1.5rem 1.5rem 1.25rem;margin:1rem 0 2rem}
+  .rules h1{color:#fff}
+  .rules .sub{color:#c9d3e6;margin:.25rem 0 1.25rem;max-width:60ch}
+  .rules ol{list-style:none;padding:0;margin:0;counter-reset:r;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.6rem}
+  .rules li{counter-increment:r;background:rgba(255,255,255,.07);border-radius:10px;padding:.85rem 1rem .85rem 3.4rem;position:relative;font-size:1.02rem}
+  .rules li::before{content:counter(r);position:absolute;left:.9rem;top:.7rem;width:1.9rem;height:1.9rem;border-radius:50%;background:#fff;color:var(--ink);font-weight:800;display:grid;place-items:center}
+  .rules li b{display:block;font-size:1.08rem;margin-bottom:.15rem}
+  .call{border-left:6px solid;padding:.8rem 1rem;border-radius:8px;margin:1rem 0;max-width:80ch}
+  .call.stop{border-color:var(--stop);background:var(--stop-bg)}
+  .call.go{border-color:var(--go);background:var(--go-bg)}
+  .call.tct{border-color:var(--tct);background:var(--tct-bg)}
+  .call b:first-child{display:block;margin-bottom:.2rem}
+  table{border-collapse:collapse;width:100%;margin:.75rem 0 1.25rem;font-size:.97rem}
+  th,td{border:1px solid var(--line);padding:.55rem .65rem;vertical-align:top;text-align:left}
+  th{background:var(--panel);font-weight:700}
+  td.you{background:#fbfbf3}
+  td.tct{background:var(--tct-bg)}
+  .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.75rem;margin:1rem 0}
+  .zone{border:2px solid var(--line);border-radius:10px;padding:.8rem .95rem;background:#fff}
+  .zone b{font-size:1.05rem}
+  .zone small{color:var(--ink-2);display:block;margin-top:.3rem}
+  .search{display:flex;gap:.5rem;margin:1rem 0 .5rem;position:sticky;top:3.2rem;background:var(--paper);padding:.5rem 0;z-index:10}
+  .search input{flex:1;font-size:1.1rem;padding:.75rem .9rem;border:2px solid var(--ink);border-radius:8px}
+  .search input:focus{outline:3px solid var(--tct);outline-offset:2px}
+  .chips{display:flex;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1rem}
+  .chip{border:2px solid var(--line);background:#fff;border-radius:999px;padding:.35rem .8rem;cursor:pointer;font-weight:600;font-size:.92rem}
+  .chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .cat{margin-top:1.5rem}
+  .cat h3{border-bottom:2px solid var(--line);padding-bottom:.3rem}
+  details.s{border:2px solid var(--line);border-radius:10px;margin:.55rem 0;background:#fff}
+  details.s summary{cursor:pointer;list-style:none;padding:.85rem 1rem;font-weight:700;font-size:1.05rem;display:flex;gap:.6rem;align-items:flex-start}
+  details.s summary::-webkit-details-marker{display:none}
+  details.s summary::before{content:"+";flex:none;width:1.5rem;height:1.5rem;border-radius:6px;background:var(--panel);display:grid;place-items:center;font-weight:800;margin-top:.05rem}
+  details.s[open] summary::before{content:"–"}
+  details.s .body{padding:0 1rem 1rem 3.1rem}
+  details.s ol{margin:.25rem 0}
+  .tag{display:inline-block;font-size:.8rem;font-weight:700;border-radius:4px;padding:.1rem .45rem;margin-left:.35rem;vertical-align:middle}
+  .tag.stop{background:var(--stop);color:#fff}
+  .tag.text{background:var(--tct);color:#fff}
+  .tag.email{background:var(--go);color:#fff}
+  .empty{color:var(--ink-2);padding:1rem;border:2px dashed var(--line);border-radius:10px;display:none}
+  .check{list-style:none;padding:0;max-width:80ch}
+  .check li{display:flex;gap:.7rem;align-items:flex-start;padding:.55rem .6rem;border-bottom:1px solid var(--line)}
+  .check input{width:1.4rem;height:1.4rem;flex:none;margin-top:.1rem;accent-color:var(--go)}
+  .check label{cursor:pointer;flex:1}
+  .progress{font-weight:700;margin:.5rem 0}
+  .resetbtn{background:#fff;border:2px solid var(--ink);border-radius:6px;padding:.4rem .8rem;font-weight:700;cursor:pointer}
+  footer{margin-top:3rem;padding-top:1rem;border-top:2px solid var(--line);color:var(--ink-2);font-size:.92rem}
+  @media (max-width:640px){body{font-size:16px}h1{font-size:1.6rem}.rules{padding:1.1rem}details.s .body{padding-left:1rem}}
+  @media print{
+    @page{margin:.6in}
+    body{font-size:11pt;color:#000}
+    .bar,.search,.chips,.resetbtn,.noprint{display:none!important}
+    .wrap{max-width:none;padding:0}
+    .rules{background:#fff;color:#000;border:3px solid #000;page-break-after:always;border-radius:0}
+    .rules h1,.rules .sub{color:#000}
+    .rules li{background:#fff;border:1px solid #000;border-radius:0}
+    .rules li::before{background:#000;color:#fff}
+    h2{page-break-before:always;border-top:0;padding-top:0;margin-top:0}
+    details.s{page-break-inside:avoid;border-radius:0}
+    details.s summary::before{display:none}
+    details.s .body{display:block!important;padding-left:1rem}
+    .call,tr,.zone{page-break-inside:avoid}
+    a{color:#000;text-decoration:none}
+    .check li{border-bottom:1px solid #000}
+    .check input{width:.9rem;height:.9rem}
+    .zone{border-radius:0}
+  }
+</style>
+</head>
+<body>
+
+<div class="bar" role="banner">
+  <span class="brand">TCT Low Voltage Field Playbook</span>
+  <nav aria-label="Sections">
+    <a href="#start">Rules</a>
+    <a href="#tools">Tools</a>
+    <a href="#van">Van</a>
+    <a href="#materials">Materials</a>
+    <a href="#money">Expenses</a>
+    <a href="#report">Time and reporting</a>
+    <a href="#work">Work</a>
+    <a href="#cardboard">Cardboard</a>
+    <a href="#scenarios">If this, do this</a>
+    <a href="#reset">Van reset</a>
+    <a href="#account">Accountability</a>
+  </nav>
+  <button type="button" onclick="window.print()">Print</button>
+</div>
+
+<div class="wrap">
+
+<!-- ============ RULES ============ -->
+<section class="rules" id="start" aria-labelledby="rules-h">
+  <h1 id="rules-h">Six rules. Everything else in this book follows from them.</h1>
+  <p class="sub">You are running a business inside our business. We give you the van, the materials, and the specialty gear. You bring your own hands, your own basic tools, and you leave every place and every thing better than you found it.</p>
+  <ol>
+    <li><b>Bring your own basic tools.</b> Drill, bits, punch-down, crimper, strippers, tester, hand tools. If it fits in one bag and any low voltage tech owns one, it is yours, not TCT's.</li>
+    <li><b>Nothing of TCT's leaves without a text, and every text says the condition.</b> "Taking [tool] – [customer] – works." "Returned [tool] – works." A tool nobody reported broken is charged to the last person who had it.</li>
+    <li><b>Every item has a home. Put it there.</b> If the drawer is labeled, the label wins. No label: staging shelf, photo, text. Never the front seat. Never the floor. Never the garbage. If the home does not exist yet, make one and tell Kurtis.</li>
+    <li><b>Box, bracket, and device stay together</b> until the device is mounted, powered, and tested. Loose hardware goes in a labeled bag inside the job tote. Cardboard comes back to the garage.</li>
+    <li><b>No next job until the last one is emailed.</b> Customer, start, stop, travel, what you did, receipts. To Kurtis, copy Rio. Before you drive to the next site, and always before end of day.</li>
+    <li><b>Reset the van, then bring the keys and the card to Kurtis.</b> Quarter tank minimum. Interior photo. Keys and the Amex go to Kurtis's home office every night. The van never goes home with you.</li>
+  </ol>
+</section>
+
+<p>This playbook is the operating manual for anyone doing cabling, camera, access point, rack, and related installation work under Triple Cities Tech. It is written to be searched on a phone in the van and to be printed. When something happens that you do not have an answer for, go to <a href="#scenarios">If this, do this</a> and type a word.</p>
+
+<div class="call stop"><b>When this book is missing something, you own it.</b> If a step calls for a bin that does not exist, a label that is not there, or a situation nobody wrote down: text Kurtis, then solve it yourself the clean way. Make the bin. Write the label. Bag and tag the part. Throwing something in the garbage, or setting it down anywhere, is always the least acceptable answer.</div>
+
+<h3>Who you contact, and how</h3>
+<table>
+  <thead><tr><th>What</th><th>How</th><th>To</th></tr></thead>
+  <tbody>
+    <tr><td>Taking or returning a TCT tool</td><td>Text</td><td>Kurtis</td></tr>
+    <tr><td>Approval to buy anything, scope questions, customer issues</td><td>Text or call</td><td>Kurtis</td></tr>
+    <tr><td>Problem with the van, a tool, or materials; supplies running low; damage; anything broken</td><td>Text, immediately</td><td>Kurtis <b>and</b> Rio</td></tr>
+    <tr><td>Job report (time, work done, receipts) after every job</td><td>Email</td><td>To <a href="mailto:kurtis@triplecitiestech.com">kurtis@triplecitiestech.com</a>, copy <a href="mailto:rio@triplecitiestech.com">rio@triplecitiestech.com</a></td></tr>
+    <tr><td>Cannot reach Kurtis and a customer is affected</td><td>Call</td><td>TCT support 607-341-7500, press 1</td></tr>
+    <tr><td>Emergency</td><td>Call</td><td>911, then Kurtis</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ TOOLS ============ -->
+<h2 id="tools">Tools: who brings what</h2>
+<p>The split follows normal practice for low voltage subcontractors: the sub furnishes personal hand and power tools; the company furnishes consumables, materials, the vehicle, and specialty equipment that is not reasonable to carry job to job.</p>
+
+<table>
+  <thead><tr><th style="width:34%">You bring (your kit, your responsibility)</th><th style="width:33%">TCT provides (specialty and shared, lives in the van)</th><th style="width:33%">TCT provides (consumables and materials)</th></tr></thead>
+  <tbody><tr>
+    <td class="you"><ul>
+      <li>Cordless drill/driver plus charged batteries and charger</li>
+      <li>Drill bits, driver bits, spade bits, hole saws up to 2"</li>
+      <li>Punch-down tool with 110 blade</li>
+      <li>RJ45 crimper</li>
+      <li>Cable stripper/jacket slitter</li>
+      <li>Basic cable tester or continuity tester</li>
+      <li>Screwdrivers, pliers, snips, utility knife, level, tape measure</li>
+      <li>Fish tape or glow rods, at least one type</li>
+      <li>Headlamp or flashlight</li>
+      <li>Hard hat, safety glasses, gloves, boots</li>
+      <li>Phone with camera, texting, and email</li>
+    </ul></td>
+    <td class="tct"><ul>
+      <li>The work van</li>
+      <li>Step ladder (under 6 ft) and the extension ladder (over 6 ft)</li>
+      <li>SDS/rotary hammer drill and masonry bits</li>
+      <li>Toner and probe</li>
+      <li>Label printer and label stock</li>
+      <li>Long glow rod kit and cable puller</li>
+      <li>Conduit bender, large hole saws</li>
+      <li>Shop vac</li>
+      <li>Any tool worth more than a day of your pay</li>
+    </ul></td>
+    <td class="tct"><ul>
+      <li>Bulk cable (all categories, plenum and riser)</li>
+      <li>RJ45 plugs, keystone jacks, faceplates, surface boxes</li>
+      <li>Patch panels, patch cords, cable management</li>
+      <li>Racks, cabinets, shelves, mounting hardware</li>
+      <li>Switches, routers, access points, cameras, NVRs</li>
+      <li>J-hooks, Velcro, zip ties, EMT, raceway, straps, anchors</li>
+      <li>Caulk, fire caulk, lube, wall plates, low voltage brackets</li>
+      <li>Fuel for the van</li>
+    </ul></td>
+  </tr></tbody>
+</table>
+
+<h3>Tool tags and the two-text rule</h3>
+<p>Every TCT tool carries a <b>TCT tag</b>. Tagged means TCT's. A tagged tool leaves the drawer or garage only after a text, and comes back with a text. Both texts state the tool's condition.</p>
+<pre>Taking SDS drill – Beer Tree – works
+Returned SDS drill – works</pre>
+<pre>Taking SDS drill – Beer Tree – chuck won't tighten (photo attached)</pre>
+
+<h3>How loss and damage is decided</h3>
+<p>This is the part that closes the gap in an honor system. You are protected by what you report, and exposed by what you do not.</p>
+<table>
+  <thead><tr><th>Situation</th><th>Who pays</th></tr></thead>
+  <tbody>
+    <tr><td>Tool is found broken. Last person who had it texted "Returned – works" and said nothing about damage.</td><td>That last person.</td></tr>
+    <tr><td>Tool is found broken. Last person who had it never texted "Returned" at all.</td><td>That last person. Silence is the same as "I returned it working."</td></tr>
+    <tr><td>You pick up a tool and it is already broken. You text "Taking – [defect] – photo" before you use it.</td><td>Not you. Your Taking text moved the cost back to the previous holder.</td></tr>
+    <tr><td>You pick up a tool, use it all day, and report the defect afterward.</td><td>You. Check the tool when you take it, not when you return it.</td></tr>
+    <tr><td>Two people both claim it worked when they had it and nobody has a photo.</td><td>Split between the two most recent holders.</td></tr>
+    <tr><td>Tool is missing and the last "Taking" text has no matching "Returned."</td><td>The person who texted "Taking."</td></tr>
+  </tbody>
+</table>
+<div class="call go"><b>Thirty seconds protects you.</b> Pull the trigger, cycle the chuck, check the battery, glance at the blade. Text what you see. That is the whole inspection.</div>
+
+<h3>What TCT will not do</h3>
+<ul>
+  <li>Replace your personal tools. If your drill dies, you may use the TCT backup for the rest of that day only, then it goes back with a "Returned" text.</li>
+  <li>Lend TCT tools or the van for non-TCT jobs. First occurrence is removal from the schedule.</li>
+  <li>Buy a tool onsite because one was left behind. Plan your kit before you leave the garage.</li>
+</ul>
+
+<!-- ============ VAN ============ -->
+<h2 id="van">The van</h2>
+<p>The van is set up so that every item has one home. Drawers in the wall cabinets are labeled. Bulk cable lives on the rack. Ladders on the ladder rack. EMT and raceway on the conduit rack. If you use the van, you are agreeing to leave it exactly like this.</p>
+
+<div class="zones" aria-label="Van storage zones">
+  <div class="zone"><b>Drawer cabinet</b><small>Small tools, terminations, anchors, tape, lube, caulk. Each drawer is labeled. The label wins. Do not re-sort.</small></div>
+  <div class="zone"><b>Bulk cable rack</b><small>Spools and boxes. Tail secured, box flap closed, category and footage visible.</small></div>
+  <div class="zone"><b>Ladder rack</b><small>Step ladder and extension ladder, strapped. Never loose in the cargo area.</small></div>
+  <div class="zone"><b>Conduit and raceway rack</b><small>EMT, raceway, J-hook bags. Cut-offs under 2 ft go in the trash bag, not back on the rack.</small></div>
+  <div class="zone"><b>Staging shelf</b><small>Job totes for active jobs; new devices in their boxes with hardware inside. Also the "I don't know where this goes" spot: put it here, text a photo.</small></div>
+  <div class="zone"><b>Returns bin</b><small>Anything going back: DOA devices, wrong parts, store returns, broken TCT tools. Taped and labeled with reason and date. If there is no bin, check with Kurtis; if there still is none, make one from a labeled tote.</small></div>
+  <div class="zone"><b>Cardboard stack</b><small>Flattened boxes ride back to the garage. They do not stay at the customer site. See <a href="#cardboard">Cardboard</a>.</small></div>
+  <div class="zone"><b>Trash bag hook</b><small>One bag for cut-offs, wrappers, packing plastic. Emptied every day at the garage.</small></div>
+  <div class="zone"><b>Receipt envelope (glove box)</b><small>Every paper receipt, customer name written on it, same day.</small></div>
+</div>
+
+<h3>Van rules</h3>
+<ul>
+  <li><b>Garage to job to garage.</b> No personal use, no side stops other than fuel or approved materials, no passengers who are not working the job. The van never goes home with a contractor.</li>
+  <li><b>Keys and the Amex</b> are picked up from and returned to Kurtis's home office every day. Not left in the van, not kept overnight.</li>
+  <li><b>Start-of-day check, 3 minutes.</b> Photo of the interior and fuel gauge before you touch anything, texted to Kurtis. If the previous user left it wrong, that photo is what keeps it off your record.</li>
+  <li><b>Fuel.</b> Never return the van below a quarter tank. Fill with the TCT Amex, receipt in the envelope, receipt photo in your job email.</li>
+  <li><b>Anything wrong with the van, a tool, or materials</b> (warning light, tire, noise, damage, broken gear, bad cable, short count) is photographed and texted to Kurtis and Rio immediately, before you drive further or keep working.</li>
+  <li><b>Front seat and floor are not storage.</b> An access point on the passenger seat with its bracket in a pile in the back is the exact thing this book exists to stop.</li>
+  <li><b>End of day: <a href="#reset">Van reset</a>,</b> interior photo texted, then keys and card to Kurtis.</li>
+</ul>
+
+<!-- ============ MATERIALS ============ -->
+<h2 id="materials">Materials, devices, and returns</h2>
+
+<h3>New devices (APs, cameras, switches, NVRs)</h3>
+<ol>
+  <li>Photo of the box label and serial number <b>before</b> you open it.</li>
+  <li>Box, device, bracket, screws, and paperwork are one unit until the device is mounted, powered, and confirmed online.</li>
+  <li>Not installing it today? Everything goes back in the box, tape with customer name, into the job tote on the staging shelf.</li>
+  <li>Installed and tested? Flatten the box for the cardboard stack. Spare brackets and screws go in a labeled hardware bag (below).</li>
+</ol>
+
+<h3>Multi-day jobs: the job tote and the hardware bag</h3>
+<p>We cannot have a drawer for every SKU. We can have one tote per job and one bag per device. That is the whole system.</p>
+<ul>
+  <li><b>Job tote.</b> Every active job gets one tote (any lidded bin), painter's tape on the end, customer name and date in Sharpie. Everything staged for that job that is not on a rack lives in it. It sits on the staging shelf between visits.</li>
+  <li><b>Hardware bag.</b> The moment a device is out of its box and its hardware is loose, the hardware goes in a zip bag, Sharpie on the bag: <code>customer – device model – what it is</code>. Example: <code>Beer Tree – U7 Pro – ceiling bracket + 4 screws</code>. Bag goes in the job tote.</li>
+  <li><b>When the job closes,</b> empty the tote: unused device hardware bags, still labeled, go in the drawer marked <code>Device hardware – misc</code> (sorted by manufacturer if there is more than one bag). Leftover consumables go back to their drawers. The tote gets wiped and re-taped for the next job.</li>
+  <li><b>No tote, no bags, no Sharpie?</b> Text Kurtis and Rio, then use any lidded box and any bag you can label. Loose hardware on a shelf is not a solution.</li>
+</ul>
+
+<h3>Pulling stock and reporting low supplies</h3>
+<ol>
+  <li>Take what the job needs from the van. Open only what you will use.</li>
+  <li>Any time you notice a drawer or rack item is at or below its minimum mark, or you take the last one, or you can see it will not cover the next job: photo of the drawer, text Kurtis and Rio <code>LOW: [item] – about [how many] left</code>. Same day, not later.</li>
+  <li>Rio orders. You do not buy stock items unless Kurtis approves it for a job that cannot wait.</li>
+  <li>If a drawer has no minimum mark, tell Kurtis and Rio what you think the minimum should be. You use it; you know.</li>
+</ol>
+
+<h3>Leftover material</h3>
+<table>
+  <thead><tr><th>Condition</th><th>Where it goes</th></tr></thead>
+  <tbody>
+    <tr><td>Unopened, sealed</td><td>Back on its shelf or drawer as if it never left.</td></tr>
+    <tr><td>Opened, partial (jacks, plugs, anchors)</td><td>Back in the labeled drawer. Bag or band it if the packaging is gone.</td></tr>
+    <tr><td>Device-specific hardware</td><td>Labeled hardware bag, job tote while the job is open, <code>Device hardware – misc</code> drawer after.</td></tr>
+    <tr><td>Cable spool or box with cable left</td><td>Bulk cable rack, tail secured, footage estimate written on the box.</td></tr>
+    <tr><td>Cut-offs under 2 ft (cable, EMT)</td><td>Trash bag. Do not put scrap back on the rack.</td></tr>
+    <tr><td>Cardboard, foam, plastic packaging</td><td>Flattened and brought back to the garage. Never left at the customer site.</td></tr>
+    <tr><td>Anything the customer wants to keep</td><td>No, unless it was quoted to them. "I have to bring that back, it is inventory." Text Kurtis if they push.</td></tr>
+  </tbody>
+</table>
+
+<h3>Returns and defective gear</h3>
+<ul>
+  <li><b>DOA or defective device:</b> back in the box with every part, tape it, write <code>DOA – customer – date – symptom</code>, Returns bin, text Kurtis and Rio the same day. Manufacturer RMA windows are short.</li>
+  <li><b>Wrong part shipped:</b> do not open it further. Returns bin, tape with <code>WRONG – what was expected</code>, text.</li>
+  <li><b>Store return:</b> item plus receipt in the Returns bin, tape with <code>RETURN – store – date</code>, text.</li>
+  <li><b>Broken TCT tool:</b> tape it <code>BROKEN – date – your name</code>, Returns bin, text a photo to Kurtis and Rio. Never throw a tool away.</li>
+  <li><b>No Returns bin?</b> Check with Kurtis. If there still is not one, make one: any labeled tote, on the staging shelf, and tell Kurtis you did.</li>
+</ul>
+
+<!-- ============ MONEY ============ -->
+<h2 id="money">Expenses and the TCT Amex</h2>
+<div class="call stop"><b>The card is for three things.</b> Fuel for the van. Job materials Kurtis has approved. Parking or tolls on the way to a job. Anything else is an unauthorized charge and is repaid by you.</div>
+
+<p><b>Every expense, on the Amex or out of your own pocket,</b> gets the same treatment: photo of the receipt, the customer or job it belongs to, and it goes to Rio (copy Kurtis) in your job email <b>before you start the next job and before end of day</b>. No receipt photo, no reimbursement, and for Amex charges, a chargeback.</p>
+
+<table>
+  <thead><tr><th>Situation</th><th>What you do</th></tr></thead>
+  <tbody>
+    <tr><td>Need a consumable under $100 to finish today (anchors, a box of jacks, fire caulk)</td><td>Buy it. Receipt photo and customer name in the job email before the next job.</td></tr>
+    <tr><td>Need anything over $100, or any tool, or any device</td><td>Call or text Kurtis for approval <b>before</b> you buy. No approval, no purchase, no reimbursement.</td></tr>
+    <tr><td>Got a receipt</td><td>Write the customer or job on it. Photo goes in the job email to Kurtis and Rio. Paper into the glove box envelope.</td></tr>
+    <tr><td>Paid with your own money</td><td>Same: receipt photo, customer, in the job email. Only approved purchases are reimbursed, added to your next payment.</td></tr>
+    <tr><td>Lost a receipt</td><td>Text Kurtis and Rio immediately: amount, store, date, what it was. Once is a mistake. Twice is a chargeback.</td></tr>
+    <tr><td>Card declined</td><td>Stop after one try. Call Kurtis. Do not keep swiping.</td></tr>
+    <tr><td>Store asks for ID or refuses the card</td><td>Call Kurtis from the register.</td></tr>
+    <tr><td>Food, drinks, personal items, anything for another job</td><td>Never on this card.</td></tr>
+    <tr><td>End of day</td><td>The Amex goes back to Kurtis's home office with the van keys.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ TIME AND REPORTING ============ -->
+<h2 id="report">Time and reporting</h2>
+<div class="call stop"><b>You do not start the next job until the last one is emailed.</b> Park, write the email, send it, then drive. This is how your hours get billed and how you get paid. The email is to Kurtis, copy Rio.</div>
+
+<h3>What counts as time on a job</h3>
+<ul>
+  <li><b>Start</b> is when you leave the garage (or the previous customer) headed to that customer.</li>
+  <li><b>Stop</b> is when you arrive back at the garage (or arrive at the next customer).</li>
+  <li>Travel to the site and travel back from it are part of that job's time. Record the drive minutes separately inside the block so they can be billed correctly.</li>
+  <li><b>Multiple jobs in one day:</b> travel from job A to job B belongs to job B. Travel from the last job back to the garage belongs to the last job. Each job gets its own email.</li>
+  <li>Lunch and personal stops are not on any job. Note them so the math works.</li>
+</ul>
+
+<h3>The job email</h3>
+<p>Subject line and body, exactly like this. Copy it. Receipts attached as photos.</p>
+<pre>To: kurtis@triplecitiestech.com
+Cc: rio@triplecitiestech.com
+Subject: Job report – [Customer] – [date]
+
+Customer: Beer Tree Brew Co
+Left garage / previous site: 7:45 AM
+Arrived on site: 8:20 AM   (drive 35 min)
+Left site: 1:10 PM
+Arrived garage / next site: 1:45 PM   (drive 35 min)
+Total on this job: 6 hrs 00 min  (drive 1 hr 10 min, onsite 4 hrs 50 min)
+Breaks not on the job: lunch 30 min
+
+Work completed:
+- Pulled and terminated 6 Cat6 runs to the taproom, tested, labeled TR-01 to TR-06
+- Mounted and powered 2 APs (serials in photos)
+
+Not finished / next visit:
+- Camera at rear door, waiting on bracket
+
+Materials used: ~450 ft Cat6 plenum, 12 keystone jacks, 6 faceplates, 20 J-hooks
+Materials low: Cat6 plenum (one box left)
+Issues: none
+
+Expenses (receipts attached):
+- Amex, Home Depot, $38.14, fire caulk and anchors, Beer Tree
+- Amex, Sunoco, $62.00, van fuel</pre>
+
+<h3>Photos that go with every job</h3>
+<ul>
+  <li>Existing conditions before work. Tester result for every run. Every device mounted and lit. Patch panel and faceplates labeled. The area after cleanup.</li>
+  <li>Attach them to the job email or send them in a second email with the same subject line.</li>
+</ul>
+
+<!-- ============ WORK ============ -->
+<h2 id="work">Onsite work standards</h2>
+<p><b>You represent TCT the moment you pull into the lot.</b> Clean clothes, no torn or offensive shirts, kind to every person you meet including the ones who are not the customer. Leave every job better than you found it: the work done right, the area cleaner than when you arrived, and the customer glad we came.</p>
+
+<h3>Before you touch a wall</h3>
+<ol>
+  <li>Read the job notes Kurtis sent. Know the device count, locations, and where the cables terminate.</li>
+  <li>Walk the site with the customer contact. Confirm every device location and cable path out loud.</li>
+  <li>Photo of existing conditions in every area you will work in (ceilings, closets, walls). This protects you.</li>
+  <li>Locate the rack or termination point. Confirm there is power and space before you pull a single cable.</li>
+</ol>
+
+<h3>Pulling and terminating</h3>
+<ul>
+  <li>Pull the category and rating (plenum or riser) the job notes call for. When the notes do not say, ask before you pull.</li>
+  <li>Support cable with J-hooks or Velcro at intervals. No staples, no resting on ceiling grid, no draping over light fixtures. Keep separation from power conductors; cross at 90 degrees when you must. <em>(General low voltage installation practice.)</em></li>
+  <li>Service loop at each end. Enough to re-terminate twice.</li>
+  <li>Label both ends of every run before termination, using the TCT label printer. Same label on the patch panel port and the faceplate.</li>
+  <li>Test every run after termination with your tester. Photo of the result for each run.</li>
+  <li>Fire-stop any penetration through a rated wall or floor with fire caulk. When you are not sure whether a wall is rated, treat it as rated.</li>
+</ul>
+
+<h3>Mounting devices</h3>
+<ul>
+  <li>Serial photo before mounting. Photo of the device mounted. Photo of the LED status once powered.</li>
+  <li>Cameras: confirm the view on a phone or laptop with the customer contact before you leave the ladder.</li>
+  <li>Access points: mount where the design says. If the design is impossible in the field, stop and text with a photo.</li>
+</ul>
+
+<h3>Your tools while you work</h3>
+<ul>
+  <li>Tools live in your bag or on a drop cloth in one spot, not spread across the customer's floor, desks, or counters.</li>
+  <li>Ladder down and out of walkways when you step away. Nothing left in a hallway, doorway, or on a stair.</li>
+  <li>Pack up as you finish each area, not all at the end.</li>
+</ul>
+
+<h3>Do not, ever</h3>
+<ul>
+  <li>Cut into live electrical, open a panel, or add a circuit. Licensed electrician only.</li>
+  <li>Say yes to extra work onsite. "Let me check with Kurtis" is the only answer.</li>
+  <li>Tell the customer about damage before Kurtis does. Damage is reported to Kurtis first, by call, and Kurtis decides what is said to the customer and by whom. You do not talk to the customer about damage without his approval.</li>
+  <li>Hide damage. Reported the same hour, it is a small bill. Hidden, it is a lost customer and your removal from the schedule.</li>
+  <li>Share passwords, Wi-Fi keys, or controller access with anyone. Kurtis only.</li>
+  <li>Work alone above 12 feet, or on a roof, or in a lift.</li>
+</ul>
+
+<h3>Closing out the job</h3>
+<ol>
+  <li>Every run tested, every test photographed.</li>
+  <li>Every device online, every device photographed mounted and lit.</li>
+  <li>Labels on both ends, photo of the patch panel and faceplates.</li>
+  <li>Clean up: shop vac the drywall dust, collect every cut-off and package, wipe down the rack area. Trash and cardboard leave with you. Photo of the cleaned area.</li>
+  <li>Walk the customer contact through what was done. Get a verbal thumbs-up.</li>
+  <li>Sit in the van and send the job email before you drive anywhere.</li>
+  <li>Return to the garage. <a href="#reset">Van reset</a>. Interior photo texted. Keys and card to Kurtis.</li>
+</ol>
+
+<!-- ============ CARDBOARD ============ -->
+<h2 id="cardboard">Cardboard, packaging, and the dump run</h2>
+<p>Boxes we bring to a customer site often show pricing, model numbers, and serials. They do not stay at the site and they do not go in the customer's dumpster. They come back to the garage, flattened, and they leave the garage on a scheduled dump run.</p>
+
+<h3>Daily</h3>
+<ol>
+  <li>Flatten every box once its device is mounted and tested. Peel or black out any shipping label with pricing on it.</li>
+  <li>Cardboard stacks flat in the van. Foam and plastic packaging goes in the trash bag.</li>
+  <li>At the garage: cardboard to the cardboard corner, stacked flat. Trash bag to the garage trash cans.</li>
+</ol>
+
+<h3>The dump run: when and how</h3>
+<ul>
+  <li><b>Trigger:</b> the cardboard stack reaches the line marked on the wall, or the garage cans are full, or it has been two weeks since the last run, whichever comes first. The person who sees it hits the trigger texts Kurtis and Rio <code>Dump run needed</code> and, unless told otherwise, does the run that week.</li>
+  <li><b>Where:</b> Broome County Landfill, 286 Knapp Road, Binghamton, NY 13902 (Town of Nanticoke). <a href="https://broomecountyny.gov/solidwaste/landfill">County landfill page</a>.</li>
+  <li><b>Hours:</b> Monday to Friday 7:00 AM to 2:45 PM, Saturday 7:00 AM to 11:45 AM. Closed Sundays and on Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas, and New Year's Day. Check the page before you go; hours change.</li>
+  <li><b>Load rules:</b> the load must be covered or you are charged an automatic $20. Proof of Broome County residency or business is required at the gate. Bring the TCT Amex for any disposal fee.</li>
+  <li><b>At the landfill:</b> ask the attendant where cardboard recycling goes versus general trash; follow their direction, not this page.</li>
+  <li><b>Afterward:</b> receipt photo and the run's time go in a job email with the subject <code>Job report – TCT dump run – [date]</code>. Dump-run time is paid time.</li>
+  <li><b>Never</b> leave TCT cardboard or packaging at a customer site, in a customer's dumpster, on a roadside, or in a residential can.</li>
+</ul>
+
+<!-- ============ SCENARIOS ============ -->
+<h2 id="scenarios">If this, do this</h2>
+<p>Type a word. Tap a category. Tap a line to open it. <span class="tag stop">STOP</span> means stop work and call. <span class="tag text">TEXT</span> means a text is required before you continue. <span class="tag email">EMAIL</span> means it goes in the job email.</p>
+
+<div class="search noprint">
+  <input id="q" type="search" placeholder="Search: drill, receipt, box, ladder, customer, broke, cardboard…" aria-label="Search scenarios" autocomplete="off">
+</div>
+<div class="chips noprint" id="chips" role="group" aria-label="Filter by category"></div>
+<div id="list"></div>
+<div class="empty" id="empty">Nothing matches. Try a shorter word, or text Kurtis.</div>
+
+<!-- ============ VAN RESET ============ -->
+<h2 id="reset">Van reset (end of every day)</h2>
+<p>Five minutes. Do it in this order, at the garage, before you take the keys to Kurtis. Check the boxes on your phone if it helps; they clear when you close the page.</p>
+<div class="progress noprint" id="prog">0 of 14 done</div>
+<ul class="check" id="resetlist">
+  <li><input type="checkbox" id="r1"><label for="r1">Trash bag out of the van and into the garage cans. New bag on the hook.</label></li>
+  <li><input type="checkbox" id="r2"><label for="r2">Cardboard out of the van, flattened, stacked in the cardboard corner. If the stack is at the line, text <code>Dump run needed</code>.</label></li>
+  <li><input type="checkbox" id="r3"><label for="r3">Every TCT tool back in its labeled drawer. Drawers closed and latched.</label></li>
+  <li><input type="checkbox" id="r4"><label for="r4">Any tool you texted "Taking" is back, and you texted <code>Returned [tool] – [condition]</code>.</label></li>
+  <li><input type="checkbox" id="r5"><label for="r5">Cable spools and boxes on the bulk cable rack, tails secured.</label></li>
+  <li><input type="checkbox" id="r6"><label for="r6">Step ladder and extension ladder strapped to the rack. EMT and raceway on the conduit rack.</label></li>
+  <li><input type="checkbox" id="r7"><label for="r7">Job totes on the staging shelf, taped and labeled. Loose device hardware bagged and labeled inside them.</label></li>
+  <li><input type="checkbox" id="r8"><label for="r8">Anything going back (DOA, wrong part, store return, broken tool) taped, labeled, in the Returns bin, and texted to Kurtis and Rio.</label></li>
+  <li><input type="checkbox" id="r9"><label for="r9">Front seat and floor empty. Nothing loose in the cargo area.</label></li>
+  <li><input type="checkbox" id="r10"><label for="r10">Paper receipts in the glove box envelope with customer names on them. Photos already in today's job emails.</label></li>
+  <li><input type="checkbox" id="r11"><label for="r11">Fuel at a quarter tank or more.</label></li>
+  <li><input type="checkbox" id="r12"><label for="r12">Every job today has its job email sent to Kurtis, copy Rio.</label></li>
+  <li><input type="checkbox" id="r13"><label for="r13">Photo of the interior from the rear doors, texted to Kurtis with <code>Van reset – [date]</code>.</label></li>
+  <li><input type="checkbox" id="r14"><label for="r14">Van keys and the TCT Amex handed in at Kurtis's home office.</label></li>
+</ul>
+<button type="button" class="resetbtn noprint" onclick="document.querySelectorAll('#resetlist input').forEach(c=>c.checked=false);updProg()">Clear checklist</button>
+
+<!-- ============ ACCOUNTABILITY ============ -->
+<h2 id="account">Accountability</h2>
+<p>These are not threats; they are the cost of the problem landing on the person who caused it instead of on TCT. Every item below is also in the Subcontractor Standards you signed.</p>
+<table>
+  <thead><tr><th style="width:42%">What happened</th><th>What it costs</th></tr></thead>
+  <tbody>
+    <tr><td>TCT tool taken without a "Taking" text</td><td>First time: written warning. After that: treated as a lost tool.</td></tr>
+    <tr><td>TCT tool lost, or not returned within 7 days</td><td>Replacement at current retail price plus 15%, deducted from your next payment.</td></tr>
+    <tr><td>TCT tool found broken with no damage report from the last holder</td><td>Repair or replacement cost to the last holder, per the loss and damage table. Split between the two most recent holders when neither has evidence.</td></tr>
+    <tr><td>Van damaged through misuse</td><td>Repair cost, deducted from your next payment.</td></tr>
+    <tr><td>Van not reset, no reset photo, or returned under a quarter tank</td><td>$50 reset fee per occurrence, deducted from your next payment.</td></tr>
+    <tr><td>Van keys or Amex not returned to Kurtis's home office at end of day, or van taken home</td><td>First time: written warning. Second time: removal from the schedule.</td></tr>
+    <tr><td>Device packaging or mounting hardware discarded before install, causing a re-order or lost RMA</td><td>Cost of the replacement hardware or the lost RMA value.</td></tr>
+    <tr><td>TCT cardboard or packaging left at a customer site</td><td>Written warning. Repeat: $50 per occurrence.</td></tr>
+    <tr><td>Expense (Amex or personal) with no receipt photo and job in the job email</td><td>Amex: full charge repaid by you. Personal: not reimbursed. Second Amex occurrence: card privileges end.</td></tr>
+    <tr><td>Next job started before the previous job's email was sent</td><td>First time: written warning. After that: hours for the un-emailed job are held to the next invoice cycle.</td></tr>
+    <tr><td>Customer damage not reported to Kurtis the same hour, or discussed with the customer without Kurtis's approval</td><td>Repair cost plus removal from the schedule.</td></tr>
+    <tr><td>Hours not reported same day</td><td>Hours are held to the next invoice cycle and may require a customer confirmation before they are paid.</td></tr>
+    <tr><td>Three occurrences of anything above within 90 days</td><td>Removal from the TCT schedule.</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  Triple Cities Tech, Low Voltage Field Playbook. Version 1.1, September 2026. This is the live copy; if a printed version and this file disagree, this file wins. Questions about anything in here go to Kurtis by text.
+</footer>
+</div>
+
+<script>
+(function(){
+  const S = [
+    // TOOLS
+    {c:"Tools",t:"I need a tool I did not bring",k:"forgot left behind kit",f:"text",s:[
+      "Check your own kit and the drawer cabinet first. The drawer label tells you if TCT has it.",
+      "If it is a TCT tool: check it works, then text Kurtis <code>Taking [tool] – [customer] – works</code> before it leaves the garage or van.",
+      "Use it, put it back in its labeled drawer the same day, text <code>Returned [tool] – works</code>.",
+      "If neither you nor TCT has it, do not buy one onsite. Text Kurtis and either reschedule the part of the job that needs it or get approval to buy."]},
+    {c:"Tools",t:"I picked up a TCT tool and it is already broken or worn",k:"already broken defect pickup taking",f:"text",s:[
+      "Do not use it yet.",
+      "Photo of the defect. Text Kurtis and Rio <code>Taking [tool] – [customer] – [defect]</code> with the photo.",
+      "That text moves the cost back to whoever had it last. Skip it and the cost is yours."]},
+    {c:"Tools",t:"I cannot find a TCT tool that should be in the van",k:"missing gone lost where drawer",f:"text",s:[
+      "Check the labeled drawer, then the staging shelf and job totes, then the garage shelf with the same label.",
+      "Photo of the empty drawer. Text Kurtis and Rio: <code>Missing: [tool]</code>.",
+      "Do not substitute an improvised tool for a crimper or punch-down. Bad terminations cost more than a delay.",
+      "Do not leave the job to buy a replacement without approval."]},
+    {c:"Tools",t:"A TCT tool broke while I was using it",k:"broken dead battery damaged",f:"text",s:[
+      "Stop using it. Text Kurtis and Rio right then with a photo: <code>[tool] broke – [what happened]</code>.",
+      "Tape it and write <code>BROKEN – date – your name</code>. Returns bin. Never throw a tool away.",
+      "Text <code>Returned [tool] – broken, reported</code> when it is back in the van.",
+      "Normal wear reported honestly is not charged. Misuse is. Hiding it is."]},
+    {c:"Tools",t:"My own tool broke onsite",k:"personal drill died battery",f:"",s:[
+      "Use the TCT backup from the labeled drawer for the rest of today only. Text <code>Taking</code> as usual, with condition.",
+      "It goes back in the drawer tonight and you text <code>Returned</code>.",
+      "Replacing your own tool is on you."]},
+    {c:"Tools",t:"I want to borrow a TCT tool or the van for a job that is not TCT's",k:"borrow side job personal weekend",f:"stop",s:[
+      "No. TCT tools and the van are for TCT jobs only.",
+      "This is the one that has lost us the most tools over the years. It is a removal-from-schedule issue on the first occurrence."]},
+    {c:"Tools",t:"I am done with a TCT tool for the day",k:"return put back finished",f:"text",s:[
+      "Check it works. Back in the labeled drawer, drawer closed and latched.",
+      "Text <code>Returned [tool] – works</code>. No text is the same as saying you returned it working.",
+      "Cannot find where it lives: staging shelf, photo, text <code>Where does this live?</code>. Never the front seat."]},
+
+    // VAN
+    {c:"Van",t:"Picking up the van to start the day",k:"start morning keys walkaround",f:"text",s:[
+      "Keys and the Amex from Kurtis's home office.",
+      "Photo of the interior from the rear doors and a photo of the fuel gauge. Text both to Kurtis: <code>Van pickup – [date]</code>.",
+      "If the van was not reset by the previous user, say so in that text. That photo is what keeps it off your record.",
+      "Walk around the outside: tires, lights, mirrors, ladders strapped.",
+      "Confirm the job's devices are in the job tote on the staging shelf, in their boxes, with brackets."]},
+    {c:"Van",t:"Ending the day",k:"end handoff keys leave home",f:"text",s:[
+      "Run the <a href='#reset'>Van reset</a> checklist top to bottom at the garage.",
+      "Photo of the interior from the rear doors, texted with <code>Van reset – [date]</code>.",
+      "Keys and the Amex to Kurtis's home office. The van stays at the garage. It never goes home with you."]},
+    {c:"Van",t:"Van is low on fuel",k:"gas fuel empty fill quarter",f:"email",s:[
+      "Fill with the TCT Amex. Regular, unless the fuel door says otherwise.",
+      "Write <code>Van fuel</code> on the receipt. Receipt photo in that job's email. Paper in the glove box envelope.",
+      "Never return the van below a quarter tank."]},
+    {c:"Van",t:"Warning light, flat tire, strange noise, or damage to the van",k:"check engine tire flat accident dent scratch maintenance",f:"stop",s:[
+      "Pull over safely. Photo of the light, the tire, or the damage.",
+      "Text Kurtis and Rio immediately with the photo, then call Kurtis before you drive any further.",
+      "Accident with another vehicle: 911 if anyone is hurt, photos of everything, other driver's insurance, then Kurtis. Do not admit fault at the scene.",
+      "Damage that appears while the van is in your care and was not in your pickup photo is yours to explain."]},
+    {c:"Van",t:"Trash, foam, and plastic packaging in the van",k:"garbage pile packing foam plastic",f:"",s:[
+      "One trash bag on the hook. Cut-offs, wrappers, foam, plastic go in it as you go.",
+      "Cardboard does not go in the bag; it is flattened and stacked for the garage.",
+      "Bag out of the van and into the garage cans every day. Nothing sits overnight."]},
+    {c:"Van",t:"I do not know where something goes",k:"where put place home belongs unlabeled",f:"text",s:[
+      "Read the drawer labels. The label wins.",
+      "No label matches: staging shelf, photo, text <code>Where does this live?</code>",
+      "Then make a home for it if Kurtis does not have one: a labeled bag, a labeled tote. You own the gap.",
+      "Never the front seat, never the floor, never a pile in the back, never the garbage."]},
+    {c:"Van",t:"Can I use the van for something personal, stop on the way, or take it home",k:"personal errand lunch passenger home overnight",f:"stop",s:[
+      "No personal use. Garage to job to garage. The van does not go home with a contractor.",
+      "A fuel stop or a materials run Kurtis approved is fine. A quick food stop is fine if the van is locked and you are not out of your way.",
+      "No passengers who are not working the job."]},
+
+    // DEVICES
+    {c:"Devices",t:"Opening a new device (AP, camera, switch, NVR)",k:"unbox open new equipment serial",f:"",s:[
+      "Photo of the box label and serial number before you open it.",
+      "Box, device, bracket, screws, and paperwork stay together as one unit.",
+      "They separate only when the device is mounted, powered, and confirmed online.",
+      "Then flatten the box for the cardboard stack. Leftover hardware goes in a labeled hardware bag in the job tote."]},
+    {c:"Devices",t:"Device is not getting installed today, or the job spans multiple days",k:"not installed leftover tomorrow next visit multi day tote",f:"",s:[
+      "Everything back in its box, including the bracket and screws.",
+      "Painter's tape on the box with the customer name. Into the job tote on the staging shelf.",
+      "Loose hardware already out of the box: zip bag, Sharpie <code>customer – model – what it is</code>, into the job tote.",
+      "No tote or bags? Text Kurtis and Rio, then use any lidded box and any bag you can label."]},
+    {c:"Devices",t:"Job is finished and the tote has leftover device hardware",k:"leftover hardware bracket screws misc tote empty closeout",f:"",s:[
+      "Every bag stays labeled. Bags go in the drawer marked <code>Device hardware – misc</code>, grouped by manufacturer.",
+      "No such drawer? Text Kurtis and Rio, label an empty one, and tell them which.",
+      "Leftover consumables back to their own drawers. Wipe the tote, re-tape it blank."]},
+    {c:"Devices",t:"Device is dead on arrival or defective",k:"DOA defective broken not powering RMA",f:"text",s:[
+      "Try a second known-good cable and port before you call it dead. Photo of the LED behavior.",
+      "Back in the box with every part. Tape it: <code>DOA – customer – date – symptom</code>.",
+      "Returns bin. Text Kurtis and Rio the same day. RMA windows close fast.",
+      "Do not install a different device from another customer's job without approval."]},
+    {c:"Devices",t:"Wrong device or wrong part was shipped",k:"wrong model mismatch shipped ordered",f:"text",s:[
+      "Do not open it further than you already have.",
+      "Tape it: <code>WRONG – expected [model]</code>. Returns bin.",
+      "Text Kurtis and Rio with a photo of the label so the right one is ordered today."]},
+    {c:"Devices",t:"Someone asks me for the Wi-Fi password, controller login, or camera access",k:"password login credentials access wifi key",f:"stop",s:[
+      "Never. Not the customer, not their IT person, not another contractor.",
+      "\"I do not have access to that, Kurtis handles it.\" Give them the TCT support number: 607-341-7500."]},
+
+    // MATERIALS
+    {c:"Materials",t:"I need material we normally stock (cable, jacks, plugs, anchors)",k:"stock supply need cable jack plug anchor",f:"",s:[
+      "Take it from the van. Open only what you will use.",
+      "If you take the last one, or the drawer is at or below its minimum mark: photo, text Kurtis and Rio <code>LOW: [item] – about [n] left</code> today."]},
+    {c:"Materials",t:"Supplies are running low",k:"low running out minimum reorder restock empty drawer",f:"text",s:[
+      "Photo of the drawer or rack spot.",
+      "Text Kurtis and Rio <code>LOW: [item] – about [n] left</code> the same day you notice, not when it is gone.",
+      "Also list it under <code>Materials low</code> in your job email.",
+      "Rio orders. Do not buy stock items yourself unless Kurtis approves it for a job that cannot wait.",
+      "If a drawer has no minimum mark, tell Kurtis and Rio what the minimum should be."]},
+    {c:"Materials",t:"I need something we do not stock",k:"buy purchase store home depot lowes order",f:"text",s:[
+      "Consumable under $100 needed to finish today: buy it with the Amex, receipt photo and customer in the job email before the next job.",
+      "Anything over $100, any tool, any device: text or call Kurtis for approval before you buy. No approval, no purchase.",
+      "Write the customer name on the receipt."]},
+    {c:"Materials",t:"Leftover material at the end of the job",k:"leftover extra remaining spool partial",f:"",s:[
+      "Sealed: back on its shelf as if it never left.",
+      "Opened partial: back in the labeled drawer, bagged or banded.",
+      "Device hardware: labeled bag, job tote, then <code>Device hardware – misc</code> drawer when the job closes.",
+      "Cable spool: bulk cable rack, tail secured, footage estimate written on the box.",
+      "Cut-offs under 2 ft: trash bag. Cardboard: flattened, back to the garage.",
+      "Nothing stays at the customer site unless it was quoted to them."]},
+    {c:"Materials",t:"Something has to go back to the store",k:"return refund store receipt",f:"text",s:[
+      "Item and its receipt together in the Returns bin.",
+      "Tape: <code>RETURN – store – date</code>.",
+      "Text Kurtis and Rio so it gets returned inside the return window."]},
+    {c:"Materials",t:"There is no Returns bin, no job tote, no bags, no labels",k:"no bin missing bin tote bag label sharpie process missing",f:"text",s:[
+      "Check with Kurtis first; there may be one you have not found.",
+      "If there still is not one: make it. Any lidded tote with painter's tape and a Sharpie label is a Returns bin or a job tote.",
+      "Tell Kurtis and Rio what you made and where you put it.",
+      "Putting the item down anywhere, or in the garbage, is the one answer that is never acceptable."]},
+    {c:"Materials",t:"Customer wants to keep leftover cable or parts",k:"customer keep leftover give",f:"",s:[
+      "\"I have to bring that back, it is inventory.\"",
+      "If they push, text Kurtis. Do not decide it yourself."]},
+
+    // CARDBOARD
+    {c:"Cardboard",t:"I have empty boxes at the customer site",k:"cardboard box empty boxes customer dumpster",f:"",s:[
+      "Peel or black out shipping labels with pricing. Flatten.",
+      "Stack flat in the van. It comes back to the garage. Never the customer's dumpster or trash.",
+      "Foam and plastic go in the trash bag."]},
+    {c:"Cardboard",t:"The cardboard pile in the garage is getting big",k:"pile garage full dump run landfill trigger",f:"text",s:[
+      "Stack at the wall line, cans full, or two weeks since the last run: text Kurtis and Rio <code>Dump run needed</code>.",
+      "Unless told otherwise, you do the run that week during landfill hours (Mon to Fri 7:00 AM to 2:45 PM, Sat 7:00 AM to 11:45 AM).",
+      "Cover the load or pay $20. Bring proof of Broome County business address and the Amex for fees.",
+      "Broome County Landfill, 286 Knapp Road, Binghamton NY 13902. Ask the attendant where cardboard goes.",
+      "Receipt photo and your time in a job email: <code>Job report – TCT dump run – [date]</code>."]},
+
+    // MONEY
+    {c:"Money",t:"Using the TCT Amex",k:"card credit charge pay",f:"email",s:[
+      "Fuel for the van. Approved job materials. Parking or tolls to a job. That is the list.",
+      "Consumables under $100 to finish the job today do not need pre-approval. Everything else does.",
+      "Receipt every time, customer name on it, photo in the job email to Kurtis and Rio before the next job, paper in the glove box envelope.",
+      "The card goes back to Kurtis's home office with the keys every night."]},
+    {c:"Money",t:"I paid for something with my own money",k:"reimburse out of pocket my card own money personal",f:"email",s:[
+      "Receipt photo, customer, and what it was for in the job email, before the next job and before end of day.",
+      "Only approved purchases are reimbursed. Over $100 or not a consumable with no approval: expect it to be declined.",
+      "Reimbursements are added to your next payment."]},
+    {c:"Money",t:"I lost a receipt",k:"lost receipt missing no receipt",f:"text",s:[
+      "Text Kurtis and Rio right now: amount, store, date, what it was for. The statement can be matched to that.",
+      "Once is a mistake. Twice, the charge comes out of your payment."]},
+    {c:"Money",t:"The card was declined",k:"declined rejected not working",f:"stop",s:[
+      "Do not try it again.",
+      "Call Kurtis from the register."]},
+    {c:"Money",t:"Store asks for ID or refuses the card",k:"ID refused name on card",f:"stop",s:[
+      "Call Kurtis from the register. Do not argue with the cashier."]},
+
+    // TIME
+    {c:"Time and reporting",t:"I finished a job and have another one today",k:"next job second job multiple jobs email before",f:"email",s:[
+      "Sit in the van. Send the job email for the job you just finished: to Kurtis, copy Rio.",
+      "Left previous site time is the start of the next job. Drive to the next site belongs to the next job.",
+      "Then drive. Not before."]},
+    {c:"Time and reporting",t:"How do I count travel time",k:"travel drive time count start stop",f:"",s:[
+      "Start is when you leave the garage or the previous customer. Stop is when you arrive at the garage or the next customer.",
+      "Drive minutes are written separately inside the block.",
+      "Last job of the day includes the drive back to the garage. Lunch and personal stops are noted and not on any job."]},
+    {c:"Time and reporting",t:"I forgot to send a job email",k:"forgot email late report missed",f:"email",s:[
+      "Send it now, with the real times. Add one line: <code>Sent late – [reason]</code>.",
+      "Late hours are held to the next invoice cycle and may need customer confirmation.",
+      "Do not start another job until it is sent."]},
+
+    // ONSITE
+    {c:"Onsite",t:"Before I start work",k:"arrive begin site walk scope presentable",f:"",s:[
+      "Look like you represent TCT. Clean, no torn or offensive clothing. Kind to everyone on site.",
+      "Read the job notes Kurtis sent. Device count, locations, termination point.",
+      "Walk the site with the customer contact. Say each device location and path out loud so they hear it.",
+      "Photos of existing conditions everywhere you will work.",
+      "Confirm power and space at the rack before pulling anything."]},
+    {c:"Onsite",t:"Customer asks for something that is not on the job",k:"extra additional add scope change while you are here",f:"text",s:[
+      "\"Let me check with Kurtis.\" Every time. Do not say yes, do not quote a price, do not say no.",
+      "Text Kurtis what they asked for and roughly what it would take.",
+      "Continue the original job while you wait."]},
+    {c:"Onsite",t:"The job cannot be done the way it was designed",k:"blocked path no route plenum firewall asbestos no power impossible",f:"stop",s:[
+      "Stop. Do not improvise a route or a mounting location.",
+      "Photos of the obstacle.",
+      "Call Kurtis. If he does not answer, text the photos and keep working on anything not affected.",
+      "Suspected asbestos, lead, or mold: do not disturb it. Leave the area. Call."]},
+    {c:"Onsite",t:"I damaged something at the customer site",k:"broke damaged ceiling tile drywall hole existing cable pipe",f:"stop",s:[
+      "Photo it. Call Kurtis right then. Kurtis first, before anyone else.",
+      "Do not tell the customer, apologize to the customer, or fix it quietly until Kurtis tells you what to say and who says it. He may handle the customer himself.",
+      "If the customer saw it happen and asks: \"I am getting Kurtis on the phone right now.\" Nothing more.",
+      "Reported the same hour, it is a small bill. Hidden, or handled with the customer on your own, it is removal from the schedule."]},
+    {c:"Onsite",t:"Customer is upset",k:"angry unhappy complaint yelling",f:"text",s:[
+      "Listen. Do not argue, do not explain why it is not your fault.",
+      "Get their name and number and what they want.",
+      "\"I am going to get Kurtis on this right now.\" Call or text him before you leave the site."]},
+    {c:"Onsite",t:"I am running late or the job is running over",k:"late behind overtime running over schedule",f:"text",s:[
+      "Text the customer contact and Kurtis before the scheduled time passes, not after.",
+      "Give a real new time. If you do not know, say when you will know."]},
+    {c:"Onsite",t:"I found existing cabling or equipment that is a mess",k:"existing old mess spaghetti unlabeled abandoned",f:"text",s:[
+      "Photo it before you touch anything.",
+      "Do not remove or reroute anything that is not in the job notes.",
+      "Text Kurtis the photos. Cleanup is billable work and needs to be quoted."]},
+    {c:"Onsite",t:"Where do my tools go while I work",k:"tools spread everywhere floor ladder walkway mess",f:"",s:[
+      "In your bag or on a drop cloth in one spot. Not across the customer's floor, desks, or counters.",
+      "Ladder down and out of walkways when you step away.",
+      "Pack up each area as you finish it. Leave every area cleaner than you found it."]},
+    {c:"Onsite",t:"Finished pulling and terminating",k:"done pull terminate test label",f:"",s:[
+      "Test every run with your tester. Photo of each result.",
+      "Label both ends with the TCT label printer. Same label on the panel port and the faceplate.",
+      "Service loop at both ends. Fire caulk every rated penetration.",
+      "Photo of the patch panel and each faceplate."]},
+    {c:"Onsite",t:"Anything involving live electrical",k:"electrical outlet breaker panel circuit wire 120",f:"stop",s:[
+      "You do not open panels, add circuits, or move outlets. Licensed electrician only.",
+      "If the job needs power where there is none, stop and text Kurtis. It gets quoted to an electrician."]},
+    {c:"Onsite",t:"Working high: ladder, ceiling, roof, lift",k:"ladder height roof lift safety fall",f:"stop",s:[
+      "Three points of contact on any ladder. Ladder on level ground, spreaders locked.",
+      "Nobody works alone above 12 feet, on a roof, or in a lift. If the job needs it and you are alone, that part waits.",
+      "Hard hat and glasses in any ceiling. If the site requires more, wear it."]},
+
+    // END OF JOB
+    {c:"End of job",t:"Wrapping up at the site",k:"finish closeout leave complete done clean",f:"email",s:[
+      "Every run tested and photographed. Every device online and photographed mounted and lit. Labels photographed.",
+      "Shop vac the dust, collect every cut-off and package, wipe the rack area. Trash and cardboard leave with you. Photo of the cleaned area.",
+      "Walk the customer contact through the work. Get a verbal thumbs-up.",
+      "In the van: send the job email to Kurtis, copy Rio, with times, work, materials, low items, issues, and receipts. Then drive."]},
+    {c:"End of job",t:"Customer wants to pay me directly or tip me",k:"tip cash pay me directly",f:"",s:[
+      "Payment goes to TCT, not to you. \"Kurtis will invoice you.\"",
+      "A tip is yours. Note it in the job email so nobody is confused later."]}
+  ];
+
+  const list=document.getElementById('list'),empty=document.getElementById('empty'),q=document.getElementById('q'),chips=document.getElementById('chips');
+  const cats=[...new Set(S.map(x=>x.c))];let active=null;
+  const flag=f=>f==='stop'?'<span class="tag stop">STOP</span>':f==='text'?'<span class="tag text">TEXT</span>':f==='email'?'<span class="tag email">EMAIL</span>':'';
+  function render(){
+    const term=(q.value||'').trim().toLowerCase();let shown=0;list.innerHTML='';
+    cats.forEach(c=>{
+      if(active&&active!==c)return;
+      const items=S.filter(x=>x.c===c).filter(x=>!term||(x.t+' '+x.k+' '+x.s.join(' ')).toLowerCase().includes(term));
+      if(!items.length)return;
+      const sec=document.createElement('div');sec.className='cat';sec.innerHTML='<h3>'+c+'</h3>';
+      items.forEach(x=>{shown++;const d=document.createElement('details');d.className='s';if(term)d.open=true;
+        d.innerHTML='<summary><span>'+x.t+flag(x.f)+'</span></summary><div class="body"><ol>'+x.s.map(st=>'<li>'+st+'</li>').join('')+'</ol></div>';sec.appendChild(d);});
+      list.appendChild(sec);
+    });
+    empty.style.display=shown?'none':'block';
+  }
+  cats.forEach(c=>{const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=c;b.setAttribute('aria-pressed','false');
+    b.onclick=()=>{active=(active===c)?null:c;[...chips.children].forEach(k=>k.setAttribute('aria-pressed',String(k.textContent===active)));render();};chips.appendChild(b);});
+  q.addEventListener('input',render);render();
+  window.addEventListener('beforeprint',()=>document.querySelectorAll('details.s').forEach(d=>d.open=true));
+  const boxes=document.querySelectorAll('#resetlist input');
+  window.updProg=function(){const n=[...boxes].filter(b=>b.checked).length;document.getElementById('prog').textContent=n+' of '+boxes.length+' done'+(n===boxes.length?' — keys and card to Kurtis.':'');};
+  boxes.forEach(b=>b.addEventListener('change',updProg));
+})();
+</script>
+</body>
+</html>

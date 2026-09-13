@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Client } from 'pg'
+import { FIELD_SCHEMA_STATEMENTS } from '@/lib/field/schema'
 
 export async function POST(request: Request) {
   try {
@@ -1004,6 +1005,23 @@ export async function POST(request: Request) {
     } catch (error) {
       const err = error as Error
       results.push(`⚠️ tickets SLA columns: ${err.message}`)
+    }
+
+    // ============================================
+    // CONTRACTOR PORTAL (/field) — field_* tables
+    // Phase 1 (contractors, login codes, sessions, audit) plus the EMPTY
+    // phase-2/3 tables (field_jobs, field_job_notes) so those phases are
+    // additive. Statement list lives with the feature: src/lib/field/schema.ts.
+    // Idempotent; RLS enabled with no policies (server code is the owner).
+    // ============================================
+    try {
+      for (const sql of FIELD_SCHEMA_STATEMENTS) {
+        await client.query(sql)
+      }
+      results.push('✅ field_* tables (contractor portal)')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ field_* tables: ${err.message}`)
     }
 
     await client.end()
