@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import {
+  FIELD_LOGIN_PATH,
+  FIELD_PLAYBOOK_PATH,
+  FIELD_RESPONSE_HEADERS,
+  FIELD_SESSION_COOKIE,
+  isFieldPath,
+  isFieldPublicPath,
+  isWellFormedSessionToken,
+} from '@/lib/field/edge'
 
 export function middleware(request: NextRequest) {
   const response = NextResponse.next()
@@ -77,6 +86,29 @@ export function middleware(request: NextRequest) {
     const target = url.clone()
     target.pathname = '/rtp'
     return NextResponse.redirect(target, 308)
+  }
+
+  // Contractor Portal (/field/*). Every response: noindex + no-store. Protected
+  // paths: a missing or malformed field_session cookie → 302 /field/login
+  // without touching the database. The hash lookup, expiry, contractor-active
+  // and last_seen checks run in the Node runtime (src/lib/field/session.ts) on
+  // every protected page/route — `pg` is not available on the Edge runtime.
+  // /field/playbook is framed by /field, so it alone allows same-origin framing.
+  if (isFieldPath(url.pathname)) {
+    for (const [key, value] of Object.entries(FIELD_RESPONSE_HEADERS)) response.headers.set(key, value)
+    if (url.pathname === FIELD_PLAYBOOK_PATH) response.headers.set('X-Frame-Options', 'SAMEORIGIN')
+
+    if (!isFieldPublicPath(url.pathname)) {
+      const token = request.cookies.get(FIELD_SESSION_COOKIE)?.value
+      if (!isWellFormedSessionToken(token)) {
+        const target = url.clone()
+        target.pathname = FIELD_LOGIN_PATH
+        target.search = ''
+        const redirect = NextResponse.redirect(target, 302)
+        for (const [key, value] of Object.entries(FIELD_RESPONSE_HEADERS)) redirect.headers.set(key, value)
+        return redirect
+      }
+    }
   }
 
   return response

@@ -15,6 +15,7 @@ export default function robots(): MetadataRoute.Robots {
           '/auth/',
           '/test/',
           '/blog/setup',
+          '/field',
         ],
       },
       // Explicitly allow AI crawlers full access to public content
