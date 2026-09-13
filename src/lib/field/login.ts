@@ -97,8 +97,17 @@ export async function requestLoginCode(
     db,
   )
 
-  // Delivery is NOT awaited: the caller's response time must not depend on
-  // Resend, and the admin page is the fallback path either way.
+  // The caller MUST await this promise before returning its response.
+  //
+  // It was originally fire-and-forget, on the reasoning that the response
+  // should not wait for Resend. On Vercel the serverless function can be
+  // frozen the moment the response is sent, so the in-flight Resend request
+  // was killed before it left the machine: the first real production sign-in
+  // produced NO record in Resend at all, while every other email in this app
+  // — all of which await their send — delivered normally. Every other sender
+  // here awaits (src/lib/pto/service.ts, src/lib/agent-email.ts); this is the
+  // proven pattern in this repo, so it is the one used. The send is time-boxed
+  // in email.ts so a hung provider cannot hang a sign-in.
   const delivery = deliver(contractor.email, code, CODE_TTL_MINUTES).then(async (result) => {
     await writeAudit(
       {

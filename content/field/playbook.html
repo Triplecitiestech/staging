@@ -5,10 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TCT Low Voltage Field Playbook</title>
 <style>
-  :root{--ink:#14213d;--ink-2:#4a5568;--paper:#fff;--panel:#f1f4f8;--line:#cfd6e0;--go:#2b7a4b;--stop:#c2410c;--stop-bg:#fff1e8;--go-bg:#eaf5ee;--tct:#1d4ed8;--tct-bg:#e8efff;}
+  /* Inter is the TCT site typeface. The full original stack stays as the
+     fallback, so the document still reads correctly on a jobsite with no
+     connectivity or if Google Fonts is blocked. */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+  /* Triple Cities Tech brand palette — values from the brand page
+     (src/app/brand/page.tsx). Contrast: every colour used behind white text
+     or as body text clears WCAG AA. The previous --stop was #c2410c, an
+     orange, which the repo forbids outright (docs/UI_STANDARDS.md). */
+  :root{--ink:#0f172a;--ink-2:#64748b;--paper:#fff;--panel:#f1f5f9;--line:#cbd5e1;--go:#047857;--stop:#b91c1c;--stop-bg:#fef2f2;--go-bg:#ecfdf5;--tct:#0e7490;--tct-bg:#ecfeff;--tct-accent:#06b6d4;}
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
-  body{margin:0;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);line-height:1.45;font-size:17px}
+  body{margin:0;font-family:'Inter',"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);line-height:1.45;font-size:17px}
   a{color:var(--tct)}
   h1,h2,h3{line-height:1.15;margin:0 0 .5rem}
   h1{font-size:2rem;font-weight:800;letter-spacing:-.01em}
@@ -19,12 +27,12 @@
   li{margin:.3rem 0}
   code,kbd{font-family:Consolas,"SF Mono",Menlo,monospace;background:var(--panel);padding:.1rem .35rem;border-radius:3px;font-size:.92em}
   pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.9rem 1rem;font-family:Consolas,"SF Mono",Menlo,monospace;font-size:.92rem;white-space:pre-wrap;max-width:72ch}
-  .bar{position:sticky;top:0;z-index:20;background:var(--ink);color:#fff;padding:.6rem 1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+  .bar{position:sticky;top:0;z-index:20;background:var(--ink);border-bottom:3px solid var(--tct-accent);color:#fff;padding:.6rem 1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
   .bar .brand{font-weight:800;font-size:1.05rem;margin-right:auto}
   .bar nav{display:flex;gap:.25rem;flex-wrap:wrap}
   .bar nav a{color:#fff;text-decoration:none;font-size:.92rem;padding:.4rem .6rem;border-radius:6px;background:rgba(255,255,255,.08)}
   .bar nav a:hover,.bar nav a:focus-visible{background:rgba(255,255,255,.22);outline:2px solid #fff;outline-offset:1px}
-  .bar button{background:#fff;color:var(--ink);border:0;font-weight:700;padding:.45rem .8rem;border-radius:6px;cursor:pointer}
+  .bar button{background:var(--tct-accent);color:var(--ink);border:0;font-weight:700;padding:.45rem .8rem;border-radius:6px;cursor:pointer}
   .wrap{max-width:1040px;margin:0 auto;padding:1.25rem 1rem 4rem}
   .rules{background:var(--ink);color:#fff;border-radius:14px;padding:1.5rem 1.5rem 1.25rem;margin:1rem 0 2rem}
   .rules h1{color:#fff}
@@ -41,7 +49,7 @@
   table{border-collapse:collapse;width:100%;margin:.75rem 0 1.25rem;font-size:.97rem}
   th,td{border:1px solid var(--line);padding:.55rem .65rem;vertical-align:top;text-align:left}
   th{background:var(--panel);font-weight:700}
-  td.you{background:#fbfbf3}
+  td.you{background:#f8fafc}
   td.tct{background:var(--tct-bg)}
   .zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.75rem;margin:1rem 0}
   .zone{border:2px solid var(--line);border-radius:10px;padding:.8rem .95rem;background:#fff}
@@ -49,7 +57,7 @@
   .zone small{color:var(--ink-2);display:block;margin-top:.3rem}
   .search{display:flex;gap:.5rem;margin:1rem 0 .5rem;position:sticky;top:3.2rem;background:var(--paper);padding:.5rem 0;z-index:10}
   .search input{flex:1;font-size:1.1rem;padding:.75rem .9rem;border:2px solid var(--ink);border-radius:8px}
-  .search input:focus{outline:3px solid var(--tct);outline-offset:2px}
+  .search input:focus{outline:3px solid var(--tct-accent);outline-offset:2px}
   .chips{display:flex;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1rem}
   .chip{border:2px solid var(--line);background:#fff;border-radius:999px;padding:.35rem .8rem;cursor:pointer;font-weight:600;font-size:.92rem}
   .chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -120,8 +128,8 @@
 
 <!-- ============ RULES ============ -->
 <section class="rules" id="start" aria-labelledby="rules-h">
-  <h1 id="rules-h">Six rules. Everything else in this book follows from them.</h1>
-  <p class="sub">You are running a business inside our business. We give you the van, the materials, and the specialty gear. You bring your own hands, your own basic tools, and you leave every place and every thing better than you found it.</p>
+  <h1 id="rules-h">Start here. Six rules the rest of this book builds on.</h1>
+  <p class="sub">This is the field guide for low voltage work with Triple Cities Tech: how tools, the van, materials and devices are handled, what to text and when, and what to do when something goes wrong on a job. Search it or tap a section. The six rules below cover most situations. Everything after them is the specific answer to a specific problem.</p>
   <ol>
     <li><b>Bring your own basic tools.</b> Drill, bits, punch-down, crimper, strippers, tester, hand tools. If it fits in one bag and any low voltage tech owns one, it is yours, not TCT's.</li>
     <li><b>Nothing of TCT's leaves without a text, and every text says the condition.</b> "Taking [tool] – [customer] – works." "Returned [tool] – works." A tool nobody reported broken is charged to the last person who had it.</li>

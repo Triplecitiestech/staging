@@ -10,7 +10,10 @@ import { Resend } from 'resend'
 import { escapeHtml } from '@/lib/security'
 
 const FROM = 'Triple Cities Tech <noreply@triplecitiestech.com>'
-const SEND_TIMEOUT_MS = 15_000
+// Time-box the provider call. The caller awaits this before answering the
+// sign-in request, so this is the worst case a contractor waits on the
+// button. Resend normally answers in well under a second.
+const SEND_TIMEOUT_MS = 8_000
 
 export type CodeDeliveryResult = 'sent' | 'not_configured' | 'failed'
 
