@@ -6,6 +6,7 @@ import AIMetadata from '@/components/seo/AIMetadata'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
 import GlobalErrorReporter from '@/components/GlobalErrorReporter'
+import MarketingScripts from '@/components/MarketingScripts'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -237,21 +238,7 @@ export default function RootLayout({
         <GlobalErrorReporter />
         <SpeedInsights />
         <Analytics />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `function initApollo(){var n=Math.random().toString(36).substring(7),o=document.createElement("script");o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n,o.async=!0,o.defer=!0,o.onload=function(){if(window.trackingFunctions&&typeof window.trackingFunctions.onLoad==="function"){window.trackingFunctions.onLoad({appId:"69ba1abb41bd780021e1be2f"})}},document.head.appendChild(o)}initApollo();`
-          }}
-        />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              var chatgenieParams = {
-                appId: "3de45b0b-6349-42fa-a1d7-5a299b4c5ab2"
-              }
-              function run(ch){ch.default.messenger().initialize(chatgenieParams);}!function(){var e=window.chatgenie;if(e)run(e);else{function t(){var t=document.createElement("script");t.type="text/javascript",t.async=true,t.readyState?t.onreadystatechange=function(){"loaded"!==t.readyState&&"complete"!==t.readyState||(t.onreadystatechange=null,window.chatgenie&&(e=window.chatgenie,run(e)))}:t.onload=function(){window.chatgenie&&(e=window.chatgenie,run(e))},t.src="https://messenger.chatgenie.io/widget.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(t,n)}window.attachEvent?window.attachEvent("onload",t):window.addEventListener("load",t,!1)}}();
-            `
-          }}
-        />
+        <MarketingScripts />
       </body>
     </html>
   )
