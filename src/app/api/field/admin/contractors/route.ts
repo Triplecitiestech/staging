@@ -49,6 +49,9 @@ function serialise(row: FieldContractorAdminRow) {
     createdAt: row.createdAt.toISOString(),
     deactivatedAt: row.deactivatedAt?.toISOString() ?? null,
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    lastDelivery: row.lastDelivery
+      ? { result: row.lastDelivery.result, at: row.lastDelivery.at.toISOString() }
+      : null,
     openCode: row.openCode
       ? { code, expiresAt: row.openCode.expiresAt.toISOString(), attempts: row.openCode.attempts, unavailableReason }
       : null,
@@ -100,7 +103,7 @@ export async function POST(request: NextRequest) {
       event: 'contractor_invited',
       meta: { contractorId: contractor.id, email: contractor.email },
     })
-    return apiOk({ contractor: serialise({ ...contractor, lastLoginAt: null, openCode: null }) }, reqId, 201)
+    return apiOk({ contractor: serialise({ ...contractor, lastLoginAt: null, openCode: null, lastDelivery: null }) }, reqId, 201)
   } catch (err) {
     if (isUniqueViolation(err)) return apiError('A contractor with that email already exists.', reqId, 409, 'duplicate_email')
     if (isMissingTableError(err)) return apiError('The field_* tables do not exist yet. POST /api/migrations/run first.', reqId, 503, 'not_configured')

@@ -38,6 +38,45 @@
 - **Serverless timeout**: 30s max for API routes (blog generation can be tight). The Autotask trigger route uses `maxDuration = 60` since sync can be slow (page size 5 projects/request to stay within timeout). CFO routes (`/api/admin/cfo/data`, `/rebuild`, `/api/cron/cfo-rebuild`) use `maxDuration = 300` — the first full 24-month Sequence pull under the rate gate exceeds 60s (requires Vercel Pro).
 - **Self-chaining backfill**: The reporting sync uses fire-and-forget self-chaining — one API call triggers the next batch server-side. A single URL invocation runs all jobs to completion. Don't add polling or retry logic on top.
 
+## A floating promise does not survive the response on Vercel (2026-09-13)
+
+The Contractor Portal's login-code email was written fire-and-forget, so the
+sign-in response would not wait on Resend:
+
+```ts
+if (result.outcome === 'issued') result.delivery.catch(() => {})   // WRONG
+return apiOk(...)
+```
+
+The first real production sign-in produced **no record in Resend at all** —
+not a bounce, not a rejection, nothing. The serverless function is frozen the
+moment the response is written, and the in-flight HTTPS request to Resend died
+with it. Nothing errored, nothing logged, and the contractor simply never got
+an email.
+
+**How it was settled, and why the negative evidence was the whole answer.**
+Gmail `from:noreply@triplecitiestech.com in:anywhere` returned three messages,
+newest from March — so it was not a spam-folder problem. Resend's own
+emails-sent export then showed thirteen sends, newest 2026-09-11, and **none
+for the sign-in**. A send that Resend rejects still creates a record; a send
+that never arrives does not. That absence is what distinguishes "the provider
+refused it" from "the request never left the machine", and it is the only
+field that does.
+
+**The rule.** Every other email path in this repo awaits its send
+(`src/lib/pto/service.ts`, `src/lib/agent-email.ts`), which is why they all
+work. Await the provider call before returning, and time-box it so a hung
+provider cannot hang the request (8s for the login code). Next 15 `after()`
+is the other correct primitive and is not yet used anywhere here — if you
+reach for it, verify it on a real deploy rather than assuming.
+
+Second lesson, from the same defect: **the admin page had no way to show
+whether the email went out**, so a send that never left the server looked
+exactly like one sitting in a spam folder. `field_audit_log` recorded the
+outcome all along and nothing surfaced it. Every delivery path needs its
+result visible to the person who has to act on it — `/field/admin` now shows
+Emailed / Email failed / Email off per contractor.
+
 ## API Routes & Security
 
 - **API catch blocks must NEVER return 200 with empty data**: When an API route catches an error, it must return an error status code (4xx/5xx) with an `{ error: 'message' }` body. NEVER return `{ data: [] }` or `{ tickets: [] }` inside a catch block — this makes the UI show "no data" instead of an error message, and the user thinks the feature is broken. If there is legitimately no data (not an error), that should be outside the catch block.

@@ -56,6 +56,14 @@ export interface FieldSessionRow {
 export interface FieldContractorAdminRow extends FieldContractor {
   lastLoginAt: Date | null
   openCode: { id: string; codeCiphertext: string | null; expiresAt: Date; attempts: number } | null
+  /**
+   * Outcome of the most recent code email for this contractor, read from
+   * field_audit_log. Without this the admin page could not answer "did the
+   * email actually go out?" and the only way to find out was to ask the
+   * contractor — which is how a silently dropped send went unnoticed.
+   * null means no code has ever been requested.
+   */
+  lastDelivery: { result: string; at: Date } | null
 }
 
 /** Postgres undefined_table — POST /api/migrations/run has not been run yet. */
@@ -163,8 +171,17 @@ export async function listContractorsForAdmin(
   const { rows } = await db.query(
     `SELECT c.id, c.name, c.email, c.phone, c.active, c.created_by, c.created_at, c.deactivated_at,
             (SELECT MAX(s.created_at) FROM field_sessions s WHERE s.contractor_id = c.id) AS last_login_at,
-            oc.id AS code_id, oc.code_ciphertext, oc.expires_at AS code_expires_at, oc.attempts AS code_attempts
+            oc.id AS code_id, oc.code_ciphertext, oc.expires_at AS code_expires_at, oc.attempts AS code_attempts,
+            ld.result AS delivery_result, ld.created_at AS delivery_at
        FROM field_contractors c
+       LEFT JOIN LATERAL (
+            SELECT meta->>'result' AS result, created_at
+              FROM field_audit_log
+             WHERE event IN ('code_email_sent', 'code_email_failed')
+               AND meta->>'contractorId' = c.id
+             ORDER BY created_at DESC
+             LIMIT 1
+       ) ld ON TRUE
        LEFT JOIN LATERAL (
             SELECT id, code_ciphertext, expires_at, attempts
               FROM field_login_codes
@@ -177,6 +194,9 @@ export async function listContractorsForAdmin(
   return rows.map((row) => ({
     ...mapContractor(row),
     lastLoginAt: (row.last_login_at as Date | null) ?? null,
+    lastDelivery: row.delivery_at
+      ? { result: String(row.delivery_result ?? 'unknown'), at: row.delivery_at as Date }
+      : null,
     openCode: row.code_id
       ? {
           id: String(row.code_id),

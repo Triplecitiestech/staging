@@ -43,8 +43,15 @@ export async function POST(request: NextRequest) {
       return res
     }
 
-    // Do not await delivery — the response must not depend on the mail provider.
-    if (result.outcome === 'issued') result.delivery.catch(() => {})
+    // AWAIT the send. A floating promise does not survive the response on
+    // Vercel — the function freezes and the request never reaches Resend,
+    // which is exactly what happened on the first production sign-in. The
+    // send is time-boxed (8s) in email.ts, and a delivery failure never fails
+    // the request: the code is already stored and staff can read it back on
+    // /field/admin.
+    if (result.outcome === 'issued') {
+      await result.delivery.catch(() => 'failed' as const)
+    }
 
     const res = apiOk({ ok: true, next: '/field/login/code' }, reqId)
     for (const [k, v] of Object.entries(FIELD_RESPONSE_HEADERS)) res.headers.set(k, v)

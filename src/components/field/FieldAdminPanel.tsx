@@ -11,6 +11,7 @@ interface AdminContractor {
   createdAt: string
   lastLoginAt: string | null
   openCode: { code: string | null; expiresAt: string; attempts: number; unavailableReason: string | null } | null
+  lastDelivery: { result: string; at: string } | null
 }
 
 interface ListResponse {
@@ -184,6 +185,8 @@ export default function FieldAdminPanel({ staffEmail }: { staffEmail: string }) 
                   <dd className="text-slate-200">{fmt(row.lastLoginAt)}</dd>
                   <dt>Current code</dt>
                   <dd><CodeCell row={row} copied={copied === row.id} onCopy={() => copyCode(row)} /></dd>
+                  <dt>Last email</dt>
+                  <dd><DeliveryBadge delivery={row.lastDelivery} /></dd>
                 </dl>
                 <div className="mt-3">
                   <ToggleButton row={row} busy={busyId === row.id} onToggle={() => setActive(row, !row.active)} />
@@ -202,6 +205,7 @@ export default function FieldAdminPanel({ staffEmail }: { staffEmail: string }) 
                   <th className="px-4 py-3">Active</th>
                   <th className="px-4 py-3">Last login</th>
                   <th className="px-4 py-3">Current code</th>
+                  <th className="px-4 py-3">Last email</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -216,6 +220,7 @@ export default function FieldAdminPanel({ staffEmail }: { staffEmail: string }) 
                     <td className="px-4 py-3"><StatusBadge active={row.active} /></td>
                     <td className="px-4 py-3 text-slate-300">{fmt(row.lastLoginAt)}</td>
                     <td className="px-4 py-3"><CodeCell row={row} copied={copied === row.id} onCopy={() => copyCode(row)} /></td>
+                    <td className="px-4 py-3"><DeliveryBadge delivery={row.lastDelivery} /></td>
                     <td className="px-4 py-3 text-right">
                       <ToggleButton row={row} busy={busyId === row.id} onToggle={() => setActive(row, !row.active)} />
                     </td>
@@ -227,6 +232,26 @@ export default function FieldAdminPanel({ staffEmail }: { staffEmail: string }) 
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Whether the last code email actually reached the mail provider. Staff had no
+ * way to see this, so a send that never left the server looked identical to one
+ * sitting in a spam folder.
+ */
+function DeliveryBadge({ delivery }: { delivery: AdminContractor['lastDelivery'] }) {
+  if (!delivery) return <span className="text-xs text-slate-500">no code sent yet</span>
+  const label: Record<string, { text: string; className: string; title: string }> = {
+    sent: { text: 'Emailed', className: 'bg-emerald-500/15 text-emerald-300', title: 'Accepted by the mail provider. If it is not in their inbox, check spam.' },
+    not_configured: { text: 'Email off', className: 'bg-slate-500/20 text-slate-300', title: 'RESEND_API_KEY is not set, so no email was attempted. Use Copy and text the code.' },
+    failed: { text: 'Email failed', className: 'bg-rose-500/15 text-rose-300', title: 'The mail provider rejected the send. Use Copy and text the code.' },
+  }
+  const meta = label[delivery.result] ?? { text: delivery.result, className: 'bg-slate-500/20 text-slate-300', title: 'Unrecognised delivery result.' }
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${meta.className}`} title={`${meta.title} (${fmt(delivery.at)})`}>
+      {meta.text}
+    </span>
   )
 }
 
