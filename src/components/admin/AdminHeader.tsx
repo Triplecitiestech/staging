@@ -112,6 +112,19 @@ export default function AdminHeader() {
       ),
     },
     {
+      // Contractor Portal access management. The page lives at /field/admin
+      // (with the rest of the portal) rather than under /admin, so the
+      // contractor-facing and staff-facing halves of the feature stay
+      // together; only this nav entry points into it.
+      label: 'Contractors',
+      href: '/field/admin',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v11a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 012-2h0a2 2 0 012 2v1m-4 0h4m-6 5h8m-8 4h5" />
+        </svg>
+      ),
+    },
+    {
       label: 'Staff',
       href: '/admin/staff',
       icon: (
