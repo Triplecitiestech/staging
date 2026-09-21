@@ -448,6 +448,91 @@ describe('classifyError — a 500 carrying a structured errors[] body is a REQUE
     expect(env.reasonCode).toBe('PRECONDITION_FAILED')
   })
 
+  // -------------------------------------------------------------------------
+  // 2026-09-21: the positive-only recognition that could not be finished
+  // -------------------------------------------------------------------------
+  //
+  // Recognition ran one direction only — hunting for rejections — so the set it
+  // had to cover was the set of sentences Autotask might ever write. The fix
+  // inverts it: FAULTS are enumerated (a tiny, closed, twenty-year-stable
+  // vocabulary), and a 5xx body that is not a fault is a rejection.
+
+  const recurringContract500 =
+    'Autotask POST TimeEntries failed (500): {"errors":["This time entry is for a recurring Service Contract. ' +
+    "Whether or not it shows on the Invoice is determined by the Company's Show Recurring Service Contract " +
+    'Labor Invoice configuration setting."]}'
+
+  it('the live recurring-Service-Contract rejection is not transient', () => {
+    // Names no camelCase field, quotes no bracketed id, states no rule in any
+    // listed word — all three positive signals miss it, and it was TRANSIENT.
+    const c = classifyError(new Error(recurringContract500))
+    expect(c.isTransient).toBe(false)
+    expect(c.category).toBe('data_violation')
+  })
+
+  it('and its envelope never says retry', () => {
+    const env = classifyThrown(new Error(recurringContract500), { surface: 'autotask' })
+    expect(env.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(env.fixableBy).not.toBe('retry')
+    expect(env.remediation.toLowerCase()).not.toContain('wait briefly')
+  })
+
+  it('a 5xx body naming a field is a rejection even with NO errors[] wrapper', () => {
+    // The body decides before the status does, whatever JSON shape it used.
+    const c = classifyError(
+      new Error('Autotask POST TicketCharges failed (500): String value exceeds maximum length (field:purchaseOrderNumber).'),
+    )
+    expect(c.isTransient).toBe(false)
+    expect(c.category).toBe('validation')
+  })
+
+  it('"Missing Required Field" stays a data violation', () => {
+    const c = classifyError(new Error('Autotask POST Services failed (500): Missing Required Field: periodType.'))
+    expect(c.isTransient).toBe(false)
+    expect(c.category).toBe('data_violation')
+  })
+
+  it('an unstructured 5xx body that says NOTHING about the request still retries', () => {
+    // The half that must not move: a bare body with no statement about what was
+    // sent is not evidence of a rejection.
+    for (const body of [
+      'Autotask POST Tickets failed (503): ',
+      'Autotask POST Tickets failed (502): Bad Gateway',
+      'Autotask POST Tickets failed (500): The server encountered a problem.',
+      'Autotask POST Tickets failed (500): <html><body><h1>Server Error</h1></body></html>',
+    ]) {
+      expect(classifyError(new Error(body)).isTransient, body).toBe(true)
+    }
+  })
+
+  it('a fault wrapped in errors[] still retries, however it is phrased', () => {
+    for (const body of [
+      'failed (500): {"errors":["Service Unavailable"]}',
+      'failed (500): {"errors":["An unexpected error occurred."]}',
+      'failed (503): {"errors":["The request timed out. Please try again."]}',
+    ]) {
+      expect(classifyError(new Error(body)).isTransient, body).toBe(true)
+    }
+  })
+
+  it('a 429 carrying a structured body still RETRIES — the body only overrules a 5xx', () => {
+    // The regression the body-first rule caused on its first pass. A rate limit
+    // has a structured errors[] body, names no fault, and names no field, so it
+    // landed in the rejection default and stopped retrying a limit that clears
+    // by itself. The body may only overrule the status Autotask MISUSES, and
+    // 500 is the only one it misuses — a 429 means what it says.
+    const c = classifyError(new Error('Autotask API query Tickets failed (429): {"errors":["rate limited"]}'))
+    expect(c.category).toBe('rate_limit')
+    expect(c.isTransient).toBe(true)
+  })
+
+  it('a 400 carrying an unrecognised structured body is still caller-fixable, not a state problem', () => {
+    // A 4xx status is trustworthy, so it keeps deciding.
+    const c = classifyError(new Error('Autotask POST Tickets failed (400): {"errors":["Bad request"]}'))
+    expect(c.isTransient).toBe(false)
+    expect(c.category).toBe('validation')
+  })
+
   it('the original "Data violation" pairing error is unchanged', () => {
     // The 2026-07-29 behaviour must survive this change.
     const c = classifyError(new Error('failed (500): {"errors":["Data violation: When assigning a Resource, you must assign both a assignedResourceID and assignedResourceRoleID."]}'))

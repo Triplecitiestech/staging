@@ -159,6 +159,80 @@ function describesTheRequest(text: string, options: { allowBrackets?: boolean } 
 }
 
 /**
+ * THE CLOSED HALF OF THE PROBLEM: what a 5xx FAULT sounds like.
+ *
+ * Recognition used to run one way only — positively, looking for rejections —
+ * and that direction can never be finished, because the vendor invents a new
+ * rejection sentence whenever it likes. It is the same shape this repo has now
+ * paid for five times (`periodType`, `parentIdField`, the errors[] phrase
+ * list, `killSwitchState`, this): a check built from previously-observed cases
+ * makes the next unobserved case the guaranteed next bug.
+ *
+ * The asymmetry that fixes it: the REJECTION vocabulary is open-ended, but the
+ * FAULT vocabulary is tiny, stable and genuinely closed. A 5xx that is really
+ * an outage says something went wrong with the SERVER and nothing about what
+ * was sent — it has a handful of ways to say that, and they have not changed
+ * in twenty years of HTTP. So faults are what gets enumerated, and everything
+ * else a vendor took the trouble to write about the request is a rejection.
+ *
+ * Verified against the live 2026-09-21 example this could not classify:
+ *
+ *   {"errors":["This time entry is for a recurring Service Contract. Whether
+ *    or not it shows on the Invoice is determined by the Company's Show
+ *    Recurring Service Contract Labor Invoice configuration setting."]}
+ *
+ * It names no camelCase field, quotes no bracketed id and states no rule in
+ * the listed words, so all three positive signals missed it and the caller was
+ * told to retry a configuration fact that will never change on its own.
+ */
+const FAULT_VOCABULARY = [
+  'internal error',
+  'internal server error',
+  'server error',
+  'the server encountered',
+  'an error occurred while processing',
+  'unexpected error',
+  'unknown error',
+  'something went wrong',
+  'please try again',
+  'try again later',
+  'service unavailable',
+  'temporarily unavailable',
+  'bad gateway',
+  'gateway timeout',
+  'gateway time-out',
+  'request timed out',
+  'out of memory',
+  'general failure',
+];
+
+/** Does this body read as the server reporting its OWN fault? */
+function soundsLikeAFault(text: string): boolean {
+  const lower = text.toLowerCase();
+  return FAULT_VOCABULARY.some(p => lower.includes(p));
+}
+
+/** Markup means an error PAGE, which carries no vendor statement about the request. */
+const LOOKS_LIKE_MARKUP = /<\s*(!doctype|html|head|body|title|h1|p|div)\b/i;
+
+/**
+ * Pull the 5xx status and the response body out of an AutotaskClient-style
+ * error message: `Autotask PATCH Tickets failed (500): <body>`.
+ *
+ * This exists so the BODY can decide before the STATUS does even when the body
+ * is not a JSON errors[] array. Before this, a 5xx whose body named a field in
+ * plain text — `String value exceeds maximum length (field:x).` — fell past the
+ * structured check straight onto the bare '500' test and came back TRANSIENT /
+ * "wait briefly and retry" for a deterministic rejection.
+ */
+function serverErrorBody(raw: string): { status: number; body: string } | null {
+  const m = raw.match(/\((5\d\d)\)\s*:?\s*([\s\S]*)$/);
+  if (!m) return null;
+  const body = m[2].trim();
+  return body ? { status: Number(m[1]), body } : null;
+}
+
+/**
  * Within a structured rejection, does the body describe CURRENT STATE blocking
  * the request rather than the request's shape? Those are two different fixes:
  * a shape problem is caller-fixable (change the argument), a state problem is
@@ -237,28 +311,76 @@ export function classifyError(err: unknown): ClassifiedError {
   // Structured errors[] body — the vendor enumerated what is wrong with the
   // REQUEST. Checked before every status test for the same reason as above:
   // Autotask returns 500 for these, and the status is the misleading part.
+  // RATE LIMITS FIRST, and before anything reads the body.
+  //
+  // The body-over-status rule below exists because Autotask MISUSES 500 for
+  // request rejections. A 429 is not misused — it means exactly what it says,
+  // and it must retry. Moving the body check above the status test without this
+  // guard broke that: `429 {"errors":["rate limited"]}` has a structured body,
+  // names no fault, names no field, and so fell into the rejection default and
+  // stopped retrying a limit that clears by itself.
+  if (RATE_LIMIT_PATTERNS.some(p => lowerMessage.includes(p.toLowerCase()))) {
+    return { category: 'rate_limit', isTransient: true, message, original: err };
+  }
+
+  // Whether the status is one Autotask is known to misuse. The body only gets
+  // to overrule a status that lies, and 5xx is the only one that does.
+  const fiveXX = serverErrorBody(message);
+
   const structured = structuredErrorMessages(message);
   if (structured) {
     const joined = structured.messages.join(' ');
-    // State FIRST, and as its own recognition route: naming the state that
-    // blocks the request ("has been closed", "cannot be associated") is a
-    // reference to the request just as much as naming a field is. It routes to
-    // a different owner than a malformed argument — the caller cannot correct
-    // an argument to make a closed record accept a write.
-    if (STATE_DEPENDENT_IN_BODY.some(p => joined.toLowerCase().includes(p))) {
-      return { category: 'data_violation', isTransient: false, message, original: err };
+    // A FAULT gets first refusal, and it is the only thing enumerated here.
+    // `{"errors":["internal error"]}` is a server reporting itself, not a
+    // rejection, and it must keep retrying.
+    if (!soundsLikeAFault(joined)) {
+      // State FIRST, and as its own recognition route: naming the state that
+      // blocks the request ("has been closed", "cannot be associated") is a
+      // reference to the request just as much as naming a field is. It routes to
+      // a different owner than a malformed argument — the caller cannot correct
+      // an argument to make a closed record accept a write.
+      if (STATE_DEPENDENT_IN_BODY.some(p => joined.toLowerCase().includes(p))) {
+        return { category: 'data_violation', isTransient: false, message, original: err };
+      }
+      if (describesTheRequest(joined, { allowBrackets: !structured.truncated })) {
+        return { category: 'validation', isTransient: false, message, original: err };
+      }
+      // The vendor enumerated a problem in an errors[] array, did not phrase it
+      // as its own fault, and did not trip any of the three positive signals.
+      //
+      // This used to fall through to the status test and come back TRANSIENT.
+      // It is now a rejection, because the errors[] SHAPE is itself the vendor
+      // saying "here is what is wrong with what you sent" — the positive
+      // signals were only ever there to spare generic faults wrapped in one,
+      // and soundsLikeAFault now does that job directly and by name.
+      //
+      // data_violation rather than validation is the conservative landing:
+      // PRECONDITION_FAILED says "re-read state, never retry unchanged" and
+      // blames nobody, where INVALID_INPUT would tell the caller to correct an
+      // argument the message never named. The live recurring-Service-Contract
+      // rejection is exactly this case.
+      //
+      // Gated on a 5xx: on any other status the status itself is trustworthy,
+      // and letting an unrecognised body overrule it would suppress retries the
+      // status legitimately asks for.
+      if (fiveXX) return { category: 'data_violation', isTransient: false, message, original: err };
     }
-    if (describesTheRequest(joined, { allowBrackets: !structured.truncated })) {
-      return { category: 'validation', isTransient: false, message, original: err };
-    }
-    // The body named nothing about the request — an unexplained fault wrapped
-    // in an errors array. Fall through and keep retrying: a needless retry
-    // costs a second, a wrongly-suppressed one costs an outage recovery.
   }
 
-  // Rate limit
-  if (RATE_LIMIT_PATTERNS.some(p => lowerMessage.includes(p.toLowerCase()))) {
-    return { category: 'rate_limit', isTransient: true, message, original: err };
+  // UNSTRUCTURED 5xx body. The body still decides before the status does: a
+  // vendor that wrote a sentence about the request rejected it, whatever the
+  // status code says and whatever JSON shape it did or did not use. An empty
+  // body, or an HTML error page, carries no such sentence and falls through to
+  // the status tests below — which is what keeps a real outage retrying.
+  if (!structured && fiveXX && !LOOKS_LIKE_MARKUP.test(fiveXX.body) && !soundsLikeAFault(fiveXX.body)) {
+    if (STATE_DEPENDENT_IN_BODY.some(p => fiveXX.body.toLowerCase().includes(p))) {
+      return { category: 'data_violation', isTransient: false, message, original: err };
+    }
+    if (describesTheRequest(fiveXX.body)) {
+      return { category: 'validation', isTransient: false, message, original: err };
+    }
+    // Unstructured AND unrecognised: unlike an errors[] array, a bare body is
+    // not by itself a statement about the request, so this one keeps retrying.
   }
 
   // Timeout

@@ -23,12 +23,12 @@ import { prisma } from '@/lib/prisma'
 import { AutotaskClient } from '@/lib/autotask'
 import { patchConfigEntity, createConfigEntity, deleteConfigEntity } from '@/lib/autotask-write'
 import {
-  CONFIG_WRITE_AREAS,
   FieldsNotAllowlistedError,
   OVERLAY_KEY_STATUS_SLA,
   buildDiff,
   buildTargetLabel,
   detectDrift,
+  configAreaSpec,
   resolveConfigArea,
   snapshotFields,
   validateSlaOverlayMappings,
@@ -102,7 +102,7 @@ export interface StageResult {
  */
 async function validateAndClassify(input: StagedChangeInput) {
   const area = resolveConfigArea(input.area)
-  const spec = CONFIG_WRITE_AREAS[area]
+  const spec = configAreaSpec(input.area)
 
   // Operation not offered by this area: ask the API whether that is a vendor
   // limit (UPSTREAM_UNSUPPORTED) or our gap (NOT_IMPLEMENTED), rather than
@@ -368,7 +368,7 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
   }
 
   try {
-    const spec = CONFIG_WRITE_AREAS[row.area]
+    const spec = configAreaSpec(row.area)
     if (!spec) return await fail(`Config area '${row.area}' no longer exists.`)
     const proposed = row.proposed as Record<string, unknown>
     const before = (row.before ?? null) as Record<string, unknown> | null

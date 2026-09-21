@@ -44,10 +44,11 @@ function fakeServer(): ToolRegisteringServer & { names: string[] } {
  */
 async function recordRealModules(): Promise<RecordedTool[]> {
   const { server, recorded } = recordingServer(fakeServer())
-  const [configRead, configWrite, write, project, itglue, unifi, hr, scan, datto, salesPricing, kqm, ringcentral] = await Promise.all([
+  const [configRead, configWrite, write, entityTools, project, itglue, unifi, hr, scan, datto, salesPricing, kqm, ringcentral] = await Promise.all([
     import('@/lib/mcp-config-read-tools'),
     import('@/lib/mcp-config-write-tools'),
     import('@/lib/mcp-write-tools'),
+    import('@/lib/mcp-autotask-entity-tools'),
     import('@/lib/mcp-project-tools'),
     import('@/lib/mcp-itglue-tools'),
     import('@/lib/mcp-unifi-site-tools'),
@@ -61,6 +62,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
   configRead.registerConfigReadTools(server)
   configWrite.registerConfigWriteTools(server)
   write.registerWriteTools(server)
+  entityTools.registerAutotaskEntityTools(server)
   project.registerProjectTools(server)
   itglue.registerItGlueTools(server)
   unifi.registerUnifiSiteTools(server)

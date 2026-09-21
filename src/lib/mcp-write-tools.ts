@@ -32,6 +32,7 @@ import {
   type VerificationState,
 } from '@/lib/autotask-attachments'
 import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability'
+import { resolvePicklistId } from '@/lib/connector/autotask-picklists'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -77,6 +78,22 @@ export async function resolveResourceId(email?: string): Promise<number> {
 }
 
 function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] } }
+
+/**
+ * The MCP request context the SDK passes as a handler's second argument.
+ *
+ * Typed rather than `any` (the older tools in this file predate it): the only
+ * fields any write tool reads are the caller's identity claims, and naming them
+ * is what makes it obvious that impersonation attribution comes from the token
+ * and nowhere else.
+ */
+interface McpCallExtra { authInfo?: { extra?: { email?: unknown; sub?: string } } }
+
+// Read client for the read-backs these write tools depend on. Cached for the
+// same reason every other client in this repo is: a fresh one per invocation
+// re-does credential setup on every call.
+let _readClient: AutotaskClient | null = null
+function autotask(): AutotaskClient { if (!_readClient) _readClient = new AutotaskClient(); return _readClient }
 // Structured envelope on failure (see src/lib/connector/failure-envelope.ts).
 // On these impersonated ticket writes the distinction that matters most is
 // PERMISSION_DENIED (this technician's Autotask rights) versus INVALID_INPUT
@@ -1633,4 +1650,374 @@ export function registerWriteTools(server: any) {
       } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ...baseDetails, phase: 'validate' as AttachmentPhase } }) }
     },
   )
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TICKET CHARGES — products and costs billed on a ticket
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // 2026-09-21: a $45 shipping charge could not be put on a ticket, because the
+  // connector had 79 Autotask tools and none of them touched TicketCharges —
+  // while entityInformation had been reporting TicketCharges.canCreate,
+  // canUpdate and canDelete all true the whole time.
+  //
+  // autotask_entity_create can now reach this entity like any other. These
+  // three tools exist ON TOP of that because a charge carries arithmetic and
+  // vocabulary the metadata does not explain:
+  //
+  //   - unitPrice is what the CUSTOMER pays; unitCost is what TCT paid. Getting
+  //     them the wrong way round invoices a customer at cost, and the API takes
+  //     both without complaint.
+  //   - billableAmount and extendedCost are COMPUTED by Autotask (isReadOnly
+  //     true) — never sent, always read back, and the read-back is how the
+  //     caller learns what the customer will actually be charged.
+  //   - chargeType is a required picklist, resolved live rather than hardcoded.
+  //     Five hardcoded picklist ids in this repo have been wrong.
+  //   - isBillableToCompany is the difference between a charge that reaches an
+  //     invoice and one that sits on the ticket for cost tracking only.
+
+  const CHARGE_FIELDS = [
+    'id', 'ticketID', 'name', 'description', 'notes', 'chargeType', 'unitQuantity', 'unitPrice', 'unitCost',
+    'billableAmount', 'extendedCost', 'isBillableToCompany', 'isBilled', 'datePurchased', 'productID',
+    'billingCodeID', 'contractServiceID', 'contractServiceBundleID', 'purchaseOrderNumber',
+    'internalPurchaseOrderNumber', 'status', 'createDate', 'creatorResourceID',
+  ]
+
+  /** Live field projection for a charge read-back, intersected with this entity's own metadata. */
+  const chargeReadBackFields = async (): Promise<string[]> => {
+    try {
+      const { snapshot } = await getEntityCapabilitySnapshot('TicketCharges')
+      const live = new Map(snapshot.fields.map((f) => [f.name.toLowerCase(), f]))
+      // Sibling Autotask entities do NOT share a schema — a shared field list
+      // 500'd every TimeEntryAttachments read-back on 2026-09-08. Intersect.
+      const kept = CHARGE_FIELDS.map((f) => live.get(f.toLowerCase())).filter((f): f is NonNullable<typeof f> => Boolean(f) && f!.isQueryable !== false).map((f) => f.name)
+      return kept.length ? Array.from(new Set(['id', 'ticketID', ...kept])) : CHARGE_FIELDS
+    } catch {
+      // Metadata unavailable is not a reason to skip verification.
+      return CHARGE_FIELDS
+    }
+  }
+
+  const readCharge = async (chargeId: number, ticketId?: number): Promise<Record<string, unknown> | null> => {
+    const fields = await chargeReadBackFields()
+    const filters: Array<{ field: string; op: string; value?: unknown }> = [{ field: 'id', op: 'eq', value: chargeId }]
+    if (ticketId != null) filters.push({ field: 'ticketID', op: 'eq', value: ticketId })
+    const res = await autotask().queryConfigEntity('TicketCharges', filters, fields, 1)
+    return res.items[0] ?? null
+  }
+
+  /** Round-trip a charge's money fields so the response states what the customer pays. */
+  const chargeMoney = (row: Record<string, unknown>) => ({
+    unitQuantity: row.unitQuantity ?? null,
+    unitPrice: row.unitPrice ?? null,
+    unitCost: row.unitCost ?? null,
+    billableAmountComputedByAutotask: row.billableAmount ?? null,
+    extendedCostComputedByAutotask: row.extendedCost ?? null,
+    isBillableToCompany: row.isBillableToCompany ?? null,
+    isBilled: row.isBilled ?? null,
+  })
+
+  const CHARGE_MONEY_NOTE =
+    'unitPrice is what the CUSTOMER is charged per unit; unitCost is what TCT paid. billableAmount and extendedCost are computed by Autotask and are returned from the read-back, never sent — they are how you confirm what the customer will actually be billed.'
+
+  server.registerTool(
+    'autotask_add_ticket_charge',
+    {
+      title: 'Autotask: add a product or cost charge to a ticket',
+      description:
+        'Put a CHARGE on a ticket — a part, a product, shipping, a one-off cost — so it reaches the customer\'s invoice alongside the labour. This is the tool for "add the $45 shipping to that ticket". chargeType is resolved from the LIVE picklist (Operational / Capitalized) rather than assumed, and defaults to Operational, which is the ordinary expensed charge; Capitalized is for an asset being placed on the balance sheet. ' +
+        CHARGE_MONEY_NOTE +
+        ' Set billable false for a cost you want tracked on the ticket but NOT invoiced. READ-BACK VERIFIED per field: an accepted HTTP status is never reported as success, and the response returns Autotask\'s own computed billableAmount. Attributed to you by resource impersonation.',
+      inputSchema: {
+        ticketId: z.number().int().describe('The ticket the charge goes on'),
+        name: z.string().describe('What the charge is, as it appears on the invoice, e.g. "Overnight shipping"'),
+        unitQuantity: z.number().describe('How many. Use 1 for a single flat charge.'),
+        unitPrice: z.number().describe('Price per unit CHARGED TO THE CUSTOMER (not TCT\'s cost)'),
+        unitCost: z.number().optional().describe('What TCT paid per unit. Optional; used for margin reporting, never billed.'),
+        billable: z.boolean().optional().describe('Should this reach the customer\'s invoice? Default true.'),
+        description: z.string().optional().describe('Longer description shown with the charge'),
+        notes: z.string().optional().describe('Internal notes on the charge'),
+        productId: z.number().int().optional().describe('Link to an Autotask Product (autotask_list_products)'),
+        billingCodeId: z.number().int().optional().describe('Material/expense billing code (autotask_list_billing_codes)'),
+        purchaseOrderNumber: z.string().optional().describe('Customer-facing PO number'),
+        internalPurchaseOrderNumber: z.string().optional().describe('TCT-internal PO number'),
+        datePurchased: z.string().optional().describe('ISO date the item was purchased. Defaults to today.'),
+        chargeType: z.enum(['Operational', 'Capitalized']).optional().describe('Default Operational. Resolved to its live picklist id.'),
+      },
+    },
+    async (args: {
+      ticketId: number; name: string; unitQuantity: number; unitPrice: number; unitCost?: number; billable?: boolean
+      description?: string; notes?: string; productId?: number; billingCodeId?: number
+      purchaseOrderNumber?: string; internalPurchaseOrderNumber?: string; datePurchased?: string; chargeType?: 'Operational' | 'Capitalized'
+    }, extra: McpCallExtra) => {
+      const TOOL = 'autotask_add_ticket_charge'
+      try {
+        const rid = await resolveResourceId(await resolveUserEmail(extra?.authInfo?.extra?.sub, extra?.authInfo?.extra?.email))
+        const charge = await resolvePicklistId('TicketCharges', 'chargeType', args.chargeType ?? 'Operational', 1)
+
+        const body = definedFields({
+          ticketID: args.ticketId,
+          name: args.name,
+          unitQuantity: args.unitQuantity,
+          unitPrice: args.unitPrice,
+          unitCost: args.unitCost,
+          chargeType: charge.id,
+          isBillableToCompany: args.billable ?? true,
+          datePurchased: args.datePurchased ?? new Date().toISOString(),
+          description: args.description,
+          notes: args.notes,
+          productID: args.productId,
+          billingCodeID: args.billingCodeId,
+          purchaseOrderNumber: args.purchaseOrderNumber,
+          internalPurchaseOrderNumber: args.internalPurchaseOrderNumber,
+        })
+
+        const written = await write.writeAtFirstWorkingPath<{ itemId?: number }>(
+          'POST',
+          [{ path: `Tickets/${args.ticketId}/Charges`, body }, { path: 'TicketCharges', body }],
+          rid,
+        )
+        const chargeId = written.result?.itemId
+        if (!chargeId) {
+          return failureResult({
+            reasonCode: 'VERIFY_FAILED',
+            message: `Autotask accepted the charge on ticket ${args.ticketId} but returned no id, so the connector cannot say which row it made.`,
+            remediation: 'Do NOT retry blindly — a charge may exist. List the ticket\'s charges with autotask_ticket_charges before adding another.',
+            surface: 'autotask', tool: TOOL,
+            details: { ticketId: args.ticketId, pathUsed: written.pathUsed, pathAttempts: written.attempts, verificationState: 'unverified' },
+          })
+        }
+
+        const stored = await readCharge(chargeId, args.ticketId)
+        if (!stored) {
+          return failureResult({
+            reasonCode: 'VERIFY_FAILED',
+            message: `Autotask returned charge id ${chargeId} on ticket ${args.ticketId}, but a read-back by that id returns nothing.`,
+            remediation: 'A charge with that id may exist. Check the ticket in Autotask before creating another.',
+            surface: 'autotask', tool: TOOL,
+            details: { ticketId: args.ticketId, chargeId, pathUsed: written.pathUsed, verificationState: 'unverified' },
+          })
+        }
+
+        const verify = verifyWrittenFields(
+          definedFields({ ticketID: args.ticketId, name: args.name, unitQuantity: args.unitQuantity, unitPrice: args.unitPrice, unitCost: args.unitCost, chargeType: charge.id, isBillableToCompany: args.billable ?? true }),
+          null,
+          stored,
+        )
+        if (verify.mismatches.length) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `Charge ${chargeId} was created on ticket ${args.ticketId}, but the read-back does not show ${verify.mismatches.map((m) => m.field).join(', ')} as requested.`,
+            evidence: JSON.stringify(verify.mismatches),
+            remediation: 'The charge EXISTS — do not add another. Correct it with autotask_update_ticket_charge, or remove it with autotask_delete_ticket_charge.',
+            surface: 'autotask', tool: TOOL,
+            details: { ticketId: args.ticketId, chargeId, mismatches: verify.mismatches, pathUsed: written.pathUsed, verificationState: 'unverified' },
+          })
+        }
+
+        return ok({
+          chargeId,
+          ticketId: args.ticketId,
+          ticketUrl: getAutotaskTicketUrl(String(args.ticketId)),
+          verified: true,
+          charge: stored,
+          money: chargeMoney(stored),
+          chargeType: { requested: args.chargeType ?? 'Operational', id: charge.id, resolvedFrom: charge.resolvedFrom, ...(charge.warning ? { warning: charge.warning } : {}) },
+          pathUsed: written.pathUsed,
+          note: CHARGE_MONEY_NOTE,
+        })
+      } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ticketId: args.ticketId } }) }
+    },
+  )
+
+  server.registerTool(
+    'autotask_update_ticket_charge',
+    {
+      title: 'Autotask: correct a charge on a ticket',
+      description:
+        'Change a charge already on a ticket — fix a price, a quantity, a description, or flip whether it is billable. Only the fields you name are sent. READ-BACK VERIFIED per field, and the response returns Autotask\'s recomputed billableAmount so you can see what the customer will now be charged. ' +
+        CHARGE_MONEY_NOTE +
+        ' A charge that has ALREADY BEEN BILLED (isBilled true) is reported in the response: changing one does not un-bill or re-issue the invoice it is on, so check that before telling a customer the amount changed.',
+      inputSchema: {
+        chargeId: z.number().int().describe('The charge id (from autotask_ticket_charges or the create response)'),
+        ticketId: z.number().int().describe('The ticket it belongs to — required, so a charge on the wrong ticket is never edited by id alone'),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        notes: z.string().optional(),
+        unitQuantity: z.number().optional(),
+        unitPrice: z.number().optional().describe('Price per unit CHARGED TO THE CUSTOMER'),
+        unitCost: z.number().optional().describe('What TCT paid per unit'),
+        billable: z.boolean().optional().describe('Whether it reaches the invoice'),
+        purchaseOrderNumber: z.string().optional(),
+        internalPurchaseOrderNumber: z.string().optional(),
+      },
+    },
+    async (args: {
+      chargeId: number; ticketId: number; name?: string; description?: string; notes?: string
+      unitQuantity?: number; unitPrice?: number; unitCost?: number; billable?: boolean
+      purchaseOrderNumber?: string; internalPurchaseOrderNumber?: string
+    }, extra: McpCallExtra) => {
+      const TOOL = 'autotask_update_ticket_charge'
+      try {
+        const before = await readCharge(args.chargeId, args.ticketId)
+        if (!before) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `No charge ${args.chargeId} on ticket ${args.ticketId}.`,
+            remediation: `List the ticket's charges with autotask_ticket_charges({ ticketId: ${args.ticketId} }) and use an id from there. Nothing was changed.`,
+            surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId, ticketId: args.ticketId },
+          })
+        }
+
+        const changes = definedFields({
+          name: args.name, description: args.description, notes: args.notes,
+          unitQuantity: args.unitQuantity, unitPrice: args.unitPrice, unitCost: args.unitCost,
+          isBillableToCompany: args.billable,
+          purchaseOrderNumber: args.purchaseOrderNumber, internalPurchaseOrderNumber: args.internalPurchaseOrderNumber,
+        })
+        if (!Object.keys(changes).length) {
+          return failureResult({
+            reasonCode: 'INVALID_INPUT',
+            message: 'Name at least one field to change.',
+            remediation: 'Pass one or more of name, description, notes, unitQuantity, unitPrice, unitCost, billable or a PO number.',
+            surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId },
+          })
+        }
+
+        const rid = await resolveResourceId(await resolveUserEmail(extra?.authInfo?.extra?.sub, extra?.authInfo?.extra?.email))
+        const written = await write.writeAtFirstWorkingPath(
+          'PATCH',
+          [
+            { path: `Tickets/${args.ticketId}/Charges`, body: { id: args.chargeId, ...changes } },
+            { path: 'TicketCharges', body: { id: args.chargeId, ...changes } },
+          ],
+          rid,
+        )
+
+        const after = await readCharge(args.chargeId, args.ticketId)
+        const verify = after ? verifyWrittenFields(changes, before, after) : { mismatches: Object.entries(changes).map(([field, requested]) => ({ field, requested, actual: undefined })), changedFields: [], unchangedFields: [] }
+        if (verify.mismatches.length) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `Autotask accepted the edit to charge ${args.chargeId} but the read-back does not show ${verify.mismatches.map((m) => m.field).join(', ')} as requested.`,
+            evidence: JSON.stringify(verify.mismatches),
+            remediation: `Do not retry unchanged. Re-read the charge; a billed charge (isBilled ${String(before.isBilled)}) may not accept every edit.`,
+            surface: 'autotask', tool: TOOL,
+            details: { chargeId: args.chargeId, ticketId: args.ticketId, mismatches: verify.mismatches, pathUsed: written.pathUsed },
+          })
+        }
+
+        return ok({
+          chargeId: args.chargeId, ticketId: args.ticketId, verified: true,
+          changedFields: verify.changedFields,
+          before, after,
+          money: chargeMoney(after!),
+          pathUsed: written.pathUsed,
+          ...(before.isBilled === true ? { warning: 'This charge was ALREADY BILLED (isBilled true) before the edit. Autotask does not re-issue or correct an invoice that has gone out — check the invoice before telling the customer the amount has changed.' } : {}),
+          note: CHARGE_MONEY_NOTE,
+        })
+      } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId, ticketId: args.ticketId } }) }
+    },
+  )
+
+  server.registerTool(
+    'autotask_delete_ticket_charge',
+    {
+      title: 'Autotask: remove a charge from a ticket',
+      description:
+        'Remove a charge from a ticket, VERIFIED BY RE-READ — a delete Autotask accepts but does not perform is reported as a failure, never as success. REFUSES a charge that has already been billed (isBilled true) unless you pass force: deleting a billed line removes revenue from an invoice that may already have been sent, and the invoice is not reissued.',
+      inputSchema: {
+        chargeId: z.number().int().describe('The charge id'),
+        ticketId: z.number().int().describe('The ticket it belongs to — required, so a charge on another ticket is never deleted by id alone'),
+        force: z.boolean().optional().describe('Delete even though the charge has been billed. Say why in the conversation first; this removes money from an issued invoice.'),
+      },
+    },
+    async (args: { chargeId: number; ticketId: number; force?: boolean }, extra: McpCallExtra) => {
+      const TOOL = 'autotask_delete_ticket_charge'
+      try {
+        const before = await readCharge(args.chargeId, args.ticketId)
+        if (!before) {
+          return failureResult({
+            reasonCode: 'PRECONDITION_FAILED',
+            message: `No charge ${args.chargeId} on ticket ${args.ticketId} — nothing was deleted.`,
+            remediation: `List the ticket's charges with autotask_ticket_charges({ ticketId: ${args.ticketId} }).`,
+            surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId, ticketId: args.ticketId },
+          })
+        }
+        if (before.isBilled === true && args.force !== true) {
+          return failureResult({
+            reasonCode: 'POLICY_BLOCKED',
+            message: `Charge ${args.chargeId} has already been BILLED, so deleting it removes money from an invoice that may already have gone to the customer.`,
+            evidence: `The live charge row reports isBilled true (billableAmount ${String(before.billableAmount)}).`,
+            remediation: 'Confirm with whoever owns the invoice first. If the removal is genuinely wanted, call again with force: true — and expect to correct the invoice in Autotask separately, because Autotask does not reissue it.',
+            surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId, ticketId: args.ticketId, isBilled: true },
+          })
+        }
+
+        const rid = await resolveResourceId(await resolveUserEmail(extra?.authInfo?.extra?.sub, extra?.authInfo?.extra?.email))
+        const written = await write.writeAtFirstWorkingPath(
+          'DELETE',
+          [{ path: `Tickets/${args.ticketId}/Charges/${args.chargeId}` }, { path: `TicketCharges/${args.chargeId}` }],
+          rid,
+        )
+
+        const after = await readCharge(args.chargeId, args.ticketId)
+        if (after) {
+          return failureResult({
+            reasonCode: 'VERIFY_FAILED',
+            message: `Autotask accepted the DELETE for charge ${args.chargeId}, but a re-read STILL RETURNS it. Do NOT report it as deleted.`,
+            evidence: `A follow-up query (ticketID = ${args.ticketId} AND id = ${args.chargeId}) returned the charge.`,
+            remediation: 'Check the ticket in the Autotask UI and remove the charge there if it is still present. Report this envelope to Claude Code as a connector defect.',
+            surface: 'autotask', tool: TOOL,
+            details: { chargeId: args.chargeId, ticketId: args.ticketId, phase: 'readback', verificationState: 'unverified', stored: after },
+          })
+        }
+
+        return ok({
+          deleted: true, verified: true, chargeId: args.chargeId, ticketId: args.ticketId,
+          deletedCharge: before, money: chargeMoney(before),
+          pathUsed: written.pathUsed,
+          basis: 'Pre-read by ticketID + id, DELETE at the child URL, then a re-read by the same query returned no row.',
+          ...(before.isBilled === true ? { warning: 'The deleted charge had already been BILLED. The invoice it is on is NOT reissued by Autotask — correct it separately.' } : {}),
+        })
+      } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { chargeId: args.chargeId, ticketId: args.ticketId } }) }
+    },
+  )
+
+  server.registerTool(
+    'autotask_ticket_charges',
+    {
+      title: 'Autotask: charges on a ticket',
+      description:
+        'List the CHARGES on a ticket — products, parts, shipping and one-off costs billed alongside the labour — with Autotask\'s own computed billableAmount and extendedCost per line, a billed/unbilled split, and a total. Call this before adding a charge, so a duplicate is not created, and before quoting a customer a ticket total, because ticket time entries do NOT include these. READ-ONLY.',
+      inputSchema: {
+        ticketId: z.number().int().describe('The ticket'),
+        includeBilled: z.boolean().optional().describe('Include charges already billed (default true)'),
+      },
+    },
+    async ({ ticketId, includeBilled }: { ticketId: number; includeBilled?: boolean }) => {
+      const TOOL = 'autotask_ticket_charges'
+      try {
+        const fields = await chargeReadBackFields()
+        const res = await autotask().queryConfigEntity('TicketCharges', [{ field: 'ticketID', op: 'eq', value: ticketId }], fields, 500)
+        const rows = (includeBilled ?? true) ? res.items : res.items.filter((r) => r.isBilled !== true)
+        const sum = (pick: (r: Record<string, unknown>) => unknown) =>
+          rows.reduce((t, r) => t + (Number(pick(r)) || 0), 0)
+        return ok({
+          ticketId,
+          ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+          count: rows.length,
+          hasMore: res.hasMore,
+          totals: {
+            billableAmount: sum((r) => r.billableAmount),
+            extendedCost: sum((r) => r.extendedCost),
+            billedLines: rows.filter((r) => r.isBilled === true).length,
+            unbilledLines: rows.filter((r) => r.isBilled !== true).length,
+          },
+          charges: rows,
+          note: 'Totals are Autotask\'s own computed billableAmount / extendedCost summed across the returned lines — they are not recalculated here. Ticket TIME entries are separate; autotask_ticket_time_entries covers those.',
+        })
+      } catch (e) { return toolFailure(e, { surface: 'autotask', tool: TOOL, details: { ticketId } }) }
+    },
+  )
+
 }

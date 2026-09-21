@@ -32,6 +32,10 @@ import {
   type EntityCapabilitySnapshot,
   type EntityOperation,
 } from './autotask-capability'
+import { catalogueEntityNames } from './autotask-catalogue'
+import { findExemption } from './autotask-exemptions'
+import { writePolicyFor } from './autotask-write-policy'
+import { SURFACE_CLAIMS } from './autotask-coverage'
 
 const WRITE_OPS: ConfigWriteOperation[] = ['create', 'update', 'delete']
 
@@ -47,6 +51,21 @@ export interface EntityDrift {
   entity: string
   /** Write areas in the connector that target this entity. */
   areas: string[]
+  /**
+   * How this entity is reached:
+   *   'dedicated' — a named write area or an ergonomic tool knows this entity
+   *   'generic'   — reachable only through the catalogue-driven entity tools
+   *   'none'      — nothing reaches it, which is the only true gap
+   * Reported for EVERY entity, including ones the connector has never touched.
+   * Those used to be omitted from the report entirely.
+   */
+  coverage: 'dedicated' | 'generic' | 'none'
+  /** Write operations the generic catalogue-driven tools cover. */
+  genericOperations: ConfigWriteOperation[]
+  /** Ergonomic (non-staged) tools that know this entity. */
+  dedicatedTools: string[]
+  /** Operations deliberately refused, with the dated reason. */
+  exemptedOperations: Array<{ operation: ConfigWriteOperation; reason: string; dated: string }>
   apiPermits: { query: boolean | null; create: boolean | null; update: boolean | null; delete: boolean | null }
   /** Operations the API permits that NO connector area offers. */
   missingOperations: ConfigWriteOperation[]
@@ -76,9 +95,22 @@ export interface AutotaskDriftReport {
     totalMissingWritableFields: number
     suspectAllowlistedFields: number
     lookupFailures: number
+    /** Entities with a named write area or an ergonomic tool. */
+    entitiesWithDedicatedSurface: number
+    /** Entities reachable only through the generic catalogue-driven tools. */
+    entitiesCoveredGenericallyOnly: number
+    /** Entities NOTHING reaches. The only true gap, and it used to be unreportable. */
+    entitiesWithNoSurface: number
   }
   /** Entities where the API allows something the connector does not expose. */
   gaps: EntityDrift[]
+  /** Entities that work only through the generic tools — reported, never omitted. */
+  genericOnly: Array<{
+    entity: string
+    operations: ConfigWriteOperation[]
+    readable: boolean
+    exemptedOperations?: Array<{ operation: ConfigWriteOperation; reason: string; dated: string }>
+  }>
   /** Entities checked with no gap found — listed by name only, to stay readable. */
   aligned: string[]
   /**
@@ -89,12 +121,51 @@ export interface AutotaskDriftReport {
   interpretation: string
 }
 
-/** Every Autotask entity the connector touches, derived from its own constants. */
+/** Every Autotask entity the connector has a DEDICATED, hand-built surface for. */
 export function connectorAutotaskEntities(): string[] {
   const fromAreas = Object.values(CONFIG_WRITE_AREAS)
     .filter((s) => s.targetSystem === 'autotask')
     .map((s) => s.entity)
-  return Array.from(new Set([...fromAreas, ...CONFIG_QUERY_ENTITIES])).sort()
+  return Array.from(new Set([...fromAreas, ...CONFIG_QUERY_ENTITIES, ...Object.keys(DIRECT_WRITE_TOOLS)])).sort()
+}
+
+/**
+ * THE DEFAULT SCOPE: every entity in the generated catalogue.
+ *
+ * It used to be connectorAutotaskEntities() — "every Autotask entity the
+ * connector touches" — and that scoping was the report's own worst defect. A
+ * report whose universe is the set of entities somebody already built for
+ * cannot, by construction, tell you about the ones nobody built for. On
+ * 2026-09-21 it swept 44 entities and found 29 with gaps, while ~120 entities
+ * it never looked at had no surface at all: TicketCharges, Invoices,
+ * BillingItems, Opportunities, Quotes, ConfigurationItems, ServiceCalls,
+ * Appointments, PurchaseOrders, InventoryItems and the rest. The one that
+ * blocked a $45 shipping charge that day was in the invisible set.
+ *
+ * So the universe is now the API, and an entity with no surface is a REPORTED
+ * ROW rather than an absent one.
+ */
+export function driftScopeEntities(): string[] {
+  return Array.from(new Set([...catalogueEntityNames(), ...connectorAutotaskEntities()])).sort()
+}
+
+/**
+ * Operations the GENERIC catalogue-driven tools cover for an entity.
+ *
+ * Read off SURFACE_CLAIMS rather than restated, so the drift report and the
+ * coverage check cannot disagree about what is covered — the two of them
+ * disagreeing is exactly how "the connector does not do X" gets said about a
+ * live tool.
+ */
+function genericOperations(entity: string): ConfigWriteOperation[] {
+  return WRITE_OPS.filter((op) =>
+    SURFACE_CLAIMS.some(
+      (c) =>
+        c.operations.includes(op) &&
+        (c.entities === '*' || c.entities.some((e) => e.toLowerCase() === entity.toLowerCase())) &&
+        !findExemption(entity, op),
+    ),
+  )
 }
 
 /**
@@ -137,12 +208,45 @@ export const DIRECT_WRITE_TOOLS: Record<string, Partial<Record<ConfigWriteOperat
   TaskPredecessors: { create: ['autotask_add_task_predecessor'], delete: ['autotask_remove_task_predecessor'] },
   Companies: { create: ['autotask_create_company'], update: ['autotask_update_company'] },
   Contacts: { create: ['autotask_create_contact'], update: ['autotask_update_contact'] },
+  TicketCharges: {
+    create: ['autotask_add_ticket_charge'],
+    update: ['autotask_update_ticket_charge'],
+    delete: ['autotask_delete_ticket_charge'],
+  },
+  // The generic catalogue-driven tools, which cover EVERY entity. Keyed '*'
+  // rather than repeated under 160 entity names: directToolsFor() expands it,
+  // and a per-entity copy would be a hand-maintained list of exactly the kind
+  // this whole change removes.
+  '*': {
+    create: ['autotask_entity_create'],
+    update: ['autotask_entity_update'],
+    delete: ['autotask_entity_delete'],
+  },
 }
 
 /** Direct tools implementing one entity operation, or [] when none do. */
 export function directToolsFor(entity: string, op: EntityOperation): string[] {
   if (op === 'query') return []
-  const key = Object.keys(DIRECT_WRITE_TOOLS).find((e) => e.toLowerCase() === entity.toLowerCase())
+  const key = Object.keys(DIRECT_WRITE_TOOLS).find((e) => e !== '*' && e.toLowerCase() === entity.toLowerCase())
+  const dedicated = (key && DIRECT_WRITE_TOOLS[key][op as ConfigWriteOperation]) || []
+  // The generic tools apply to every entity, but they are DIRECT writes only
+  // where the write policy says so. On a staged entity autotask_entity_create
+  // stages the change and returns a stagedWriteId — calling that a direct tool
+  // made checkAutotaskCapability answer SUPPORTED_AND_IMPLEMENTED for a
+  // Service create, i.e. "go ahead" for something that actually requires a
+  // human approval. And an exempted operation has no tool at all, so listing
+  // one would send a caller at something refused by design.
+  const generic =
+    writePolicyFor(entity) !== 'direct' || findExemption(entity, op)
+      ? []
+      : DIRECT_WRITE_TOOLS['*'][op as ConfigWriteOperation] ?? []
+  return Array.from(new Set([...dedicated, ...generic]))
+}
+
+/** Ergonomic (entity-specific) tools only — the generic surface excluded. */
+export function dedicatedToolsFor(entity: string, op: EntityOperation): string[] {
+  if (op === 'query') return []
+  const key = Object.keys(DIRECT_WRITE_TOOLS).find((e) => e !== '*' && e.toLowerCase() === entity.toLowerCase())
   return (key && DIRECT_WRITE_TOOLS[key][op as ConfigWriteOperation]) || []
 }
 
@@ -162,7 +266,13 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
     update: caps.canUpdate,
     delete: caps.canDelete,
   }
-  const missingOperations = WRITE_OPS.filter((op) => permits[op] === true && !offered.has(op))
+  // A gap is an operation the API permits that NOTHING exposes — neither a
+  // named write area nor the generic catalogue-driven tools. Before the generic
+  // surface existed the two were the same thing; conflating them now would
+  // report ~160 entities as unbuilt while autotask_entity_create was serving
+  // them, which is the "go rebuild what already exists" failure in reverse.
+  const generic = new Set(genericOperations(snapshot.entity))
+  const missingOperations = WRITE_OPS.filter((op) => permits[op] === true && !offered.has(op) && !generic.has(op))
 
   // Only worth reporting writable-field gaps where we can actually write at
   // all; listing 20 fields on a read-only entity is noise.
@@ -174,14 +284,18 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
   // missing writable field by one half while the other stayed silent about it.
   const canWriteSomething = caps.canCreate === true || caps.canUpdate === true
   const settableLower = new Set([...allowlisted.keys()].map((k) => k.toLowerCase()))
-  const missingWritableFields = canWriteSomething
-    ? snapshot.fields
-        .filter(
-          (f) =>
-            !f.isReadOnly && !UNINTERESTING_FIELDS.has(f.name) && !settableLower.has(f.name.toLowerCase()),
-        )
-        .map((f) => f.name)
-    : []
+  // The generic tools accept every field live metadata reports writable, so a
+  // field is only "missing" where they do not cover the entity at all.
+  const genericAcceptsFields = generic.size > 0
+  const missingWritableFields =
+    canWriteSomething && !genericAcceptsFields
+      ? snapshot.fields
+          .filter(
+            (f) =>
+              !f.isReadOnly && !UNINTERESTING_FIELDS.has(f.name) && !settableLower.has(f.name.toLowerCase()),
+          )
+          .map((f) => f.name)
+      : []
 
   // The inverse check, which is what caught the markupRate bug: a field we
   // claim to accept that the API will not take.
@@ -206,9 +320,25 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
     }
   }
 
+  const dedicatedTools = Array.from(new Set(WRITE_OPS.flatMap((op) => dedicatedToolsFor(snapshot.entity, op))))
+  const coverage: EntityDrift['coverage'] =
+    areas.length || dedicatedTools.length
+      ? 'dedicated'
+      : generic.size || caps.canQuery === true
+        ? 'generic'
+        : 'none'
+
   return {
     entity: snapshot.entity,
     areas: areas.map((a) => a.area),
+    coverage,
+    genericOperations: [...generic],
+    dedicatedTools,
+    exemptedOperations: WRITE_OPS.filter((op) => Boolean(findExemption(snapshot.entity, op))).map((op) => ({
+      operation: op,
+      reason: findExemption(snapshot.entity, op)!.reason,
+      dated: findExemption(snapshot.entity, op)!.dated,
+    })),
     apiPermits: { query: caps.canQuery, create: caps.canCreate, update: caps.canUpdate, delete: caps.canDelete },
     missingOperations,
     missingWritableFields,
@@ -610,7 +740,7 @@ export interface DriftOptions {
 }
 
 export async function buildAutotaskDriftReport(opts: DriftOptions = {}): Promise<AutotaskDriftReport> {
-  const entities = opts.entities?.length ? opts.entities : connectorAutotaskEntities()
+  const entities = opts.entities?.length ? opts.entities : driftScopeEntities()
 
   const results = await mapLimit(entities, 4, async (entity) => {
     try {
@@ -628,14 +758,17 @@ export async function buildAutotaskDriftReport(opts: DriftOptions = {}): Promise
 
   const gaps = drifts.filter(hasGap)
   const aligned = drifts.filter((d) => !hasGap(d)).map((d) => d.entity)
+  const byCoverage = (c: EntityDrift['coverage']) => drifts.filter((d) => d.coverage === c)
 
   return {
     generatedAt: new Date().toISOString(),
     generatedFrom:
-      'The connector\'s own CONFIG_WRITE_AREAS + config-query allowlist, diffed against LIVE Autotask entityInformation. Both sides derived — neither is a hand-maintained list.',
+      "The connector's own CONFIG_WRITE_AREAS, config-query allowlist, direct-write tools and generic catalogue-driven entity tools, diffed against LIVE Autotask entityInformation. Both sides derived — neither is a hand-maintained list.",
     scope: {
       entitiesChecked: drifts.length,
-      source: opts.entities?.length ? 'caller-supplied entity list' : 'every Autotask entity the connector touches',
+      source: opts.entities?.length
+        ? 'caller-supplied entity list'
+        : 'EVERY entity in the generated Autotask catalogue (was: only the entities the connector touched, which is why entire families were invisible until 2026-09-21)',
     },
     summary: {
       entitiesWithGaps: gaps.length,
@@ -643,12 +776,28 @@ export async function buildAutotaskDriftReport(opts: DriftOptions = {}): Promise
       totalMissingWritableFields: gaps.reduce((n, d) => n + d.missingWritableFields.length, 0),
       suspectAllowlistedFields: gaps.reduce((n, d) => n + d.suspectAllowlistedFields.length, 0),
       lookupFailures: unchecked.length,
+      entitiesWithDedicatedSurface: byCoverage('dedicated').length,
+      entitiesCoveredGenericallyOnly: byCoverage('generic').length,
+      entitiesWithNoSurface: byCoverage('none').length,
     },
     gaps,
+    /**
+     * Entities reachable ONLY through the generic entity tools. Not a gap — and
+     * deliberately not silent either. An entity here works, but nothing in the
+     * connector knows its quirks, so it is the shortlist for the next ergonomic
+     * tool, and it is the row that used to be missing from this report entirely.
+     */
+    genericOnly: byCoverage('generic').map((d) => ({
+      entity: d.entity,
+      operations: d.genericOperations,
+      readable: d.readable,
+      ...(d.exemptedOperations.length ? { exemptedOperations: d.exemptedOperations } : {}),
+    })),
     ...(opts.includeAligned === false ? { aligned: [] } : { aligned }),
     unchecked,
     interpretation:
-      'missingOperations / missingWritableFields = the Autotask API permits it and the connector does not expose it — a NOT_IMPLEMENTED gap and a candidate build task. ' +
+      'missingOperations / missingWritableFields = the Autotask API permits it and NOTHING in the connector exposes it, generic tools included — a NOT_IMPLEMENTED gap and a candidate build task. ' +
+      'genericOnly = reachable through autotask_entity_query/create/update/delete but with no tool that knows the entity\'s rules; it works, and it is where an ergonomic tool would pay. ' +
       'suspectAllowlistedFields = the connector claims to accept a field the API reports read-only or does not have; each is a latent bug that would fail or silently no-op at execute time (this is the check that caught Services.markupRate). ' +
       'unchecked = the live lookup failed, so nothing is known about that entity — never read it as "no gaps".',
   }

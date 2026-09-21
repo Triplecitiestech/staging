@@ -16,7 +16,7 @@
 // tool missing from the map, fails here rather than in a chat months later.
 
 import { describe, expect, it } from 'vitest'
-import { DIRECT_WRITE_TOOLS, directToolsFor } from './autotask-drift'
+import { DIRECT_WRITE_TOOLS, dedicatedToolsFor, directToolsFor } from './autotask-drift'
 import { TOOL_FACTS } from './capability-registry'
 
 const mapped = Object.values(DIRECT_WRITE_TOOLS).flatMap((ops) => Object.values(ops).flat())
@@ -72,22 +72,46 @@ describe('DIRECT_WRITE_TOOLS', () => {
 })
 
 describe('directToolsFor', () => {
-  it('resolves the tool that made the stale BLOCKED claim wrong', () => {
-    expect(directToolsFor('Tasks', 'update')).toEqual(['autotask_update_task'])
+  // 2026-09-21: the generic catalogue-driven tools joined this answer. They are
+  // real direct writes on an operational entity, so they belong in it — the
+  // ergonomic tool is still listed FIRST, because it is the one that carries
+  // the entity's rules and the one a caller should reach for.
+  it('resolves the tool that made the stale BLOCKED claim wrong, then the generic one', () => {
+    expect(directToolsFor('Tasks', 'update')).toEqual(['autotask_update_task', 'autotask_entity_update'])
   })
 
   it('is case-insensitive on the entity name, as Autotask is', () => {
-    expect(directToolsFor('tasks', 'create')).toEqual(['autotask_create_task'])
+    expect(directToolsFor('tasks', 'create')).toEqual(['autotask_create_task', 'autotask_entity_create'])
   })
 
   it('returns nothing for query — reads are resolved separately', () => {
     expect(directToolsFor('Tasks', 'query')).toEqual([])
   })
 
-  it('returns nothing for an operation no direct tool implements', () => {
-    // Tasks.canDelete is false upstream and no tool offers it; the verdict for
-    // this must come from the API metadata, not from this map.
-    expect(directToolsFor('Tasks', 'delete')).toEqual([])
+  it('lists only the ergonomic tools when asked for those alone', () => {
+    expect(dedicatedToolsFor('Tasks', 'update')).toEqual(['autotask_update_task'])
+    expect(dedicatedToolsFor('Tasks', 'delete')).toEqual([])
+  })
+
+  it('offers the generic delete on an operational entity', () => {
+    // Tasks.canDelete is false upstream, and that verdict still comes from the
+    // API metadata — this map says which tool WOULD perform it, not whether the
+    // vendor permits it. assertOperationPermitted is what refuses the call.
+    expect(directToolsFor('Tasks', 'delete')).toEqual(['autotask_entity_delete'])
     expect(directToolsFor('NotAnEntity', 'update')).toEqual([])
+  })
+
+  it('does NOT call the generic tool a direct write on a staged entity', () => {
+    // On instance CONFIGURATION, autotask_entity_update stages the change and
+    // returns a stagedWriteId. Reporting it as direct made
+    // checkAutotaskCapability answer SUPPORTED_AND_IMPLEMENTED for a Service
+    // create — "go ahead" for something that needs a human approval first.
+    expect(directToolsFor('Services', 'create')).toEqual([])
+    expect(directToolsFor('TicketCategories', 'update')).toEqual([])
+  })
+
+  it('never offers a tool for an operation a dated exemption refuses', () => {
+    expect(directToolsFor('TimeEntries', 'delete')).toEqual([])
+    expect(directToolsFor('Contacts', 'delete')).toEqual([])
   })
 })
