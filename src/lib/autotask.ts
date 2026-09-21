@@ -3160,7 +3160,7 @@ export class AutotaskClient {
    * fields does it expose (type, required, read-only, picklist, reference).
    */
   async getEntityCapabilities(entity: string): Promise<Record<string, unknown>> {
-    if (!/^[A-Za-z]+$/.test(entity)) throw new Error('Entity must be a bare REST entity name, e.g. "TicketCategories".');
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(entity)) throw new Error('Entity must be a bare REST entity name, e.g. "TicketCategories".');
     const [rawInfo, fieldInfo, udfInfo] = await Promise.all([
       this.get<Record<string, unknown>>(`/v1.0/${entity}/entityInformation`),
       this.getFieldInfo(entity),

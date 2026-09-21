@@ -30,6 +30,7 @@ import { registerProjectTools } from '@/lib/mcp-project-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
+import { registerAutotaskEntityTools } from '@/lib/mcp-autotask-entity-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
 import { registerScanTools } from '@/lib/mcp-scan-tools'
@@ -354,6 +355,11 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       // stage → human approves on /admin/connector/staged-writes → execute.
       registerConfigWriteTools(server)
 
+      // The generic, catalogue-driven Autotask surface: query/create/update/delete
+      // for EVERY entity the API exposes. Registered after the hand-built tools so a
+      // caller browsing the list meets the ergonomic ones first — they carry rules
+      // the metadata cannot express, and should be preferred where they exist.
+      registerAutotaskEntityTools(server)
       // ── IT Glue (docs/CMDB): reads + document & flexible-asset writes ──────
       // Never touches the /passwords resource.
       registerItGlueTools(server)

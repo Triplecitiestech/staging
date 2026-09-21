@@ -17,7 +17,9 @@
     "test:e2e:ui": "playwright test --ui",
     "debug:failures": "tsx scripts/debug-failures.ts",
     "validate:reports": "tsx scripts/validate-reporting.ts",
-    "check:schema": "tsx scripts/check-schema-drift.ts"
+    "check:schema": "tsx scripts/check-schema-drift.ts",
+    "gen:autotask-catalogue": "tsx scripts/generate-autotask-catalogue.ts",
+    "check:autotask-coverage": "tsx scripts/check-autotask-coverage.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

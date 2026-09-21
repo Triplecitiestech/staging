@@ -44,5 +44,13 @@ jobs:
       - name: Build
         run: npx next build
 
+      - name: Autotask surface coverage
+        # Fails the build on any Autotask entity, operation or writable field
+        # the API permits that no connector tool exposes and no dated exemption
+        # covers. Needs no credentials — it diffs the committed catalogue
+        # snapshot against the connector's own claims, so it runs on every PR
+        # rather than only where secrets exist.
+        run: npm run check:autotask-coverage
+
       - name: Unit tests
         run: npm test

@@ -247,7 +247,14 @@ export async function getEntityCapabilitySnapshot(
   entity: string,
   opts: { forceRefresh?: boolean } = {},
 ): Promise<SnapshotResult> {
-  if (!/^[A-Za-z]+$/.test(entity)) {
+  // Letters then letters-or-DIGITS. The digits matter: this pattern was
+  // letters-only until 2026-09-21, when a full catalogue sweep found it
+  // rejecting OrganizationalLevel1 and OrganizationalLevel2 — two real Autotask
+  // entities — BEFORE any API call, and returning a connector-gap verdict about
+  // an entity the live API was never asked about. A validator that makes a real
+  // entity unreachable is the hand-picked surface in miniature: the check was
+  // written from the entity names somebody happened to have in front of them.
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(entity)) {
     throwClassified({
       reasonCode: 'INVALID_INPUT',
       message: `"${entity}" is not a bare Autotask REST entity name (letters only, e.g. "Services").`,

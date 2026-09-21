@@ -405,6 +405,106 @@ export const CONFIG_WRITE_AREAS: Record<string, ConfigWriteAreaSpec> = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Catalogue-derived areas — the reason no entity can be left out
+// ---------------------------------------------------------------------------
+//
+// CONFIG_WRITE_AREAS above is hand-written, and that was fine while the gate
+// existed only for the handful of instance-configuration surfaces somebody had
+// deliberately opened. It stopped being fine once the connector's job became
+// covering the WHOLE Autotask API: a hand-written area list is a hand-picked
+// surface wearing a different hat, and the entity nobody wrote an area for is
+// the entity that blocks someone mid-task.
+//
+// So any entity in the generated catalogue can also be staged, under the area
+// name `entity:<EntityName>`, with its spec DERIVED from the live metadata:
+// allowed fields are the ones the API reports writable, required-on-create are
+// the ones it reports required, and the create-only set is the isRequired +
+// isReadOnly pair whose meaning this repo has already established twice
+// (Services.periodType, ServiceBundleServices.serviceBundleID — settable when
+// the record is created, immutable afterwards, and emphatically NOT unwritable).
+//
+// A hand-written area still WINS for any name it defines. Those carry knowledge
+// the metadata does not — business-hours field grouping, the SLA overlay, the
+// billing-risk flag — and nothing about them changes here.
+
+import {
+  catalogueEntity,
+  canonicalEntityName,
+  parentRoutes,
+  permittedOperations,
+  requiredFields,
+  writableFields,
+} from './autotask-catalogue'
+
+export const GENERATED_AREA_PREFIX = 'entity:'
+
+/** The label fields for a generated area, chosen from what the entity actually has. */
+function derivedLabelFields(fieldNames: string[]): string[] {
+  const lower = new Map(fieldNames.map((f) => [f.toLowerCase(), f]))
+  const preferred = ['name', 'title', 'description', 'label', 'subject']
+  const hit = preferred.map((p) => lower.get(p)).find((f): f is string => Boolean(f))
+  if (hit) return [hit]
+  // Nothing canonical — take the first *Name field the entity does have, so a
+  // staged diff still says WHICH record it is about rather than only its id.
+  const named = fieldNames.find((f) => /name$/i.test(f))
+  return named ? [named] : []
+}
+
+/**
+ * Build a write area for any catalogue entity.
+ *
+ * Returns undefined for an entity the catalogue does not know — never a
+ * fabricated spec, because a spec built on guessed field names would fail at
+ * execute time with a vendor error instead of a clear refusal here.
+ */
+export function generatedAreaSpec(entity: string): ConfigWriteAreaSpec | undefined {
+  const entry = catalogueEntity(entity)
+  if (!entry) return undefined
+  const name = canonicalEntityName(entity)
+  const writable = writableFields(name).map((f) => f.name)
+  // isRequired AND isReadOnly together: Autotask's marker for "set at create,
+  // immutable afterwards". Segregated rather than merged, so an UPDATE naming
+  // one is refused with the live metadata as evidence instead of being sent.
+  const createOnly = entry.fields
+    .filter((f) => f.isRequired && f.isReadOnly && f.name.toLowerCase() !== 'id')
+    .map((f) => f.name)
+  const route = parentRoutes(name)[0]
+
+  return {
+    area: `${GENERATED_AREA_PREFIX}${name}`,
+    label: `${name} (derived from the live API catalogue)`,
+    targetSystem: 'autotask',
+    entity: name,
+    writePath: (parentId) =>
+      route && parentId != null ? `${route.parentEntity}/${parentId}/${route.childSegment}` : name,
+    ...(route ? { parentIdField: route.parentIdField, parentIdFromField: route.parentIdField } : {}),
+    operations: permittedOperations(name).filter((op): op is ConfigWriteOperation => op !== 'query'),
+    allowedFields: writable,
+    requiredOnCreate: requiredFields(name)
+      .map((f) => f.name)
+      .filter((f) => writable.includes(f)),
+    ...(createOnly.length ? { createOnlyFields: createOnly } : {}),
+    labelFields: derivedLabelFields(entry.fields.map((f) => f.name)),
+    risk: 'low',
+  }
+}
+
+/**
+ * THE area resolver. A hand-written area first, then the catalogue-derived one.
+ *
+ * Everything that used to read `CONFIG_WRITE_AREAS[area]` directly goes through
+ * here, for the same reason `fieldSupplyRoutes` exists: the moment two places
+ * decide what an area is, one of them starts answering "no such thing" about a
+ * surface the other one supports.
+ */
+export function configAreaSpec(area: string): ConfigWriteAreaSpec | undefined {
+  const named = CONFIG_WRITE_AREAS[resolveConfigArea(area)]
+  if (named) return named
+  if (!area.startsWith(GENERATED_AREA_PREFIX)) return undefined
+  return generatedAreaSpec(area.slice(GENERATED_AREA_PREFIX.length))
+}
+
 export const OVERLAY_KEY_STATUS_SLA = 'status_sla_events'
 
 /** The SLA events Autotask's admin UI offers per status (Kaseya product docs). */
@@ -420,10 +520,12 @@ export interface StagedChangeInput {
 
 /** Throws a caller-actionable error if the staged change is not allowed. */
 export function validateStagedChange(input: StagedChangeInput): ConfigWriteAreaSpec {
-  const area = resolveConfigArea(input.area)
-  const spec = CONFIG_WRITE_AREAS[area]
+  const spec = configAreaSpec(input.area)
   if (!spec) {
-    throw new Error(`Unknown config area '${input.area}'. Writable areas: ${Object.keys(CONFIG_WRITE_AREAS).join(', ')}`)
+    throw new Error(
+      `Unknown config area '${input.area}'. Named areas: ${Object.keys(CONFIG_WRITE_AREAS).join(', ')}. ` +
+        `Any Autotask entity can also be staged as '${GENERATED_AREA_PREFIX}<EntityName>' — if that is what you passed, the catalogue does not know that entity (check the spelling with autotask_entity_capabilities).`,
+    )
   }
   if (!spec.operations.includes(input.operation)) {
     throw new Error(`Operation '${input.operation}' is not supported for ${spec.area} (allowed: ${spec.operations.join(', ')}).`)

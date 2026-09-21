@@ -84,7 +84,7 @@ export function registerConfigReadTools(server: any) {
     },
     async ({ entity, field, includeInactive }: { entity: string; field: string; includeInactive?: boolean }) => {
       try {
-        if (!/^[A-Za-z]+$/.test(entity)) throw new Error('entity must be a bare REST entity name, e.g. "Tickets".')
+        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(entity)) throw new Error('entity must be a bare REST entity name, e.g. "Tickets".')
         return ok(await autotask().getEntityPicklistDetailed(entity, field, includeInactive ?? false))
       } catch (e) { return fail(e) }
     }

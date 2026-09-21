@@ -193,28 +193,45 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
       notes:
         'A wrong attachment is deleted and re-created: autotask_delete_attachment (parentType + parentId + attachmentId, pre-read and re-read verified) then autotask_add_ticket_attachment / autotask_add_time_entry_attachment / autotask_add_ticket_note_attachment. All four are implemented.',
     },
+    // ── RETRACTED 2026-09-21 ────────────────────────────────────────────────
+    //
+    // Three NOT_BUILT rows used to live here:
+    //
+    //   "Attachments on companies, projects, tasks, task notes, opportunities
+    //    or configuration items"
+    //   "Read or write project CHARGES, expenses, or the project schedule"
+    //   "Contract, invoice, opportunity and quote WRITES"
+    //
+    // All three are now reachable. autotask_entity_create / _update / _delete
+    // cover EVERY entity in the generated catalogue, so the families those rows
+    // named are not unbuilt — they are served by the generic surface, with the
+    // per-entity approval policy in ./autotask-write-policy.ts deciding whether
+    // a given write is direct or staged.
+    //
+    // They are removed rather than reworded because a NOT_BUILT row is read as
+    // "do not try this", and that is now false. Two of them also carried their
+    // own warning that they were scope statements rather than assessed
+    // capability claims ("REST write surface not yet assessed") — which is the
+    // shape this whole change exists to remove: a hand-maintained list of what
+    // somebody had got round to, presented as what the connector can do.
+    //
+    // What is NOT covered, and is a real remaining gap, is narrower and named:
     {
-      capability: 'Attachments on companies, projects, tasks, task notes, opportunities or configuration items; link-type attachments (FILE_LINK / FOLDER_LINK / URL); nested attachments (parentAttachmentID)',
+      capability: 'Link-type attachments (FILE_LINK / FOLDER_LINK / URL) and nested attachments (parentAttachmentID)',
       reason: 'NOT_BUILT',
       verifiedBy:
-        'The zone Swagger exposes child Attachments collections for those parents too, and the attachmentType picklist carries File Link / Folder Link / URL alongside Attachment; only Tickets, TimeEntries and TicketNotes with attachmentType FILE_ATTACHMENT are implemented. Read live 2026-09-08.',
+        "The attachmentType picklist carries File Link / Folder Link / URL alongside Attachment, and only FILE_ATTACHMENT is implemented; parentAttachmentID exists on TicketAttachments and nothing sets it. Read live 2026-09-08, unchanged 2026-09-21. Attachment PARENTS are no longer a gap — autotask_entity_create reaches every *Attachments entity in the catalogue; what is missing is the non-file attachment TYPES.",
       priority: 'low',
-      notes: 'Built for the call-transcript pipeline. Widening to another parent is the same handler with a different entity config in src/lib/autotask-attachments.ts (ATTACHMENT_ENTITIES) and a per-entity read-back projection — never a shared field list.',
+      notes:
+        'The ergonomic attachment tools (autotask_add_ticket_attachment and siblings) still cover only Tickets, TimeEntries and TicketNotes with FILE_ATTACHMENT, and they are the ones that verify bytes and roll back a mismatch. Widening those is a different job from reaching the entity at all.',
     },
     {
-      capability: 'Read or write project CHARGES, expenses, or the project schedule/Gantt layout',
-      reason: 'NOT_BUILT',
+      capability: 'Project schedule and Gantt layout — baselines, resource levelling, critical-path recalculation',
+      reason: 'VENDOR_NO_API',
       verifiedBy:
-        'No such tool in the live registry. The REST write surface for ProjectCharges/ExpenseItems has NOT been assessed against entityInformation — this row is a scope statement, not a capability claim.',
-      priority: 'low',
-      notes: 'Task dependencies and phases ARE implemented; scheduling beyond that (baselines, resource levelling) has not been looked at.',
-    },
-    {
-      capability: 'Contract, invoice, opportunity and quote WRITES',
-      reason: 'NOT_BUILT',
-      verifiedBy: 'No such tool in the live registry; REST write surface not yet assessed.',
-      priority: 'low',
-      notes: 'Reads exist for contracts. Financial writes are deliberately last in line.',
+        'No REST entity in the 200-entity catalogue generated 2026-09-21 exposes schedule layout, baselines or levelling; Phases, Tasks and TaskPredecessors carry dates and dependencies but nothing about how Autotask lays out or recalculates the plan. Project CHARGES and expenses are no longer here — ProjectCharges, ExpenseItems and ExpenseReports are all in the catalogue and reachable.',
+      notes:
+        'Autotask recalculates a project\'s endDateTime from its tasks, so a bulk task build moves the project date underneath you — re-read the project after one. That is the API doing the scheduling, not us.',
     },
   ],
 
