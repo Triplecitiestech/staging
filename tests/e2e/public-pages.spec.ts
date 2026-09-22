@@ -119,8 +119,13 @@ test.describe('RTP Case-Insensitive Access', () => {
       const response = await page.goto(path)
       expect(response?.status()).toBe(200)
       expect(new URL(page.url()).pathname).toBe('/rtp')
+      // exact: the page's h2 ("Optimizing IT Infrastructure with Our
+      // Recommended Technology Platform (RTP)") contains the same phrase, and
+      // getByRole matches names by SUBSTRING — without exact this resolves to
+      // two headings and fails strict mode on every run, while the redirect it
+      // exists to test works fine.
       await expect(
-        page.getByRole('heading', { name: 'Recommended Technology Platform' })
+        page.getByRole('heading', { name: 'Recommended Technology Platform', exact: true })
       ).toBeVisible()
     })
   }
