@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import { ROLE_RATE_WARNING, suggestRoleForWork } from '@/lib/connector/autotask-role-findings'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
-import { classifyPublishVisibility, decideNotificationVerdict } from '@/lib/autotask-activity'
+import { classifyPublishVisibility, observeNotificationAdvance } from '@/lib/autotask-activity'
 import * as write from '@/lib/autotask-write'
 import { failureResult, toolFailure, type McpToolResult } from '@/lib/connector/failure-envelope'
 import { definedFields, splitByQueryability, verifyWrittenFields } from '@/lib/mcp-project-tools'
@@ -219,11 +219,11 @@ async function readBackNote(client: AutotaskClient, ticketId: number, noteId: nu
  * NotificationHistory is still read, to name the template and recipients for
  * the human.
  *
- * A false verdict is deliberately FAIL-CLOSED: notifications may be dispatched
- * asynchronously, so "not observed" is not proof that none will ever fire — but
- * treating unobserved as not-notified is the only safe direction, because the
- * failure being fixed is a customer being told she was contacted when she was
- * not.
+ * A false verdict is deliberately FAIL-CLOSED on the POSITIVE claim: nothing
+ * reports a customer as contacted without Autotask's own stamp advancing. It is
+ * NOT a claim that no email went out — notifications dispatch asynchronously
+ * (26s observed live), so the stamp is re-read for a bounded window and an
+ * unadvanced result is worded as "not observed within Ns", never "not sent".
  */
 async function observeCustomerNotification(
   client: AutotaskClient,
@@ -232,15 +232,24 @@ async function observeCustomerNotification(
   before: { lastCustomerNotificationDateTime: string | null } | null,
   writeStartedAt: Date,
 ) {
-  const after = await client.getTicketActivityStamps(ticketId)
   const prev = before?.lastCustomerNotificationDateTime ?? null
-  const now = after?.lastCustomerNotificationDateTime ?? null
 
   // Verdict logic is pure and separately tested (decideNotificationVerdict) —
   // notably, a MISSING baseline can never read as "previously null", or a ticket
   // notified last week would look freshly notified.
+  //
+  // POLLED, not read once. Autotask sends notifications asynchronously: on
+  // 2026-09-22 a connector-created ticket's customer email was recorded 26s
+  // after the write, and the single immediate read this used to take reported
+  // "the customer has NOT been emailed" about an email that was on its way.
   const baselineEstablished = before !== null
-  const { customerNotified: advanced } = decideNotificationVerdict({ baselineEstablished, before: prev, after: now })
+  const observation = await observeNotificationAdvance({
+    baselineEstablished,
+    before: prev,
+    readAfter: async () => (await client.getTicketActivityStamps(ticketId))?.lastCustomerNotificationDateTime ?? null,
+  })
+  const advanced = observation.verdict.customerNotified
+  const now = observation.after
 
   // Widen slightly behind the write to absorb clock skew between us and Autotask.
   const from = new Date(writeStartedAt.getTime() - 60_000)
@@ -256,8 +265,11 @@ async function observeCustomerNotification(
   return {
     customerNotified: advanced,
     notificationEvidence: {
-      basis: 'Tickets.lastCustomerNotificationDateTime, read before and after the write',
+      basis: 'Tickets.lastCustomerNotificationDateTime, read before the write and then re-read until it advanced or the observation window closed',
       baselineEstablished,
+      observationWindowSeconds: observation.windowSeconds,
+      observedAfterSeconds: observation.observedAfterSeconds,
+      reads: observation.reads,
       lastCustomerNotificationDateTimeBefore: prev,
       lastCustomerNotificationDateTimeAfter: now,
       notificationHistorySinceWrite: notifications.map((n) => ({
@@ -271,7 +283,7 @@ async function observeCustomerNotification(
       ? `A customer notification WAS observed: Autotask advanced lastCustomerNotificationDateTime to ${now}. Recipients and template are in notificationEvidence.notificationHistorySinceWrite.`
       : !baselineEstablished
       ? `CANNOT CONFIRM: the pre-write read of lastCustomerNotificationDateTime failed, so there is no baseline to compare against and no notification can be confirmed either way (the ticket currently reports ${now ?? 'null'}). Treat the customer as NOT notified — do not report her as contacted. Check autotask_notification_history({ ticketId: ${ticketId} }) and the ticket in Autotask.`
-      : `NO customer notification was observed. Autotask's lastCustomerNotificationDateTime did not advance (${prev ?? 'null'} before, ${now ?? 'null'} after). TELL THE USER THE CUSTOMER HAS NOT BEEN NOTIFIED — the note is on the ticket, the contact has not been emailed. The REST API has no field to request a notification, so this tool cannot send one. To reach the contact: notify from the note form in Autotask (the Notification panel), or have an Autotask Event configured to fire on customer-facing note creation. Notifications can be dispatched asynchronously, so if you want to re-check rather than act, call autotask_notification_history({ ticketId: ${ticketId} }).`,
+      : `NO customer notification was observed within ${observation.windowSeconds}s. Autotask's lastCustomerNotificationDateTime did not advance (${prev ?? 'null'} before, ${now ?? 'null'} after ${observation.reads} reads). Do NOT tell the user the customer was contacted. Equally, do not state as fact that no email was sent: Autotask dispatches notifications asynchronously (26s observed on 2026-09-22), so re-check with autotask_notification_history({ ticketId: ${ticketId} }) before acting on either reading. On this instance a connector-added customer-visible note has not been observed to send an email (test ticket 35991, 2026-09-22) — if the contact must be told, email them directly or notify from the note form's Notification panel in Autotask. The REST API has no field to request a notification, so this tool cannot send one.`,
   }
 }
 

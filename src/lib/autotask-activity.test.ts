@@ -16,6 +16,7 @@ import {
   classifyPublishVisibility,
   computeActivityGap,
   decideNotificationVerdict,
+  observeNotificationAdvance,
   newestTimestamp,
   sortActivity,
   timeEntryVisibility,
@@ -222,6 +223,84 @@ describe('decideNotificationVerdict — the customer-note claim', () => {
 
   it('never returns true on an unparseable after-value', () => {
     expect(decideNotificationVerdict({ baselineEstablished: true, before: null, after: 'not-a-date' }).customerNotified).toBe(false)
+  })
+})
+
+// Autotask dispatches notifications ASYNCHRONOUSLY. On test ticket 35991
+// (2026-09-22) the create notification landed in NotificationHistory 26s after
+// the write returned, so a single read straight after the write reported
+// "not notified" for an email that was about to go. These tests pin the
+// bounded poll that replaced that single read.
+describe('observeNotificationAdvance — async notification dispatch', () => {
+  function clock() {
+    let t = 0
+    return { now: () => t, sleep: async (ms: number) => { t += ms } }
+  }
+
+  it('reports a notification that lands on a LATER read (the 35991 case)', async () => {
+    const c = clock()
+    const reads = ['2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', '2026-09-22T14:00:26Z']
+    let i = 0
+    const o = await observeNotificationAdvance({
+      baselineEstablished: true,
+      before: '2026-09-20T10:00:00Z',
+      readAfter: async () => reads[Math.min(i++, reads.length - 1)],
+      ...c,
+    })
+    expect(o.verdict.customerNotified).toBe(true)
+    expect(o.reads).toBe(6)
+    expect(o.observedAfterSeconds).toBe(25)
+    expect(o.after).toBe('2026-09-22T14:00:26Z')
+  })
+
+  it('stops at the window and reports NOT OBSERVED — never keeps reading past it', async () => {
+    const c = clock()
+    let calls = 0
+    const o = await observeNotificationAdvance({
+      baselineEstablished: true,
+      before: '2026-09-20T10:00:00Z',
+      readAfter: async () => { calls += 1; return '2026-09-20T10:00:00Z' },
+      windowMs: 35_000,
+      intervalMs: 5_000,
+      ...c,
+    })
+    expect(o.verdict.customerNotified).toBe(false)
+    expect(o.observedAfterSeconds).toBeNull()
+    expect(calls).toBe(8) // t = 0,5,...,35
+    expect(c.now()).toBeLessThanOrEqual(35_000)
+  })
+
+  it('returns after ONE read when no baseline exists — polling cannot prove an advance', async () => {
+    const c = clock()
+    let calls = 0
+    const o = await observeNotificationAdvance({
+      baselineEstablished: false,
+      before: null,
+      readAfter: async () => { calls += 1; return '2026-09-22T14:00:26Z' },
+      ...c,
+    })
+    expect(calls).toBe(1)
+    expect(o.verdict.customerNotified).toBe(false)
+    expect(c.now()).toBe(0)
+  })
+
+  it('returns immediately on the first read when it already shows an advance', async () => {
+    const c = clock()
+    const o = await observeNotificationAdvance({
+      baselineEstablished: true,
+      before: null,
+      readAfter: async () => '2026-09-22T14:00:26Z',
+      ...c,
+    })
+    expect(o.verdict.customerNotified).toBe(true)
+    expect(o.reads).toBe(1)
+    expect(o.observedAfterSeconds).toBe(0)
+  })
+
+  it('the default window fits inside the 60s connector function limit', async () => {
+    const { NOTIFICATION_OBSERVATION_WINDOW_MS } = await import('./autotask-activity')
+    expect(NOTIFICATION_OBSERVATION_WINDOW_MS).toBeGreaterThanOrEqual(30_000)
+    expect(NOTIFICATION_OBSERVATION_WINDOW_MS).toBeLessThanOrEqual(40_000)
   })
 })
 
