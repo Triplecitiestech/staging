@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-21T14:57:57Z",
+  "generatedAt": "2026-09-22T17:31:50Z",
   "generator": "scripts/generate-autotask-catalogue.ts",
   "zone": null,
   "discovery": {
@@ -19,6 +19,11 @@
         "source": "reference-closure",
         "outcome": "not run in this pass \u2014 the vendor index already supplied 217 candidates. The generator runs the closure to a fixpoint on every real run, which is what stops the candidate list being a boundary.",
         "count": 0
+      },
+      {
+        "source": "live-reprobe",
+        "outcome": "2026-09-22: re-probed the four digit-named candidates through the deployed connector after the digit validator fix shipped (06e48fe). OrganizationalLevel1s and OrganizationalLevel2s exist (query/create/update, no delete); the singular forms 404.",
+        "count": 4
       }
     ],
     "notRestEntities": [
@@ -28,6 +33,8 @@
       "ExpenseItemAttachment",
       "KnowledgeBaseArticle",
       "Modules",
+      "OrganizationalLevel1",
+      "OrganizationalLevel2",
       "OrganizatonalResources",
       "ResourceTimeOffBalance",
       "ServiceCallTaskResource",
@@ -36,24 +43,7 @@
       "Version",
       "WebhookEventErrorLog"
     ],
-    "unchecked": [
-      {
-        "entity": "OrganizationalLevel1",
-        "error": "The connector's own entity-name validator rejected this name before any Autotask call was made (NOT_IMPLEMENTED: \"Entity must be a bare REST entity name\"), because the pattern was letters-only and this name contains a digit. Fixed in code on 2026-09-21 (now /^[A-Za-z][A-Za-z0-9]*$/), but the probe ran against the deployed build, which still carried the old pattern. NOT evidence the entity is absent \u2014 Autotask was never asked. Re-run npm run gen:autotask-catalogue after this deploys to settle it."
-      },
-      {
-        "entity": "OrganizationalLevel1s",
-        "error": "The connector's own entity-name validator rejected this name before any Autotask call was made (NOT_IMPLEMENTED: \"Entity must be a bare REST entity name\"), because the pattern was letters-only and this name contains a digit. Fixed in code on 2026-09-21 (now /^[A-Za-z][A-Za-z0-9]*$/), but the probe ran against the deployed build, which still carried the old pattern. NOT evidence the entity is absent \u2014 Autotask was never asked. Re-run npm run gen:autotask-catalogue after this deploys to settle it."
-      },
-      {
-        "entity": "OrganizationalLevel2",
-        "error": "The connector's own entity-name validator rejected this name before any Autotask call was made (NOT_IMPLEMENTED: \"Entity must be a bare REST entity name\"), because the pattern was letters-only and this name contains a digit. Fixed in code on 2026-09-21 (now /^[A-Za-z][A-Za-z0-9]*$/), but the probe ran against the deployed build, which still carried the old pattern. NOT evidence the entity is absent \u2014 Autotask was never asked. Re-run npm run gen:autotask-catalogue after this deploys to settle it."
-      },
-      {
-        "entity": "OrganizationalLevel2s",
-        "error": "The connector's own entity-name validator rejected this name before any Autotask call was made (NOT_IMPLEMENTED: \"Entity must be a bare REST entity name\"), because the pattern was letters-only and this name contains a digit. Fixed in code on 2026-09-21 (now /^[A-Za-z][A-Za-z0-9]*$/), but the probe ran against the deployed build, which still carried the old pattern. NOT evidence the entity is absent \u2014 Autotask was never asked. Re-run npm run gen:autotask-catalogue after this deploys to settle it."
-      }
-    ]
+    "unchecked": []
   },
   "entities": [
     {
@@ -5217,6 +5207,90 @@
       ]
     },
     {
+      "name": "ConfigurationItemSslSubjectAlternativeNames",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "configurationItemID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ConfigurationItem"
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ConfigurationItemTypes",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "ConfigurationItems",
       "capabilities": {
         "canQuery": true,
@@ -6290,90 +6364,6 @@
           "name": "warrantyExpirationDate",
           "dataType": "datetime",
           "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ConfigurationItemSslSubjectAlternativeNames",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "configurationItemID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ConfigurationItem"
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "name",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ConfigurationItemTypes",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "name",
-          "dataType": "string",
-          "isRequired": true,
           "isReadOnly": false,
           "isQueryable": true,
           "isPickList": false,
@@ -8581,6 +8571,860 @@
       ]
     },
     {
+      "name": "ContractServiceAdjustments",
+      "capabilities": {
+        "canQuery": false,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "adjustedUnitCost",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "adjustedUnitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "allowRepeatService",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "contractServiceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ContractService"
+        },
+        {
+          "name": "effectiveDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "quoteItemID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "QuoteItem"
+        },
+        {
+          "name": "serviceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Service"
+        },
+        {
+          "name": "unitChange",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ContractServiceBundleAdjustments",
+      "capabilities": {
+        "canQuery": false,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "adjustedUnitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "allowRepeatServiceBundle",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "contractServiceBundleID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ContractServiceBundle"
+        },
+        {
+          "name": "effectiveDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "quoteItemID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "QuoteItem"
+        },
+        {
+          "name": "serviceBundleID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceBundle"
+        },
+        {
+          "name": "unitChange",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ContractServiceBundleUnits",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "approveAndPostDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "contractServiceBundleID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ContractServiceBundle"
+        },
+        {
+          "name": "cost",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "endDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "organizationalLevelAssociationID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "OrganizationalLevelAssociation"
+        },
+        {
+          "name": "price",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "serviceBundleID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceBundle"
+        },
+        {
+          "name": "startDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "units",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ContractServiceBundles",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "adjustedPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyAdjustedPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyUnitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalDescription",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceDescription",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "quoteItemID",
+          "dataType": "long",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "QuoteItem"
+        },
+        {
+          "name": "serviceBundleID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceBundle"
+        },
+        {
+          "name": "unitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ContractServiceUnits",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "approveAndPostDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "contractServiceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ContractService"
+        },
+        {
+          "name": "cost",
+          "dataType": "float",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "endDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyPrice",
+          "dataType": "float",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "organizationalLevelAssociationID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "OrganizationalLevelAssociation"
+        },
+        {
+          "name": "price",
+          "dataType": "float",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "serviceID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Service"
+        },
+        {
+          "name": "startDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "units",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "vendorCompanyID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Company"
+        }
+      ]
+    },
+    {
+      "name": "ContractServices",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "contractID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyAdjustedPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCurrencyUnitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalDescription",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceDescription",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "quoteItemID",
+          "dataType": "long",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "QuoteItem"
+        },
+        {
+          "name": "serviceID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Service"
+        },
+        {
+          "name": "unitCost",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "unitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ContractTicketPurchases",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "contractID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Contract"
+        },
+        {
+          "name": "datePurchased",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "endDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceNumber",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isPaid",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "paymentNumber",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "paymentType",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "perTicketRate",
+          "dataType": "decimal",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "startDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "status",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "ticketsPurchased",
+          "dataType": "decimal",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "ticketsUsed",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "Contracts",
       "capabilities": {
         "canQuery": true,
@@ -8937,860 +9781,6 @@
           "isReadOnly": false,
           "isQueryable": true,
           "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServiceAdjustments",
-      "capabilities": {
-        "canQuery": false,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "adjustedUnitCost",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "adjustedUnitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "allowRepeatService",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "contractServiceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ContractService"
-        },
-        {
-          "name": "effectiveDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "quoteItemID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "QuoteItem"
-        },
-        {
-          "name": "serviceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Service"
-        },
-        {
-          "name": "unitChange",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServiceBundleAdjustments",
-      "capabilities": {
-        "canQuery": false,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "adjustedUnitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "allowRepeatServiceBundle",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "contractServiceBundleID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ContractServiceBundle"
-        },
-        {
-          "name": "effectiveDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "quoteItemID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "QuoteItem"
-        },
-        {
-          "name": "serviceBundleID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceBundle"
-        },
-        {
-          "name": "unitChange",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServiceBundles",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "adjustedPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyAdjustedPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyUnitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalDescription",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceDescription",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "quoteItemID",
-          "dataType": "long",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "QuoteItem"
-        },
-        {
-          "name": "serviceBundleID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceBundle"
-        },
-        {
-          "name": "unitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServiceBundleUnits",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "approveAndPostDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "contractServiceBundleID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ContractServiceBundle"
-        },
-        {
-          "name": "cost",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "endDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "organizationalLevelAssociationID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "OrganizationalLevelAssociation"
-        },
-        {
-          "name": "price",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "serviceBundleID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceBundle"
-        },
-        {
-          "name": "startDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "units",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServices",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyAdjustedPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyUnitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalDescription",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceDescription",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "quoteItemID",
-          "dataType": "long",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "QuoteItem"
-        },
-        {
-          "name": "serviceID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Service"
-        },
-        {
-          "name": "unitCost",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "unitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ContractServiceUnits",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "approveAndPostDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "contractID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "contractServiceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ContractService"
-        },
-        {
-          "name": "cost",
-          "dataType": "float",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "endDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCurrencyPrice",
-          "dataType": "float",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "organizationalLevelAssociationID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "OrganizationalLevelAssociation"
-        },
-        {
-          "name": "price",
-          "dataType": "float",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "serviceID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Service"
-        },
-        {
-          "name": "startDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "units",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "vendorCompanyID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Company"
-        }
-      ]
-    },
-    {
-      "name": "ContractTicketPurchases",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "contractID",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Contract"
-        },
-        {
-          "name": "datePurchased",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "endDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceNumber",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isPaid",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "paymentNumber",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "paymentType",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "perTicketRate",
-          "dataType": "decimal",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "startDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "status",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "ticketsPurchased",
-          "dataType": "decimal",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "ticketsUsed",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": false,
-          "isPickList": false,
           "isReference": false,
           "referenceEntityType": null
         }
@@ -10943,148 +10933,6 @@
       ]
     },
     {
-      "name": "Documents",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "companyID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Company"
-        },
-        {
-          "name": "createdByResourceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "createdDateTime",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "documentCategoryID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "DocumentCategory"
-        },
-        {
-          "name": "errorCodes",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "keywords",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "lastModifiedByResourceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "lastModifiedDateTime",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "publish",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "referenceLink",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "title",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
       "name": "DocumentTagAssociations",
       "capabilities": {
         "canQuery": true,
@@ -11223,6 +11071,148 @@
           "dataType": "long",
           "isRequired": true,
           "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "companyID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Company"
+        },
+        {
+          "name": "createdByResourceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "createdDateTime",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "documentCategoryID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "DocumentCategory"
+        },
+        {
+          "name": "errorCodes",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "keywords",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "lastModifiedByResourceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "lastModifiedDateTime",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "publish",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "referenceLink",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "title",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
           "isQueryable": true,
           "isPickList": false,
           "isReference": false,
@@ -12131,6 +12121,48 @@
       ]
     },
     {
+      "name": "HolidaySets",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "holidaySetDescription",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "holidaySetName",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "Holidays",
       "capabilities": {
         "canQuery": true,
@@ -12174,180 +12206,6 @@
           "name": "id",
           "dataType": "long",
           "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "HolidaySets",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "holidaySetDescription",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "holidaySetName",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "InternalLocations",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "additionalAddressInfo",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "address1",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "address2",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "city",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "country",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "holidaySetId",
-          "dataType": "long",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isDefault",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "name",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "postalCode",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "state",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "timeZone",
-          "dataType": "string",
-          "isRequired": false,
           "isReadOnly": true,
           "isQueryable": true,
           "isPickList": false,
@@ -12869,6 +12727,180 @@
       ]
     },
     {
+      "name": "InternalLocations",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "additionalAddressInfo",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "address1",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "address2",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "city",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "country",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "holidaySetId",
+          "dataType": "long",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isDefault",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "postalCode",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "state",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "timeZone",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "InventoryItemSerialNumbers",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "inventoryItemID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "InventoryItem"
+        },
+        {
+          "name": "serialNumber",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "InventoryItems",
       "capabilities": {
         "canQuery": true,
@@ -13002,48 +13034,6 @@
           "name": "referenceNumber",
           "dataType": "string",
           "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "InventoryItemSerialNumbers",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "inventoryItemID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "InventoryItem"
-        },
-        {
-          "name": "serialNumber",
-          "dataType": "string",
-          "isRequired": true,
           "isReadOnly": false,
           "isQueryable": true,
           "isPickList": false,
@@ -13399,268 +13389,6 @@
       ]
     },
     {
-      "name": "Invoices",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "batchID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "comments",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "companyID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Company"
-        },
-        {
-          "name": "createDateTime",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "creatorResourceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "dueDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "fromDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceDateTime",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceEditorTemplateID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "InvoiceTemplate"
-        },
-        {
-          "name": "invoiceNumber",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceStatus",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceTaxMethodExternalCode",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "invoiceTotal",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isVoided",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "orderNumber",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "paidDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "paymentTerm",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "taxGroup",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": false,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "taxRegionName",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "toDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "totalTaxValue",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "voidedByResourceID",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "voidedDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "webServiceDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
       "name": "InvoiceTemplates",
       "capabilities": {
         "canQuery": true,
@@ -13927,6 +13655,268 @@
           "isReadOnly": true,
           "isQueryable": true,
           "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "batchID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "comments",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "companyID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Company"
+        },
+        {
+          "name": "createDateTime",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "creatorResourceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "dueDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "fromDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceDateTime",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceEditorTemplateID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "InvoiceTemplate"
+        },
+        {
+          "name": "invoiceNumber",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceStatus",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceTaxMethodExternalCode",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "invoiceTotal",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isVoided",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "orderNumber",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "paidDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "paymentTerm",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "taxGroup",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": false,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "taxRegionName",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "toDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "totalTaxValue",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "voidedByResourceID",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "voidedDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "webServiceDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
           "isReference": false,
           "referenceEntityType": null
         }
@@ -15113,6 +15103,110 @@
       ]
     },
     {
+      "name": "OrganizationalLevel1s",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "description",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "OrganizationalLevel2s",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "description",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "OrganizationalLevelAssociations",
       "capabilities": {
         "canQuery": true,
@@ -15441,68 +15535,6 @@
       ]
     },
     {
-      "name": "PriceListProducts",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "currencyID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Currency"
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "productID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Product"
-        },
-        {
-          "name": "unitPrice",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "usesInternalCurrencyPrice",
-          "dataType": "boolean",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
       "name": "PriceListProductTiers",
       "capabilities": {
         "canQuery": true,
@@ -15541,6 +15573,68 @@
           "isPickList": false,
           "isReference": true,
           "referenceEntityType": "ProductTier"
+        },
+        {
+          "name": "unitPrice",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "usesInternalCurrencyPrice",
+          "dataType": "boolean",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "PriceListProducts",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "currencyID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Currency"
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "productID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Product"
         },
         {
           "name": "unitPrice",
@@ -15925,6 +16019,150 @@
       ]
     },
     {
+      "name": "ProductTiers",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "productID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Product"
+        },
+        {
+          "name": "unitCost",
+          "dataType": "decimal",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "unitPrice",
+          "dataType": "decimal",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "upToUnitCount",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "ProductVendors",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isDefault",
+          "dataType": "boolean",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "productID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Product"
+        },
+        {
+          "name": "vendorCost",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "vendorID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Company"
+        },
+        {
+          "name": "vendorPartNumber",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "Products",
       "capabilities": {
         "canQuery": true,
@@ -16216,150 +16454,6 @@
         },
         {
           "name": "vendorProductNumber",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ProductTiers",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "productID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Product"
-        },
-        {
-          "name": "unitCost",
-          "dataType": "decimal",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "unitPrice",
-          "dataType": "decimal",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "upToUnitCount",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ProductVendors",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isDefault",
-          "dataType": "boolean",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "productID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Product"
-        },
-        {
-          "name": "vendorCost",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "vendorID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Company"
-        },
-        {
-          "name": "vendorPartNumber",
           "dataType": "string",
           "isRequired": false,
           "isReadOnly": false,
@@ -18663,6 +18757,218 @@
       ]
     },
     {
+      "name": "QuoteTemplates",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": false,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "calculateTaxSeparately",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "createDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "createdBy",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "currencyNegativeFormat",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "currencyPositiveFormat",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "dateFormat",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "description",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "displayTaxCategorySuperscripts",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "lastActivityBy",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "lastActivityDate",
+          "dataType": "datetime",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "numberFormat",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "pageLayout",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "pageNumberFormat",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "showEachTaxInGroup",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "showGridHeader",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "showTaxCategory",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "showVerticalGridLines",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "Quotes",
       "capabilities": {
         "canQuery": true,
@@ -19075,218 +19381,6 @@
       ]
     },
     {
-      "name": "QuoteTemplates",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": false,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "calculateTaxSeparately",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "createDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "createdBy",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "currencyNegativeFormat",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "currencyPositiveFormat",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "dateFormat",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "description",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "displayTaxCategorySuperscripts",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "lastActivityBy",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "lastActivityDate",
-          "dataType": "datetime",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "name",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "numberFormat",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "pageLayout",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "pageNumberFormat",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "showEachTaxInGroup",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "showGridHeader",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "showTaxCategory",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "showVerticalGridLines",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        }
-      ]
-    },
-    {
       "name": "ResourceAttachments",
       "capabilities": {
         "canQuery": true,
@@ -19651,378 +19745,6 @@
           "isPickList": false,
           "isReference": true,
           "referenceEntityType": "Role"
-        }
-      ]
-    },
-    {
-      "name": "Resources",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": false,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "accountingReferenceID",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "dateFormat",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "defaultServiceDeskRoleID",
-          "dataType": "long",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": false,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Role"
-        },
-        {
-          "name": "email",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "email2",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "email3",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "emailTypeCode",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "emailTypeCode2",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "emailTypeCode3",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "firstName",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "gender",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "greeting",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "hireDate",
-          "dataType": "datetime",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "homePhone",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "initials",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "internalCost",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "lastName",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "licenseType",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "locationID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "middleName",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "mobilePhone",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "numberFormat",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "officeExtension",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "officePhone",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "payrollIdentifier",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "payrollType",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "resourceType",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "suffix",
-          "dataType": "integer",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "surveyResourceRating",
-          "dataType": "decimal",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "timeFormat",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "title",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "travelAvailabilityPct",
-          "dataType": "string",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "userName",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "userType",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": true,
-          "isReference": false,
-          "referenceEntityType": null
         }
       ]
     },
@@ -20657,6 +20379,378 @@
       ]
     },
     {
+      "name": "Resources",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": false,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "accountingReferenceID",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "dateFormat",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "defaultServiceDeskRoleID",
+          "dataType": "long",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": false,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Role"
+        },
+        {
+          "name": "email",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "email2",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "email3",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "emailTypeCode",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "emailTypeCode2",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "emailTypeCode3",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "firstName",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "gender",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "greeting",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "hireDate",
+          "dataType": "datetime",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "homePhone",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "initials",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "internalCost",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "lastName",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "licenseType",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "locationID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "middleName",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "mobilePhone",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "numberFormat",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "officeExtension",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "officePhone",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "payrollIdentifier",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "payrollType",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "resourceType",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "suffix",
+          "dataType": "integer",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "surveyResourceRating",
+          "dataType": "decimal",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "timeFormat",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "title",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "travelAvailabilityPct",
+          "dataType": "string",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "userName",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "userType",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": true,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
       "name": "Roles",
       "capabilities": {
         "canQuery": true,
@@ -21203,6 +21297,48 @@
       ]
     },
     {
+      "name": "ServiceBundleServices",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "serviceBundleID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceBundle"
+        },
+        {
+          "name": "serviceID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Service"
+        }
+      ]
+    },
+    {
       "name": "ServiceBundles",
       "capabilities": {
         "canQuery": true,
@@ -21445,7 +21581,7 @@
       ]
     },
     {
-      "name": "ServiceBundleServices",
+      "name": "ServiceCallTaskResources",
       "capabilities": {
         "canQuery": true,
         "canCreate": true,
@@ -21465,24 +21601,150 @@
           "referenceEntityType": null
         },
         {
-          "name": "serviceBundleID",
-          "dataType": "long",
+          "name": "resourceID",
+          "dataType": "integer",
           "isRequired": true,
-          "isReadOnly": true,
+          "isReadOnly": false,
           "isQueryable": true,
           "isPickList": false,
           "isReference": true,
-          "referenceEntityType": "ServiceBundle"
+          "referenceEntityType": "Resource"
         },
         {
-          "name": "serviceID",
+          "name": "serviceCallTaskID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceCallTask"
+        }
+      ]
+    },
+    {
+      "name": "ServiceCallTasks",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
           "dataType": "long",
           "isRequired": true,
           "isReadOnly": true,
           "isQueryable": true,
           "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "serviceCallID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
           "isReference": true,
-          "referenceEntityType": "Service"
+          "referenceEntityType": "ServiceCall"
+        },
+        {
+          "name": "taskID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Task"
+        }
+      ]
+    },
+    {
+      "name": "ServiceCallTicketResources",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "resourceID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "serviceCallTicketID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceCallTicket"
+        }
+      ]
+    },
+    {
+      "name": "ServiceCallTickets",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "serviceCallID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "ServiceCall"
+        },
+        {
+          "name": "ticketID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Ticket"
         }
       ]
     },
@@ -21655,174 +21917,6 @@
           "isPickList": true,
           "isReference": false,
           "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "ServiceCallTaskResources",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "resourceID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "serviceCallTaskID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceCallTask"
-        }
-      ]
-    },
-    {
-      "name": "ServiceCallTasks",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "serviceCallID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceCall"
-        },
-        {
-          "name": "taskID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Task"
-        }
-      ]
-    },
-    {
-      "name": "ServiceCallTicketResources",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "resourceID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "serviceCallTicketID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceCallTicket"
-        }
-      ]
-    },
-    {
-      "name": "ServiceCallTickets",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "serviceCallID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "ServiceCall"
-        },
-        {
-          "name": "ticketID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Ticket"
         }
       ]
     },
@@ -23537,6 +23631,58 @@
       ]
     },
     {
+      "name": "TaskSecondaryResources",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "resourceID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "roleID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Role"
+        },
+        {
+          "name": "taskID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Task"
+        }
+      ]
+    },
+    {
       "name": "Tasks",
       "capabilities": {
         "canQuery": true,
@@ -23899,58 +24045,6 @@
       ]
     },
     {
-      "name": "TaskSecondaryResources",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "resourceID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "roleID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Role"
-        },
-        {
-          "name": "taskID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Task"
-        }
-      ]
-    },
-    {
       "name": "TaxCategories",
       "capabilities": {
         "canQuery": true,
@@ -23970,6 +24064,48 @@
           "isReference": false,
           "referenceEntityType": null
         },
+        {
+          "name": "id",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "isActive",
+          "dataType": "boolean",
+          "isRequired": false,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "name",
+          "dataType": "string",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        }
+      ]
+    },
+    {
+      "name": "TaxRegions",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": true,
+        "canDelete": false,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
         {
           "name": "id",
           "dataType": "integer",
@@ -24071,48 +24207,6 @@
           "isPickList": false,
           "isReference": true,
           "referenceEntityType": "TaxRegion"
-        }
-      ]
-    },
-    {
-      "name": "TaxRegions",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": true,
-        "canDelete": false,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "isActive",
-          "dataType": "boolean",
-          "isRequired": false,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "name",
-          "dataType": "string",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
         }
       ]
     },
@@ -25633,6 +25727,100 @@
       ]
     },
     {
+      "name": "TicketSecondaryResources",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "resourceID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Resource"
+        },
+        {
+          "name": "roleID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Role"
+        },
+        {
+          "name": "ticketID",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Ticket"
+        }
+      ]
+    },
+    {
+      "name": "TicketTagAssociations",
+      "capabilities": {
+        "canQuery": true,
+        "canCreate": true,
+        "canUpdate": false,
+        "canDelete": true,
+        "hasUserDefinedFields": false
+      },
+      "fields": [
+        {
+          "name": "id",
+          "dataType": "long",
+          "isRequired": true,
+          "isReadOnly": true,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": false,
+          "referenceEntityType": null
+        },
+        {
+          "name": "tagID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Tag"
+        },
+        {
+          "name": "ticketID",
+          "dataType": "integer",
+          "isRequired": true,
+          "isReadOnly": false,
+          "isQueryable": true,
+          "isPickList": false,
+          "isReference": true,
+          "referenceEntityType": "Ticket"
+        }
+      ]
+    },
+    {
       "name": "Tickets",
       "capabilities": {
         "canQuery": true,
@@ -26391,100 +26579,6 @@
           "isPickList": false,
           "isReference": false,
           "referenceEntityType": null
-        }
-      ]
-    },
-    {
-      "name": "TicketSecondaryResources",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "resourceID",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Resource"
-        },
-        {
-          "name": "roleID",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Role"
-        },
-        {
-          "name": "ticketID",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Ticket"
-        }
-      ]
-    },
-    {
-      "name": "TicketTagAssociations",
-      "capabilities": {
-        "canQuery": true,
-        "canCreate": true,
-        "canUpdate": false,
-        "canDelete": true,
-        "hasUserDefinedFields": false
-      },
-      "fields": [
-        {
-          "name": "id",
-          "dataType": "long",
-          "isRequired": true,
-          "isReadOnly": true,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": false,
-          "referenceEntityType": null
-        },
-        {
-          "name": "tagID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Tag"
-        },
-        {
-          "name": "ticketID",
-          "dataType": "integer",
-          "isRequired": true,
-          "isReadOnly": false,
-          "isQueryable": true,
-          "isPickList": false,
-          "isReference": true,
-          "referenceEntityType": "Ticket"
         }
       ]
     },
