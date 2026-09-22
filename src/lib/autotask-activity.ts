@@ -319,6 +319,84 @@ export function decideNotificationVerdict(input: {
     : { customerNotified: false, reason: 'unchanged' }
 }
 
+/**
+ * How long a write waits for Autotask to record a customer notification.
+ *
+ * Autotask dispatches notifications ASYNCHRONOUSLY. Measured live on
+ * 2026-09-22 (test ticket 35991): the "Customer-facing New Ticket Created"
+ * email was recorded 26 seconds after the connector created the ticket, while
+ * the before/after read taken immediately after the write saw nothing. A single
+ * immediate read is therefore structurally incapable of seeing a notification
+ * that is on its way — it reported "the customer has NOT been emailed" about an
+ * email that was 26 seconds from being sent.
+ *
+ * 35s covers the observed delay with margin while leaving room inside the
+ * connector's 60s function budget for the write and read-back themselves. It
+ * is a floor on how long we look, NOT a guarantee Autotask never takes longer —
+ * which is why an unadvanced result is reported as "not observed within the
+ * window", never as "not sent".
+ */
+export const NOTIFICATION_OBSERVATION_WINDOW_MS = 35_000
+export const NOTIFICATION_POLL_INTERVAL_MS = 5_000
+
+export interface NotificationObservation {
+  verdict: NotificationVerdict
+  /** The final lastCustomerNotificationDateTime read. */
+  after: string | null
+  /** Seconds after the first read at which the advance was seen; null when it never was. */
+  observedAfterSeconds: number | null
+  /** How long we actually looked. */
+  windowSeconds: number
+  reads: number
+}
+
+/**
+ * Re-read lastCustomerNotificationDateTime until it advances or the window
+ * closes. IO is injected so the timing logic is testable without a network or
+ * a real clock.
+ *
+ * Stops at the FIRST positive observation — there is nothing more to learn once
+ * Autotask has stamped a notification — and returns immediately when there is no
+ * baseline, because no amount of waiting can make "no baseline" comparable.
+ */
+export async function observeNotificationAdvance(input: {
+  baselineEstablished: boolean
+  before: string | null
+  readAfter: () => Promise<string | null>
+  windowMs?: number
+  intervalMs?: number
+  sleep?: (ms: number) => Promise<void>
+  now?: () => number
+}): Promise<NotificationObservation> {
+  const windowMs = input.windowMs ?? NOTIFICATION_OBSERVATION_WINDOW_MS
+  const intervalMs = input.intervalMs ?? NOTIFICATION_POLL_INTERVAL_MS
+  const sleep = input.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const now = input.now ?? (() => Date.now())
+
+  const started = now()
+  let reads = 0
+  let after: string | null = null
+  for (;;) {
+    after = await input.readAfter()
+    reads += 1
+    const verdict = decideNotificationVerdict({ baselineEstablished: input.baselineEstablished, before: input.before, after })
+    const elapsed = now() - started
+    if (verdict.customerNotified || !input.baselineEstablished) {
+      return {
+        verdict,
+        after,
+        observedAfterSeconds: verdict.customerNotified ? Math.round(elapsed / 1000) : null,
+        windowSeconds: Math.round(elapsed / 1000),
+        reads,
+      }
+    }
+    if (elapsed + intervalMs > windowMs) {
+      return { verdict, after, observedAfterSeconds: null, windowSeconds: Math.round(elapsed / 1000), reads }
+    }
+    await sleep(intervalMs)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Structural exclusions
 // ---------------------------------------------------------------------------
