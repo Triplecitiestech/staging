@@ -632,8 +632,9 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_add_customer_note: {
     ...atWrite(
       'CUSTOMER-VISIBLE (publish=1 "All Autotask Users" — the Internal-cleared state)',
-      'DOES NOT NOTIFY ANYONE AND CANNOT: the REST TicketNotes entity has no notification field (12 fields, verified live) — recipients are chosen in the UI-only Notification panel, and delivery depends on an Autotask Event an admin configures',
-      'customerNotified is an OBSERVATION from Tickets.lastCustomerNotificationDateTime before vs after the write; false means the contact has NOT been emailed',
+      'The note alone emails nobody: the REST TicketNotes entity has no notification field, and connector notes/time entries were live-confirmed (2026-09-22) never to trigger a customer email',
+      'notifyContact: true emails the same message to the ticket\'s OWN contact from the support mailbox (Microsoft Graph, dedicated Mail.Send app scoped to one mailbox) and logs an internal audit note; no other recipient is possible. Off unless CONNECTOR_CUSTOMER_EMAIL_ENABLED=true and CUSTOMER_MAIL_* are set — checked before anything is written',
+      'Without notifyContact, customerNotified is an OBSERVATION from Tickets.lastCustomerNotificationDateTime re-read for ~35s; false means none was OBSERVED, not that none was sent',
     ),
     risk: 'destructive',
   },

@@ -39,6 +39,20 @@ const picklistLabelMap = vi.fn()
 const getTimeEntryById = vi.fn()
 const getAttachmentRecord = vi.fn()
 const getAttachmentContent = vi.fn()
+const getContactById = vi.fn()
+const getTicketNoteById = vi.fn()
+const getTicketActivityStamps = vi.fn()
+
+// The customer-email path: readiness and the Graph send are mocked so no test
+// can ever email anyone; the pure message builder stays real.
+const { customerMailReadiness, sendCustomerUpdateEmail } = vi.hoisted(() => ({
+  customerMailReadiness: vi.fn(),
+  sendCustomerUpdateEmail: vi.fn(),
+}))
+vi.mock('@/lib/customer-mail', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/customer-mail')>()
+  return { ...actual, customerMailReadiness, sendCustomerUpdateEmail }
+})
 
 vi.mock('@/lib/autotask', () => ({
   AutotaskClient: class {
@@ -53,11 +67,14 @@ vi.mock('@/lib/autotask', () => ({
     getTimeEntryById = getTimeEntryById
     getAttachmentRecord = getAttachmentRecord
     getAttachmentContent = getAttachmentContent
+    getContactById = getContactById
+    getTicketNoteById = getTicketNoteById
+    getTicketActivityStamps = getTicketActivityStamps
   },
   getAutotaskTicketUrl: (id: string) => `https://ww15.autotask.net/ticket/${id}`,
 }))
 
-import { registerWriteTools, verifyNoteEdit } from './mcp-write-tools'
+import { classifyCustomerMailFailure, registerWriteTools, verifyNoteEdit } from './mcp-write-tools'
 import { DEFAULT_ASSIGNED_RESOURCE_ROLE_ID, applyAssignedResourceRole } from './autotask-write'
 import { __setCapabilityFetcher, clearCapabilityCache } from '@/lib/connector/autotask-capability'
 
@@ -1596,5 +1613,160 @@ describe('attachment tool contracts', () => {
       expect(d).toMatch(/text\/plain, text\/csv, text\/markdown, application\/json, application\/pdf/)
       expect(d).toMatch(/autotask_delete_attachment/)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// autotask_add_customer_note with notifyContact — the connector emails the
+// ticket's contact itself, because Autotask cannot be asked to (2026-09-22).
+// ---------------------------------------------------------------------------
+
+describe('autotask_add_customer_note notifyContact', () => {
+  const TICKET = 35991
+  const CONTACT = { id: 30682890, companyID: 1, firstName: 'Pat', lastName: 'Doe', emailAddress: 'pat@example.com', isActive: true }
+  const SENT = {
+    status: 'accepted' as const,
+    httpStatus: 202,
+    sender: 'support@triplecitiestech.com',
+    to: 'pat@example.com',
+    acceptedAt: '2026-09-23T12:00:00.000Z',
+    subject: 'Ticket T20260922.0011: Printer offline',
+  }
+
+  beforeEach(() => {
+    getTicket.mockReset().mockResolvedValue({ id: TICKET, ticketNumber: 'T20260922.0011', title: 'Printer offline', contactID: CONTACT.id })
+    getContactById.mockReset().mockResolvedValue(CONTACT)
+    getTicketNoteById.mockReset().mockResolvedValue({ id: 900, ticketID: TICKET, publish: 1, title: 'Update' })
+    customerMailReadiness.mockReset().mockReturnValue({ ready: true, sender: 'support@triplecitiestech.com' })
+    sendCustomerUpdateEmail.mockReset().mockResolvedValue(SENT)
+  })
+
+  it('posts the customer note, emails the ticket contact ONCE, then logs an internal audit note', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { itemId: 900 }))
+      .mockResolvedValueOnce(jsonResponse(200, { itemId: 901 }))
+
+    const out = await harness().ok('autotask_add_customer_note', { ticketId: TICKET, message: 'Replaced the toner.', notifyContact: true })
+
+    expect(sendCustomerUpdateEmail).toHaveBeenCalledTimes(1)
+    const sendArg = sendCustomerUpdateEmail.mock.calls[0][0]
+    expect(sendArg.to).toBe('pat@example.com')
+    expect(sendArg.toName).toBe('Pat Doe')
+    expect(sendArg.email.subject).toBe('Ticket T20260922.0011: Printer offline')
+    expect(sendArg.email.text).toContain('Replaced the toner.')
+
+    const [note, audit] = writeBodies()
+    expect(note).toMatchObject({ ticketID: TICKET, description: 'Replaced the toner.', publish: 1 })
+    expect(audit.publish).toBe(2)
+    expect(audit.title).toBe('Customer emailed')
+    expect(audit.description).toContain('pat@example.com')
+    expect(audit.description).toContain('note 900')
+
+    expect(out.customerNotified).toBe(true)
+    expect(out.customerEmail).toMatchObject({ status: 'accepted', to: 'pat@example.com', contactID: CONTACT.id, httpStatus: 202 })
+    expect(out.auditNote).toEqual({ noteId: 901, publish: 2 })
+    expect(out.notificationEvidence.basis).toMatch(/not "delivered"/)
+  })
+
+  it('has no parameter that could carry a recipient address', () => {
+    const keys = Object.keys(harness().schema('autotask_add_customer_note')).sort()
+    expect(keys).toEqual(['message', 'notifyContact', 'ticketId', 'title'])
+  })
+
+  it('refuses BEFORE any write when the feature is not ready', async () => {
+    customerMailReadiness.mockReturnValue({
+      ready: false,
+      failure: { reasonCode: 'POLICY_BLOCKED', message: 'off', remediation: 'turn it on', surface: 'customer_mail' },
+    })
+    const f = await harness().failure('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+    expect(f.reasonCode).toBe('POLICY_BLOCKED')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(sendCustomerUpdateEmail).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the ticket has no contact', () => getTicket.mockResolvedValue({ id: TICKET, ticketNumber: 'T1', contactID: null }), /no contact/],
+    ['the contact is inactive', () => getContactById.mockResolvedValue({ ...CONTACT, isActive: false }), /INACTIVE/],
+    ['the contact has no email', () => getContactById.mockResolvedValue({ ...CONTACT, emailAddress: '' }), /no usable email/],
+    ['the contact was not returned', () => getContactById.mockResolvedValue(null), /did not return/],
+  ])('refuses BEFORE any write when %s', async (_label, arrange, pattern) => {
+    arrange()
+    const f = await harness().failure('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+    expect(f.reasonCode).toBe('PRECONDITION_FAILED')
+    expect(String(f.message)).toMatch(pattern)
+    expect(String(f.message)).toMatch(/Nothing was written and nothing was sent/)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(sendCustomerUpdateEmail).not.toHaveBeenCalled()
+  })
+
+  it('a failed send after the note exists is a FAILURE naming the note, and says not to re-call', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 900 }))
+    sendCustomerUpdateEmail.mockRejectedValue(new Error('Graph sendMail from support@triplecitiestech.com failed (403): denied'))
+
+    const f = await harness().failure('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+
+    expect(f.reasonCode).toBe('PERMISSION_DENIED')
+    expect(f.details).toMatchObject({ noteId: 900, noteCreated: true, customerEmailed: false })
+    expect(String(f.message)).toMatch(/has NOT been emailed/)
+    expect(String(f.remediation)).toMatch(/Do NOT call this tool again/)
+    // Only the customer note was written — no audit note claiming a send.
+    expect(writeBodies()).toHaveLength(1)
+  })
+
+  it('a send TIMEOUT is reported as possibly sent, never as not sent', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 900 }))
+    sendCustomerUpdateEmail.mockRejectedValue(new Error('The operation was aborted due to timeout'))
+
+    const f = await harness().failure('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+
+    expect(f.reasonCode).toBe('TRANSIENT')
+    expect(f.details).toMatchObject({ customerEmailed: 'unknown' })
+    expect(String(f.message)).toMatch(/may or may not have gone out/)
+    expect(String(f.remediation)).toMatch(/Check Sent Items/)
+  })
+
+  it('does not email when the note write returns no id', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {}))
+    const f = await harness().failure('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+    expect(f.reasonCode).toBe('VERIFY_FAILED')
+    expect(sendCustomerUpdateEmail).not.toHaveBeenCalled()
+  })
+
+  it('reports — but does not fail on — an audit note that could not be written', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { itemId: 900 }))
+      .mockResolvedValueOnce(jsonResponse(403, { errors: ['no permission'] }))
+    const out = await harness().ok('autotask_add_customer_note', { ticketId: TICKET, message: 'x', notifyContact: true })
+    expect(out.customerNotified).toBe(true)
+    expect(out.auditNote.noteId).toBeNull()
+    expect(out.notificationNote).toMatch(/could NOT be written/)
+  })
+
+  it('without notifyContact nothing is emailed', async () => {
+    // A failing stamp read means no baseline, so the observation returns after
+    // one read instead of polling — the point here is only that no send happens.
+    getTicketActivityStamps.mockRejectedValue(new Error('stamp read failed'))
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { itemId: 900 }))
+    await harness().ok('autotask_add_customer_note', { ticketId: TICKET, message: 'x' })
+    expect(sendCustomerUpdateEmail).not.toHaveBeenCalled()
+    expect(customerMailReadiness).not.toHaveBeenCalled()
+  })
+
+  it('the description no longer claims an unobserved notification means "not emailed"', () => {
+    const d = harness().description('autotask_add_customer_note')
+    expect(d).not.toMatch(/the contact has NOT been emailed/)
+    expect(d).toMatch(/notifyContact: true/)
+  })
+})
+
+describe('classifyCustomerMailFailure', () => {
+  it.each([
+    ['Graph sendMail from x failed (403): denied', 'PERMISSION_DENIED', false],
+    ['Customer mail Graph token fetch failed (400): invalid_client', 'PERMISSION_DENIED', false],
+    ['The operation was aborted due to timeout', 'TRANSIENT', true],
+    ['Graph sendMail from x failed (503): unavailable', 'TRANSIENT', false],
+    ['Graph sendMail from x failed (400): ErrorInvalidRecipients', 'PRECONDITION_FAILED', false],
+  ])('%s -> %s', (msg, code, mayHaveSent) => {
+    expect(classifyCustomerMailFailure(new Error(msg))).toEqual({ reasonCode: code, mayHaveSent })
   })
 })
