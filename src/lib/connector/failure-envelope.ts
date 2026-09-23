@@ -244,6 +244,7 @@ export type ConnectorSurface =
   | 'datto_rmm'
   | 'hr_sharepoint'
   | 'scan_filer'
+  | 'customer_mail'
   | 'kaseya_quote_manager'
   | 'connector'
 

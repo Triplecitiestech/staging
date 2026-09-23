@@ -33,6 +33,13 @@ import {
 } from '@/lib/autotask-attachments'
 import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability'
 import { resolvePicklistId } from '@/lib/connector/autotask-picklists'
+import { classifyError } from '@/lib/resilience'
+import {
+  buildCustomerUpdateEmail,
+  customerMailReadiness,
+  isSendableEmailAddress,
+  sendCustomerUpdateEmail,
+} from '@/lib/customer-mail'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -416,6 +423,199 @@ async function appendResolution(ticketId: number, text: string, rid: number): Pr
   await write.updateTicket(ticketId, { resolution: merged }, rid)
 }
 
+// ---------------------------------------------------------------------------
+// Customer note + email to the ticket's contact (notifyContact: true)
+// ---------------------------------------------------------------------------
+//
+// Autotask cannot be asked to email a customer through the REST API (see
+// src/lib/customer-mail.ts for the evidence), so the connector sends the email
+// itself. The ORDER is the design:
+//
+//   1. Everything that could refuse is checked BEFORE any write — kill switch,
+//      credential, ticket, contact, address. A note posted and then an email
+//      refused leaves the user believing the customer was told.
+//   2. The note is posted and must return an id; without one there is no record
+//      to point the customer at, so nothing is sent.
+//   3. The email is sent ONCE. Graph sendMail is not idempotent, so a failure
+//      after the note exists is reported with the note id and an instruction
+//      NOT to re-call this tool (that would post a duplicate note).
+//   4. An internal note records who was emailed, from where, and when — the
+//      only trace of the send inside Autotask, because Autotask's own
+//      NotificationHistory will never show an email it did not send. Best
+//      effort: the customer has already been emailed, so its failure is
+//      reported, never turned into a failure of the call.
+
+const CUSTOMER_NOTE_TOOL = 'autotask_add_customer_note'
+
+function customerEmailRefusal(message: string, remediation: string, details: Record<string, unknown>): McpToolResult {
+  return failureResult({
+    reasonCode: 'PRECONDITION_FAILED',
+    message: `${message} Nothing was written and nothing was sent.`,
+    remediation,
+    surface: 'autotask',
+    tool: CUSTOMER_NOTE_TOOL,
+    details: { ...details, noteCreated: false, customerEmailed: false },
+  })
+}
+
+/**
+ * Map a send failure to a reason code. Pure, exported for the tests.
+ *
+ * A TIMEOUT is singled out because it is the one failure that does not prove
+ * the email was NOT sent — Graph may have accepted it after the connector gave
+ * up waiting.
+ */
+export function classifyCustomerMailFailure(err: unknown): {
+  reasonCode: 'PERMISSION_DENIED' | 'TRANSIENT' | 'PRECONDITION_FAILED'
+  mayHaveSent: boolean
+} {
+  const c = classifyError(err)
+  if (c.category === 'auth' || /token fetch failed/i.test(c.message)) return { reasonCode: 'PERMISSION_DENIED', mayHaveSent: false }
+  if (c.category === 'timeout') return { reasonCode: 'TRANSIENT', mayHaveSent: true }
+  if (c.isTransient) return { reasonCode: 'TRANSIENT', mayHaveSent: false }
+  return { reasonCode: 'PRECONDITION_FAILED', mayHaveSent: false }
+}
+
+async function addCustomerNoteAndEmail(input: {
+  ticketId: number
+  message: string
+  title?: string
+  extra: unknown
+}): Promise<McpToolResult> {
+  const { ticketId, message, title } = input
+
+  const readiness = customerMailReadiness()
+  if (!readiness.ready) return failureResult({ ...readiness.failure, tool: CUSTOMER_NOTE_TOOL })
+
+  const signedIn = (input.extra as McpCallExtra | undefined)?.authInfo?.extra?.email
+  const rid = await resolveResourceId(typeof signedIn === 'string' ? signedIn : undefined)
+  const client = new AutotaskClient()
+
+  // The recipient comes from the ticket and nowhere else.
+  const ticket = await client.getTicket(ticketId)
+  if (!ticket) {
+    return customerEmailRefusal(`Ticket ${ticketId} was not found.`, 'Check the ticket id with autotask_get_ticket_by_number.', { ticketId })
+  }
+  const ticketNumber = ticket.ticketNumber ?? String(ticketId)
+  if (!ticket.contactID) {
+    return customerEmailRefusal(
+      `Ticket ${ticketNumber} has no contact, so there is nobody to email.`,
+      'Set the contact first with autotask_update_ticket ({ ticketId, contactID } — find the id with autotask_company_contacts), then call this again.',
+      { ticketId, ticketNumber, contactID: null },
+    )
+  }
+  const contact = await client.getContactById(ticket.contactID)
+  if (!contact) {
+    return customerEmailRefusal(
+      `Ticket ${ticketNumber} points at contact ${ticket.contactID}, which Autotask did not return.`,
+      'Open the ticket in Autotask and re-select the contact, or set a valid one with autotask_update_ticket.',
+      { ticketId, ticketNumber, contactID: ticket.contactID },
+    )
+  }
+  const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || null
+  if (!contact.isActive) {
+    return customerEmailRefusal(
+      `The ticket's contact ${contactName ?? contact.id} is INACTIVE in Autotask.`,
+      'Confirm with the user who should receive this update and set that contact on the ticket with autotask_update_ticket.',
+      { ticketId, ticketNumber, contactID: contact.id },
+    )
+  }
+  if (!isSendableEmailAddress(contact.emailAddress)) {
+    return customerEmailRefusal(
+      `The ticket's contact ${contactName ?? contact.id} has no usable email address in Autotask.`,
+      'Add the address to the contact with autotask_update_contact (or pick a different contact on the ticket), then call this again.',
+      { ticketId, ticketNumber, contactID: contact.id },
+    )
+  }
+  const to = contact.emailAddress.trim()
+
+  // Note first: it is the record the email refers to.
+  const res = await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)
+  const noteId = (res as { itemId?: number } | null)?.itemId
+  if (!noteId) {
+    return failureResult({
+      reasonCode: 'VERIFY_FAILED',
+      message: `Autotask accepted the note write on ticket ${ticketNumber} but returned no note id, so the note could not be confirmed. The customer was NOT emailed.`,
+      remediation: `Check ticket ${ticketNumber} in Autotask for the note before doing anything else. Do not call this tool again until you know whether the note exists — a second call would post it twice.`,
+      surface: 'autotask',
+      tool: CUSTOMER_NOTE_TOOL,
+      details: { ticketId, ticketNumber, noteCreated: 'unknown', customerEmailed: false, verificationState: 'unverified' },
+    })
+  }
+  const back = await readBackNote(client, ticketId, noteId).catch(() => null)
+
+  const email = buildCustomerUpdateEmail({ ticketNumber, ticketTitle: ticket.title ?? null, contactFirstName: contact.firstName ?? null, message })
+  let sent: Awaited<ReturnType<typeof sendCustomerUpdateEmail>>
+  try {
+    sent = await sendCustomerUpdateEmail({ to, toName: contactName, email })
+  } catch (e) {
+    const { reasonCode, mayHaveSent } = classifyCustomerMailFailure(e)
+    return failureResult({
+      reasonCode,
+      message:
+        `The customer-visible note WAS posted on ticket ${ticketNumber} (note ${noteId}), but emailing ${contactName ?? 'the contact'} failed. ` +
+        (mayHaveSent
+          ? 'The send TIMED OUT, so the email may or may not have gone out.'
+          : 'The customer has NOT been emailed.'),
+      remediation:
+        'Do NOT call this tool again — the note already exists and a second call would post it twice. ' +
+        (mayHaveSent ? `Check Sent Items in ${readiness.sender} before resending anything. ` : '') +
+        `To reach the customer now, open note ${noteId} in Autotask and send it from the Notification panel (tick Ticket Contact), or email them directly.` +
+        (reasonCode === 'PERMISSION_DENIED' ? ' The mail app\'s permission needs fixing: docs/runbooks/CUSTOMER_MAIL_SETUP.md.' : ''),
+      surface: 'customer_mail',
+      tool: CUSTOMER_NOTE_TOOL,
+      vendorError: (e instanceof Error ? e.message : String(e)).slice(0, 800),
+      details: { ticketId, ticketNumber, noteId, noteCreated: true, customerEmailed: mayHaveSent ? 'unknown' : false, sender: readiness.sender },
+    })
+  }
+
+  // Audit trail inside Autotask. Best effort — the email is already gone.
+  let auditNoteId: number | null = null
+  let auditNoteError: string | null = null
+  try {
+    const audit = await write.createTicketNote(
+      ticketId,
+      {
+        title: 'Customer emailed',
+        description: `Customer update (note ${noteId}) emailed to ${contactName ?? 'the ticket contact'} <${to}> from ${sent.sender} at ${sent.acceptedAt}. Sent through the TCT connector; Microsoft 365 accepted it for delivery (HTTP ${sent.httpStatus}). Subject: ${sent.subject}`,
+        publish: 2,
+      },
+      rid,
+    )
+    auditNoteId = (audit as { itemId?: number } | null)?.itemId ?? null
+  } catch (e) {
+    auditNoteError = e instanceof Error ? e.message : String(e)
+  }
+
+  return ok({
+    result: res,
+    ticketUrl: getAutotaskTicketUrl(String(ticketId)),
+    ...(back ?? { noteReadBack: false, readBackNote: 'The read-back query failed; the note was created but its stored publish level was not confirmed.' }),
+    customerNotified: true,
+    customerEmail: {
+      status: sent.status,
+      to,
+      toName: contactName,
+      contactID: contact.id,
+      sender: sent.sender,
+      subject: sent.subject,
+      acceptedAt: sent.acceptedAt,
+      httpStatus: sent.httpStatus,
+    },
+    notificationEvidence: {
+      basis: `Microsoft Graph sendMail from ${sent.sender} returned HTTP ${sent.httpStatus} (Accepted). Graph documents 202 as "accepted", not "delivered", and returns no delivery status; a bounce would arrive in ${sent.sender}. Autotask's own NotificationHistory will NOT show this email — Autotask did not send it.`,
+    },
+    auditNote: auditNoteId
+      ? { noteId: auditNoteId, publish: 2 }
+      : { noteId: null, error: auditNoteError ?? 'Autotask returned no id for the audit note.' },
+    notificationNote:
+      `Emailed to ${contactName ?? 'the ticket contact'} <${to}> from ${sent.sender}; Microsoft 365 accepted it for delivery. ` +
+      (auditNoteId
+        ? `An internal note (${auditNoteId}) on the ticket records the send.`
+        : 'The internal note recording the send could NOT be written — tell the user, so the ticket history is corrected by hand.'),
+  })
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function registerWriteTools(server: any) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -492,13 +692,24 @@ export function registerWriteTools(server: any) {
       title: 'Autotask: add customer-facing note',
       description:
         'WRITE, CUSTOMER-VISIBLE. Adds a ticket note at publish 1 ("All Autotask Users" — the Internal-cleared state, which per Kaseya\'s note-form docs is viewable by Client Portal customers), attributed to the signed-in tech. ' +
-        'THIS TOOL DOES NOT NOTIFY ANYONE AND CANNOT. The Autotask REST TicketNotes entity has no field for notification recipients or the UI\'s Notify behaviour (12 fields, verified against Kaseya docs and this instance\'s live entityInformation); recipients are chosen in the UI-only Notification panel. Whether the contact receives an email depends entirely on an Autotask Event (workflow rule) configured by an admin — which this tool neither controls nor can read. ' +
-        'What the response DOES report, by reading Autotask back after the write: the created note id, the publish level with its live label, and customerNotified — an OBSERVATION derived from Tickets.lastCustomerNotificationDateTime before vs after the write. When customerNotified is false, the contact has NOT been emailed: say so plainly and never tell the user the customer was notified. Posting this note is not the same as contacting the customer. Confirm the exact wording with the user before calling.',
-      inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), message: z.string().describe('Message to the customer'), title: z.string().optional().describe('Optional note title') },
+        'BY ITSELF THE NOTE EMAILS NOBODY. Autotask\'s REST TicketNotes entity has no field for the note form\'s "Quick Notification" boxes (Ticket Contact etc.), and live evidence (2026-09-22) is that connector-created notes and time entries never trigger a customer email — only the ticket-create rule does. ' +
+        'TO TELL THE CUSTOMER, pass notifyContact: true. The connector then emails the SAME message to the ticket\'s own contact from TCT\'s support mailbox via Microsoft 365, and logs an internal note on the ticket recording who was emailed and when. The recipient is always the ticket\'s contact record — there is no parameter for any other address. Everything is checked BEFORE anything is written: the feature must be enabled, and the ticket must have an active contact with an email address; otherwise the call fails and neither the note nor the email happens. If the note is posted but the send fails, the call FAILS with details.noteId — the note exists, the customer was NOT emailed; say exactly that. ' +
+        'Without notifyContact the response reports customerNotified, an OBSERVATION: Tickets.lastCustomerNotificationDateTime is re-read for up to ~35s after the write. true = Autotask itself sent a customer notification. false = none was OBSERVED in that window — never tell the user the customer was contacted, and do not state as fact that no email went out either (Autotask sends asynchronously). ' +
+        'Confirm the exact wording — and whether the contact should be emailed — with the user before calling.',
+      inputSchema: {
+        ticketId: z.number().int().describe('Autotask ticket ID'),
+        message: z.string().describe('Message to the customer. With notifyContact this exact text is also the body of the email.'),
+        title: z.string().optional().describe('Optional note title'),
+        notifyContact: z
+          .boolean()
+          .optional()
+          .describe('true = also email this message to the ticket\'s contact from the support mailbox and log an internal "customer emailed" note. Default false (note only, nobody emailed). The recipient is resolved from the ticket; it cannot be supplied.'),
+      },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ ticketId, message, title }: any, extra: any) => {
+    async ({ ticketId, message, title, notifyContact }: any, extra: any) => {
       try {
+        if (notifyContact === true) return await addCustomerNoteAndEmail({ ticketId, message, title, extra })
         const rid = await resolveResourceId(emailOf(extra))
         const client = new AutotaskClient()
         // Read the notification stamp BEFORE the write — the only way an
