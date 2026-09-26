@@ -211,6 +211,12 @@ const TICKET_QUERY_FIELDS = [
  * breach") come back in one query. `description` is dropped to keep large
  * all-company pulls lean; no cost/rate fields are requested.
  */
+/** Per-process id -> name caches used by AutotaskClient.lookupNames. */
+const NAME_CACHE_TTL_MS = 15 * 60 * 1000;
+const NAME_LOOKUP_CHUNK = 200;
+const companyNameCache = new Map<number, { name: string; at: number }>();
+const resourceNameCache = new Map<number, { name: string; at: number }>();
+
 const TICKET_SDM_FIELDS = [
   'id', 'companyID', 'ticketNumber', 'title', 'status',
   'createDate', 'completedDate', 'priority', 'queueID', 'source',
@@ -402,6 +408,12 @@ export interface TicketSearchFilters {
   to?: Date;
   /** Hard cap on returned rows (safety valve for all-company pulls). */
   max?: number;
+  /**
+   * Override the Autotask includeFields list (default: the full SDM reporting
+   * + SLA field set). Used by count/group reads that only need a few columns.
+   * `id` is always added so de-duplication keeps working.
+   */
+  includeFields?: string[];
 }
 
 export interface TicketSearchResult {
@@ -2325,7 +2337,10 @@ export class AutotaskClient {
 
     const acc = new Map<number, AutotaskTicket>();
     const state = { truncated: false };
-    await this.collectTickets(base, dateField, from, to, acc, 0, cap, state);
+    const fields = filters.includeFields?.length
+      ? Array.from(new Set(['id', ...filters.includeFields]))
+      : TICKET_SDM_FIELDS;
+    await this.collectTickets(base, dateField, from, to, acc, 0, cap, state, fields);
 
     const tickets = Array.from(acc.values()).map((t) => ({
       ...t,
@@ -2343,6 +2358,7 @@ export class AutotaskClient {
     depth: number,
     cap: number,
     state: { truncated: boolean },
+    fields: string[] = TICKET_SDM_FIELDS,
   ): Promise<void> {
     if (acc.size >= cap) { state.truncated = true; return; }
     const items = [
@@ -2350,7 +2366,7 @@ export class AutotaskClient {
       { op: 'gte', field: dateField, value: from.toISOString() },
       { op: 'lt', field: dateField, value: to.toISOString() },
     ];
-    const { items: page, hasMore } = await this.queryOnePage<AutotaskTicket>('Tickets', items, TICKET_SDM_FIELDS);
+    const { items: page, hasMore } = await this.queryOnePage<AutotaskTicket>('Tickets', items, fields);
     const spanMs = to.getTime() - from.getTime();
     const DAY_MS = 24 * 60 * 60 * 1000;
     if (!hasMore || spanMs <= DAY_MS || depth > 24) {
@@ -2365,8 +2381,44 @@ export class AutotaskClient {
       return;
     }
     const mid = new Date(from.getTime() + Math.floor(spanMs / 2));
-    await this.collectTickets(base, dateField, from, mid, acc, depth + 1, cap, state);
-    await this.collectTickets(base, dateField, mid, to, acc, depth + 1, cap, state);
+    await this.collectTickets(base, dateField, from, mid, acc, depth + 1, cap, state, fields);
+    await this.collectTickets(base, dateField, mid, to, acc, depth + 1, cap, state, fields);
+  }
+
+  /**
+   * id -> name for the given company or resource ids, queried by id list with
+   * a two-field includeFields (lean), chunked to keep each query small.
+   * Results are cached per process for NAME_CACHE_TTL_MS, so repeated
+   * group_by / fields reads in one warm function instance do not re-query.
+   * Ids that do not resolve are simply absent from the returned map.
+   */
+  async lookupNames(kind: 'company' | 'resource', ids: number[]): Promise<Map<number, string>> {
+    const cache = kind === 'company' ? companyNameCache : resourceNameCache;
+    const now = Date.now();
+    const out = new Map<number, string>();
+    const missing: number[] = [];
+    for (const id of new Set(ids)) {
+      const hit = cache.get(id);
+      if (hit && now - hit.at < NAME_CACHE_TTL_MS) out.set(id, hit.name);
+      else missing.push(id);
+    }
+    const entity = kind === 'company' ? 'Companies' : 'Resources';
+    const fields = kind === 'company' ? ['id', 'companyName'] : ['id', 'firstName', 'lastName'];
+    for (let i = 0; i < missing.length; i += NAME_LOOKUP_CHUNK) {
+      const chunk = missing.slice(i, i + NAME_LOOKUP_CHUNK);
+      const rows = await this.queryAll<Record<string, unknown>>(entity, { op: 'in', field: 'id', value: chunk }, fields);
+      for (const r of rows) {
+        const id = Number(r.id);
+        if (!Number.isFinite(id)) continue;
+        const name = kind === 'company'
+          ? String(r.companyName ?? '').trim()
+          : `${String(r.firstName ?? '').trim()} ${String(r.lastName ?? '').trim()}`.trim();
+        if (!name) continue;
+        out.set(id, name);
+        cache.set(id, { name, at: now });
+      }
+    }
+    return out;
   }
 
   /** SLA id -> name (from the serviceLevelAgreementID picklist on Tickets). */
