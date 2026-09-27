@@ -6,6 +6,12 @@ import {
   PRIORITY_LABELS,
   mapAutotaskLabelToCustomerStatus,
   resolveCustomerStatusLabel,
+  CUSTOMER_CORRESPONDENCE_NOTE_TYPES,
+  isCustomerVisibleTicketNote,
+  customerReplyTitle,
+  parseCustomerReplyAuthor,
+  resolveCustomerNoteAuthor,
+  portalMayAccessTicket,
 } from '@/lib/tickets/utils';
 
 describe('formatMinutes', () => {
@@ -170,5 +176,135 @@ describe('resolveCustomerStatusLabel', () => {
     expect(resolveCustomerStatusLabel(5, null)).toBe('Closed');
     expect(resolveCustomerStatusLabel(7, null)).toBe('Awaiting Your Team');
     expect(resolveCustomerStatusLabel(1, null)).toBe('Open');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Customer-visible notes. Fixtures are the real shapes read from ticket 35699
+// (T20260908.0006) on 2026-09-13, where the old publish === 3 filter showed the
+// customer 0 of 30 notes.
+// ---------------------------------------------------------------------------
+
+const PORTAL_API_RESOURCE = 29682943; // "TCT Customer Portal"
+const JOE_CONTACT = 30683690;
+const CORRESPONDENCE = new Set(CUSTOMER_CORRESPONDENCE_NOTE_TYPES.map(t => t.fallbackId));
+
+const ticket35699 = {
+  portalReply: { publish: 1, noteType: 1, creatorResourceID: PORTAL_API_RESOURCE, createdByContactID: null, title: 'Customer Reply from Joe Cronk' },
+  emailReply: { publish: 1, noteType: 1, creatorResourceID: null, createdByContactID: JOE_CONTACT, title: '- Your support request has been updated | Datto EDR Isolation Alerts' },
+  techMessage: { publish: 1, noteType: 3, creatorResourceID: 29682939, createdByContactID: null, title: 'Hi Joe, I wanted to follow up' },
+  internalHandoff: { publish: 2, noteType: 1, creatorResourceID: 29682885, createdByContactID: null, title: 'Handoff for Ben' },
+  serviceDeskNotification: { publish: 4, noteType: 2, creatorResourceID: 29682938, createdByContactID: null, title: 'Service Desk Notification' },
+  workflowRuleSlaBreach: { publish: 1, noteType: 13, creatorResourceID: 4, createdByContactID: null, title: 'Workflow Rule "SLA Event: Breached" fired.' },
+  workflowActionNag: { publish: 1, noteType: 91, creatorResourceID: 4, createdByContactID: null, title: 'Please look at this ticket' },
+};
+
+describe('isCustomerVisibleTicketNote', () => {
+  it('shows the customer their own portal replies — the reported defect', () => {
+    expect(isCustomerVisibleTicketNote(ticket35699.portalReply, CORRESPONDENCE)).toBe(true);
+  });
+
+  it('shows email-ingested replies and technician messages sent to the customer', () => {
+    expect(isCustomerVisibleTicketNote(ticket35699.emailReply, CORRESPONDENCE)).toBe(true);
+    expect(isCustomerVisibleTicketNote(ticket35699.techMessage, CORRESPONDENCE)).toBe(true);
+  });
+
+  it('hides internal notes (publish 2 and 4)', () => {
+    expect(isCustomerVisibleTicketNote(ticket35699.internalHandoff, CORRESPONDENCE)).toBe(false);
+    expect(isCustomerVisibleTicketNote(ticket35699.serviceDeskNotification, CORRESPONDENCE)).toBe(false);
+  });
+
+  it('hides Autotask workflow-rule notes even though they carry publish 1', () => {
+    // These bodies name staff email addresses and SLA-breach warnings. Fixing
+    // the publish number alone would have shown them to customers.
+    expect(isCustomerVisibleTicketNote(ticket35699.workflowRuleSlaBreach, CORRESPONDENCE)).toBe(false);
+    expect(isCustomerVisibleTicketNote(ticket35699.workflowActionNag, CORRESPONDENCE)).toBe(false);
+  });
+
+  it('fails closed on publish values it cannot classify, including the old 3', () => {
+    for (const publish of [3, 0, 99, null, undefined]) {
+      expect(isCustomerVisibleTicketNote({ ...ticket35699.portalReply, publish }, CORRESPONDENCE)).toBe(false);
+    }
+  });
+
+  it('fails closed on a note type outside the correspondence list, or none', () => {
+    expect(isCustomerVisibleTicketNote({ ...ticket35699.portalReply, noteType: 999 }, CORRESPONDENCE)).toBe(false);
+    expect(isCustomerVisibleTicketNote({ ...ticket35699.portalReply, noteType: null }, CORRESPONDENCE)).toBe(false);
+  });
+
+  it('hides notes with no human author', () => {
+    expect(
+      isCustomerVisibleTicketNote({ ...ticket35699.portalReply, creatorResourceID: null, createdByContactID: null }, CORRESPONDENCE)
+    ).toBe(false);
+  });
+
+  it('the correspondence list excludes every workflow and system note type', () => {
+    const labels = CUSTOMER_CORRESPONDENCE_NOTE_TYPES.map(t => t.label.toLowerCase());
+    for (const banned of ['workflow', 'merged', 'absorbed', 'copied', 'duplicate', 'survey', 'rmm', 'bdr', 'forward']) {
+      expect(labels.some(l => l.includes(banned))).toBe(false);
+    }
+  });
+});
+
+describe('customer reply titles and authorship', () => {
+  it('round-trips the title the reply route writes', () => {
+    expect(parseCustomerReplyAuthor(customerReplyTitle('Joe Cronk'))).toBe('Joe Cronk');
+  });
+
+  it('does not treat other titles as portal replies', () => {
+    expect(parseCustomerReplyAuthor('Handoff for Ben')).toBeNull();
+    expect(parseCustomerReplyAuthor('Customer Reply from ')).toBeNull();
+    expect(parseCustomerReplyAuthor(null)).toBeNull();
+    expect(parseCustomerReplyAuthor('Reply from Kurtis Florance (Triple Cities Tech, viewing as Joe Cronk)')).toBeNull();
+  });
+
+  it('attributes an already-written portal reply to the customer, not the portal account', () => {
+    expect(resolveCustomerNoteAuthor(ticket35699.portalReply, 'TCT Customer Portal')).toEqual({
+      author: 'Joe Cronk',
+      authorType: 'customer',
+    });
+  });
+
+  it('a contact id makes a note the customer\'s even when a resource id is also stamped', () => {
+    const note = { ...ticket35699.portalReply, createdByContactID: JOE_CONTACT };
+    expect(resolveCustomerNoteAuthor(note, 'TCT Customer Portal').authorType).toBe('customer');
+    expect(resolveCustomerNoteAuthor(ticket35699.emailReply, undefined)).toEqual({ author: 'Customer', authorType: 'customer' });
+  });
+
+  it('technician notes show the technician, or Triple Cities Tech when the name is unknown', () => {
+    expect(resolveCustomerNoteAuthor(ticket35699.techMessage, 'Benjamin Miguel')).toEqual({
+      author: 'Benjamin Miguel',
+      authorType: 'technician',
+    });
+    expect(resolveCustomerNoteAuthor(ticket35699.techMessage, undefined).author).toBe('Triple Cities Tech');
+  });
+});
+
+describe('portalMayAccessTicket', () => {
+  const ECOSPECT = 287;
+  const manager = { autotaskCompanyId: ECOSPECT, isManager: true, autotaskContactId: 111 };
+  const user = { autotaskCompanyId: ECOSPECT, isManager: false, autotaskContactId: JOE_CONTACT };
+
+  it('refuses another company\'s ticket, for managers too', () => {
+    expect(portalMayAccessTicket({ companyID: 398, contactID: JOE_CONTACT }, manager)).toBe(false);
+    expect(portalMayAccessTicket({ companyID: 398, contactID: JOE_CONTACT }, user)).toBe(false);
+  });
+
+  it('lets a manager open any ticket in their company', () => {
+    expect(portalMayAccessTicket({ companyID: ECOSPECT, contactID: 999 }, manager)).toBe(true);
+  });
+
+  it('lets a non-manager open only tickets they are the contact on', () => {
+    expect(portalMayAccessTicket({ companyID: ECOSPECT, contactID: JOE_CONTACT }, user)).toBe(true);
+    expect(portalMayAccessTicket({ companyID: ECOSPECT, contactID: 999 }, user)).toBe(false);
+    expect(portalMayAccessTicket({ companyID: ECOSPECT, contactID: null }, user)).toBe(false);
+  });
+
+  it('refuses a non-manager with no linked contact, like the ticket list does', () => {
+    expect(portalMayAccessTicket({ companyID: ECOSPECT, contactID: JOE_CONTACT }, { ...user, autotaskContactId: null })).toBe(false);
+  });
+
+  it('refuses a ticket with no company id', () => {
+    expect(portalMayAccessTicket({ companyID: null, contactID: JOE_CONTACT }, manager)).toBe(false);
   });
 });

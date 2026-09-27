@@ -1,25 +1,17 @@
 import { NextRequest } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
-import { prisma } from '@/lib/prisma'
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
-interface TimelineEntry {
-  id: string
-  type: 'note' | 'time_entry' | 'status_change' | 'created'
-  timestamp: string
-  author: string
-  authorType: 'technician' | 'customer' | 'system'
-  content: string
-  isInternal: boolean
-  hoursWorked?: number
-}
-
 /**
  * GET /api/customer/tickets/timeline?companySlug=xxx&ticketId=123
  * Returns the chronological timeline for a specific ticket.
- * Only returns customer-visible (external) notes.
+ *
+ * Delegates to getCustomerTicketNotes() — the same adapter the portal's ticket
+ * view uses — so the customer-visibility rule exists in exactly one place.
+ * This route used to carry its own copy of that rule, including the
+ * publish === 3 filter that hid every note from every customer.
  */
 export async function GET(request: NextRequest) {
   const reqId = generateRequestId()
@@ -49,106 +41,17 @@ export async function GET(request: NextRequest) {
       return apiOk({ timeline: demoTimeline }, reqId)
     }
 
-    // Verify company has Autotask ID
-    const company = await prisma.company.findUnique({
-      where: { slug: companySlug.toLowerCase().trim() },
-      select: { autotaskCompanyId: true },
-    })
-
-    if (!company?.autotaskCompanyId) {
-      return apiOk({ timeline: [] }, reqId)
-    }
-
-    const atTicketId = parseInt(ticketId, 10)
-    if (isNaN(atTicketId)) {
-      return apiOk({ timeline: [] }, reqId)
-    }
-
-    // Fetch ticket notes and time entries from Autotask
-    const { AutotaskClient } = await import('@/lib/autotask')
-    const client = new AutotaskClient()
-
-    const [notes, timeEntries] = await Promise.all([
-      client.getTicketNotes(atTicketId),
-      client.getTicketTimeEntries(atTicketId),
-    ])
-
-    // Build resource cache for author names
-    const resourceIds = new Set<number>()
-    notes.forEach(n => {
-      if (n.creatorResourceID) resourceIds.add(n.creatorResourceID)
-    })
-    timeEntries.forEach(te => {
-      if (te.resourceID) resourceIds.add(te.resourceID)
-    })
-
-    const resourceMap = new Map<number, string>()
-    for (const resId of Array.from(resourceIds)) {
-      try {
-        const resource = await client.getResource(resId)
-        if (resource) {
-          resourceMap.set(resId, `${resource.firstName} ${resource.lastName}`.trim())
-        }
-      } catch {
-        // Individual resource lookup failed, use fallback
+    const { getCustomerTicketNotes, PortalTicketAccessError } = await import('@/lib/tickets/adapters')
+    let timeline
+    try {
+      ;({ notes: timeline } = await getCustomerTicketNotes(ticketId, session))
+    } catch (err) {
+      if (err instanceof PortalTicketAccessError) {
+        if (err.reason === 'not_linked') return apiOk({ timeline: [] }, reqId)
+        return apiError('Ticket not found', reqId, 404)
       }
+      throw err
     }
-
-    const timeline: TimelineEntry[] = []
-
-    // Add only customer-visible notes
-    // Autotask publish values:
-    //   1 = All Autotask Users (INTERNAL - visible to AT staff only)
-    //   2 = Internal Only (Resources only)
-    //   3 = Published (Customer Portal visible - this is the ONLY external type)
-    // ONLY show publish=3 — these are the notes explicitly published to customers
-    for (const note of notes) {
-      // Only allow customer-portal-published notes
-      if (note.publish !== 3) continue
-
-      // Skip system-generated notes (no human creator)
-      if (!note.creatorResourceID && !note.creatorContactID) continue
-
-      const isCustomerNote = !!note.creatorContactID && !note.creatorResourceID
-      const authorName = note.creatorResourceID
-        ? resourceMap.get(note.creatorResourceID) || 'Triple Cities Tech'
-        : 'Customer'
-
-      timeline.push({
-        id: `note-${note.id}`,
-        type: 'note',
-        timestamp: note.createDateTime || note.lastActivityDate || '',
-        author: authorName,
-        authorType: isCustomerNote ? 'customer' : 'technician',
-        content: note.description || note.title || '',
-        isInternal: false,
-      })
-    }
-
-    // Add customer-visible time entries (non-internal summary notes only)
-    for (const te of timeEntries) {
-      if (!te.summaryNotes) continue
-
-      const authorName = resourceMap.get(te.resourceID) || 'Triple Cities Tech'
-
-      timeline.push({
-        id: `time-${te.id}`,
-        type: 'time_entry',
-        timestamp: te.startDateTime || te.dateWorked || te.createDateTime || '',
-        author: authorName,
-        authorType: 'technician',
-        content: te.summaryNotes,
-        isInternal: false,
-        hoursWorked: te.hoursWorked,
-      })
-    }
-
-    // Sort by timestamp ascending (chronological)
-    timeline.sort((a, b) => {
-      const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0
-      const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0
-      return dateA - dateB
-    })
 
     return apiOk({ timeline }, reqId)
   } catch (error) {

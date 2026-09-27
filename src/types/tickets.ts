@@ -14,10 +14,21 @@ export type TicketPerspective = 'staff' | 'customer';
 // ================================================
 // Autotask note publish values
 // ================================================
+// LIVE TicketNotes.publish picklist on this instance (verified 2026-09-13 via
+// autotask_entity_picklist): 1, 2 and 4 only. There is NO id 3.
+//
+// 1 is counter-intuitively the CUSTOMER-VISIBLE value: its label is "All
+// Autotask Users", and per Kaseya's note-form docs it is the "Internal cleared"
+// state — resources AND Client Portal customers can view the note. This map
+// previously read 1 as internal and 3 as customer-visible; the customer
+// timeline filtered on publish === 3 and therefore showed customers no notes at
+// all (PORTAL_DEFECT_INVESTIGATION.md, Defect 1). Visibility decisions go
+// through classifyPublishVisibility() in src/lib/autotask-activity.ts, not a
+// fresh comparison against these numbers.
 export const NOTE_PUBLISH = {
-  ALL_AUTOTASK_USERS: 1, // Internal — AT staff only
-  INTERNAL_ONLY: 2,      // Resources only
-  CUSTOMER_PORTAL: 3,    // External — customer-visible
+  CUSTOMER_VISIBLE: 1,     // "All Autotask Users" — customers can view
+  INTERNAL: 2,             // "Internal Project Team"
+  INTERNAL_CO_MANAGED: 4,  // "Internal & Co-Managed"
 } as const;
 
 export type NotePublishType = (typeof NOTE_PUBLISH)[keyof typeof NOTE_PUBLISH];
@@ -67,8 +78,8 @@ export interface UnifiedTicketNote {
 // Note visibility filters (staff toggle state)
 // ================================================
 export interface NoteVisibilityFilters {
-  showExternal: boolean;  // publish=3
-  showInternal: boolean;  // publish=1 or 2
+  showExternal: boolean;  // customer-visible (publish 1)
+  showInternal: boolean;  // everything else, including null and any unrecognised id
   showSystem: boolean;    // no creator
 }
 

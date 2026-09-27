@@ -251,7 +251,14 @@ export interface AutotaskTicketNote {
    */
   publish?: number;
   creatorResourceID?: number;
-  creatorContactID?: number;
+  /**
+   * The contact who authored the note. This is the ONLY contact field
+   * TicketNotes has — live entityInformation lists 12 fields and no
+   * `creatorContactID`. That name was read and written here for months; the
+   * API ignored it on write (so portal replies were attributed to the API
+   * user) and never returned it on read (so contact-authored notes looked like
+   * system notes). Do not reintroduce it.
+   */
   createdByContactID?: number;
   impersonatorCreatorResourceID?: number;
   lastActivityDate?: string;
@@ -1948,7 +1955,7 @@ export class AutotaskClient {
       ...attachments.map((a) => a.attachedByResourceID),
     ].filter((v): v is number => typeof v === 'number' && v > 0);
     const contactIds = [
-      ...notes.map((n) => n.createdByContactID ?? n.creatorContactID),
+      ...notes.map((n) => n.createdByContactID),
       ...attachments.map((a) => a.attachedByContactID),
     ].filter((v): v is number => typeof v === 'number' && v > 0);
 
@@ -1982,7 +1989,7 @@ export class AutotaskClient {
         at: n.createDateTime ?? n.lastActivityDate ?? '',
         atField: n.createDateTime ? 'createDateTime' : 'lastActivityDate',
         title: n.title ?? null,
-        author: author({ resourceId: n.creatorResourceID, contactId: n.createdByContactID ?? n.creatorContactID, impersonatorResourceId: n.impersonatorCreatorResourceID }),
+        author: author({ resourceId: n.creatorResourceID, contactId: n.createdByContactID, impersonatorResourceId: n.impersonatorCreatorResourceID }),
         visibility: classifyPublishVisibility(n.publish, n.publish == null ? null : notePublishLabels.get(n.publish) ?? null),
         body: n.description ?? null,
         internalBody: null,
@@ -2071,8 +2078,10 @@ export class AutotaskClient {
     title: string;
     description: string;
     noteType?: number;
-    publish?: number; // 1=All/External, 2=Internal, 3=Customer Portal visible
-    creatorContactID?: number; // Autotask contact ID — attributes note to customer instead of API user
+    /** 1 = "All Autotask Users" (customer-visible), 2 / 4 = internal. There is no 3. */
+    publish?: number;
+    /** Autotask contact id — attributes the note to the customer instead of the API user. */
+    createdByContactID?: number;
   }): Promise<AutotaskTicketNote> {
     const payload: Record<string, unknown> = {
       ticketID: ticketId,
@@ -2082,9 +2091,11 @@ export class AutotaskClient {
       publish: data.publish || 1,
     };
 
-    // Set creatorContactID so Autotask attributes the note to the customer, not the API user
-    if (data.creatorContactID) {
-      payload.creatorContactID = data.creatorContactID;
+    // createdByContactID (writable, per live entityInformation) attributes the
+    // note to the customer. creatorResourceID is read-only and Autotask stamps
+    // it with the API user regardless.
+    if (data.createdByContactID) {
+      payload.createdByContactID = data.createdByContactID;
     }
 
     // Try child entity path first (most reliable for this Autotask instance)
