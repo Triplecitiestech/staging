@@ -6,6 +6,10 @@ import {
   subjectOf,
   daysBetween,
   KNOWN_STATUSES,
+  TERMINAL_STATUSES,
+  RESOLVED_MANUALLY_STATUS,
+  RESOLVE_MANUALLY_MIN_AGE_MS,
+  resolveManuallyEligibility,
   type HrRequestRow,
 } from './pending-actions'
 
@@ -215,9 +219,9 @@ describe('unknown status', () => {
   })
 
   it('KNOWN_STATUSES matches what the application writes', () => {
-    // Kept in sync with the CHECK constraint added in /api/migrations/run.
+    // The CHECK constraint in /api/migrations/run is built from this list.
     expect([...KNOWN_STATUSES].sort()).toEqual(
-      ['completed', 'failed', 'pending', 'running', 'scheduled'].sort()
+      ['completed', 'failed', 'pending', 'resolved_manually', 'running', 'scheduled'].sort()
     )
   })
 })
@@ -279,5 +283,99 @@ describe('field helpers', () => {
     expect(daysBetween('2026-09-04', '2026-09-11')).toBe(7)
     expect(daysBetween('2026-09-04', '2026-08-28')).toBe(-7)
     expect(daysBetween('2026-09-04', 'garbage')).toBeNull()
+  })
+})
+
+describe('resolved manually', () => {
+  it('is terminal and known, and is NOT completed', () => {
+    expect(TERMINAL_STATUSES).toContain(RESOLVED_MANUALLY_STATUS)
+    expect(KNOWN_STATUSES).toContain(RESOLVED_MANUALLY_STATUS)
+    // The deletion cron selects status = 'completed'. A manual close-out must
+    // never be able to arm it.
+    expect(RESOLVED_MANUALLY_STATUS).not.toBe('completed')
+  })
+
+  it('a resolved row produces no finding', () => {
+    const r = row({ status: RESOLVED_MANUALLY_STATUS, completed_at: null })
+    expect(classifyRequest(r, TODAY)).toBeNull()
+  })
+
+  it('every KNOWN_STATUSES value is safe to interpolate into the CHECK DDL', () => {
+    for (const v of KNOWN_STATUSES) expect(v).toMatch(/^[a-z_]+$/)
+  })
+})
+
+describe('resolveManuallyEligibility', () => {
+  const NOW = new Date('2026-09-27T12:00:00.000Z')
+  const OLD = '2026-09-01T10:00:00.000Z'
+
+  it('allows a long-stuck running request', () => {
+    const r = row({ status: 'running', completed_at: null, updated_at: OLD })
+    expect(resolveManuallyEligibility(r, NOW)).toEqual({ eligible: true })
+  })
+
+  it('allows a long-stuck never-started request', () => {
+    const r = row({ status: 'pending', started_at: null, completed_at: null, updated_at: OLD })
+    expect(resolveManuallyEligibility(r, NOW)).toEqual({ eligible: true })
+  })
+
+  it('refuses a row with an armed deletion, whatever its status', () => {
+    for (const status of ['running', 'pending', 'completed']) {
+      const r = row({ status, scheduled_deletion_date: '2026-10-11', updated_at: OLD })
+      const e = resolveManuallyEligibility(r, NOW)
+      expect(e.eligible).toBe(false)
+      if (!e.eligible) expect(e.reason).toContain('deletion')
+    }
+  })
+
+  it('refuses statuses that are not stuck', () => {
+    for (const status of ['completed', 'failed', 'scheduled', RESOLVED_MANUALLY_STATUS]) {
+      expect(resolveManuallyEligibility(row({ status, updated_at: OLD }), NOW).eligible).toBe(false)
+    }
+  })
+
+  it('refuses a row touched within the last hour — it may still be processing', () => {
+    const recent = new Date(NOW.getTime() - RESOLVE_MANUALLY_MIN_AGE_MS + 60_000).toISOString()
+    const e = resolveManuallyEligibility(row({ status: 'running', updated_at: recent }), NOW)
+    expect(e.eligible).toBe(false)
+    if (!e.eligible) expect(e.reason).toContain('less than an hour')
+  })
+
+  it('falls back to started_at then created_at when updated_at is missing', () => {
+    const r = row({ status: 'pending', updated_at: null, started_at: null, created_at: OLD })
+    expect(resolveManuallyEligibility(r, NOW).eligible).toBe(true)
+  })
+
+  it('refuses when no timestamp can be read, rather than assuming it is idle', () => {
+    const r = row({ status: 'running', updated_at: null, started_at: null, created_at: 'not-a-date' })
+    expect(resolveManuallyEligibility(r, NOW).eligible).toBe(false)
+  })
+})
+
+describe('buildPendingActionsReport with a clock', () => {
+  const NOW = new Date('2026-09-27T12:00:00.000Z')
+
+  it('marks stuck rows resolvable and deletions not', () => {
+    const report = buildPendingActionsReport(
+      [
+        row({ id: 'stuck', status: 'running', completed_at: null, updated_at: '2026-09-01T00:00:00Z' }),
+        row({ id: 'del', scheduled_deletion_date: '2026-10-11' }),
+      ],
+      TODAY,
+      NOW
+    )
+    const byId = Object.fromEntries(report.actions.map((a) => [a.requestId, a]))
+    expect(byId.stuck.resolvable).toBe(true)
+    expect(byId.stuck.resolveBlockedReason).toBeNull()
+    expect(byId.del.resolvable).toBe(false)
+    expect(byId.del.resolveBlockedReason).toContain('deletion')
+  })
+
+  it('omits eligibility entirely when built without a clock', () => {
+    const report = buildPendingActionsReport(
+      [row({ status: 'running', completed_at: null })],
+      TODAY
+    )
+    expect(report.actions[0].resolvable).toBeUndefined()
   })
 })

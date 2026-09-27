@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createHash } from 'crypto'
 import { PoolClient } from 'pg'
 import { getPool } from '@/lib/db-pool'
@@ -281,24 +281,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.log(`[hr/submit] Admin ${impersonation.adminEmail} submitted ${type} request as ${normalizedEmail} for company ${normalizedSlug}`)
     }
 
-    // 3i. Fire-and-forget background processing
-    const processUrl = new URL('/api/hr/process', request.url)
-    const internalSecret = process.env.INTERNAL_SECRET ?? ''
+    // 3i. Kick off background processing.
+    //
+    // This used to be a bare fetch() the route never awaited, then an
+    // immediate 202. On Vercel the function can be frozen the instant the
+    // response is sent, killing a request nothing is waiting on — the leading
+    // explanation for requests that sit at 'pending' forever with no Autotask
+    // ticket ("never started", PORTAL_DEFECT_INVESTIGATION.md). after() keeps
+    // the function alive until the kickoff has run.
+    const processUrl = new URL('/api/hr/process', request.url).toString()
+    after(() => kickOffProcessing(processUrl, requestId))
 
-    fetch(processUrl.toString(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-internal-secret': internalSecret,
-      },
-      body: JSON.stringify({ requestId }),
-    }).catch((err) => {
-      console.error('[hr/submit] Failed to kick off background processing:', err)
-    })
-
-    // 3j. Return 202 Accepted
+    // 3j. Return 202 Accepted — RECEIVED, not provisioned. Processing runs
+    // after this response and its outcome is recorded on the request and the
+    // Autotask ticket, never implied here.
     return NextResponse.json(
-      { requestId, message: 'Request submitted successfully' },
+      { requestId, message: 'Request received — processing has started' },
       { status: 202 }
     )
   } catch (err) {
@@ -316,5 +314,69 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   } finally {
     client.release()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Background kickoff
+// ---------------------------------------------------------------------------
+
+/**
+ * How long to wait for /api/hr/process to answer. That route responds only
+ * when the whole pipeline finishes (up to its 300 s maxDuration), so NOT
+ * hearing back within this window is normal and is not a failure — the call
+ * has been delivered and processing continues in its own invocation. The
+ * failures this catches are the fast ones: a refused auth secret, a missing
+ * route, a request the pipeline rejects outright.
+ */
+const KICKOFF_WAIT_MS = 25_000
+
+/**
+ * Deliver the processing call and record a kickoff failure on the request row.
+ *
+ * A failed kickoff leaves the row at 'pending' with error_message set, so it
+ * shows on /admin/hr/pending as "never started" WITH the reason, instead of as
+ * an unexplained pending row. It never changes status — nothing ran, and a
+ * human decides what happens next.
+ */
+async function kickOffProcessing(processUrl: string, requestId: string): Promise<void> {
+  let failure: string | null = null
+  try {
+    const res = await fetch(processUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': process.env.INTERNAL_SECRET ?? '',
+      },
+      body: JSON.stringify({ requestId }),
+      signal: AbortSignal.timeout(KICKOFF_WAIT_MS),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      failure = `Processing did not start: /api/hr/process answered HTTP ${res.status}${body ? ` — ${body.slice(0, 300)}` : ''}`
+    }
+  } catch (err) {
+    const name = err instanceof Error ? err.name : ''
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      // Still running — see KICKOFF_WAIT_MS.
+      return
+    }
+    failure = `Processing did not start: could not reach /api/hr/process — ${err instanceof Error ? err.message : String(err)}`
+  }
+
+  if (!failure) return
+  console.error(`[hr/submit] Kickoff failed for request ${requestId}: ${failure}`)
+  try {
+    await pool.query(
+      `UPDATE hr_requests
+          SET error_message = $2, updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'`,
+      [requestId, failure]
+    )
+  } catch (dbErr) {
+    console.error(
+      `[hr/submit] Could not record kickoff failure for request ${requestId}:`,
+      dbErr instanceof Error ? dbErr.message : String(dbErr)
+    )
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Client } from 'pg'
 import { FIELD_SCHEMA_STATEMENTS } from '@/lib/field/schema'
+import { KNOWN_STATUSES } from '@/lib/hr/pending-actions'
 
 export async function POST(request: Request) {
   try {
@@ -887,15 +888,31 @@ export async function POST(request: Request) {
     //
     // The repair drops the unversioned constraint and re-adds it with the
     // complete set of values the application actually writes, so the object is
-    // described here rather than only in the database. The list must stay in
-    // sync with KNOWN_STATUSES in src/lib/hr/pending-actions.ts.
+    // described here rather than only in the database. The list IS
+    // KNOWN_STATUSES from src/lib/hr/pending-actions.ts — derived, not retyped,
+    // so a status added there is permitted by the next migration run. (It was
+    // a retyped copy until 'resolved_manually' was added; a second copy of a
+    // list is how 'scheduled' went missing from the first one.)
+    //
+    // Likely origin of the unversioned production object: the inline CHECK in
+    // migrations/add_hr_requests.sql, which PostgreSQL auto-names
+    // hr_requests_status_check and which lists 'requires_review' but not
+    // 'scheduled'. If a row still holds 'requires_review', the pre-flight below
+    // reports it and applies nothing.
     //
     // NOT NULL and the 'pending' default are untouched. Dropping and re-adding
     // a CHECK is safe on a populated table: the ADD validates existing rows and
     // fails loudly if any row holds a value outside the list, which is the
     // behaviour we want rather than a silently unenforced column.
     try {
-      const statusValues = ['pending', 'running', 'scheduled', 'completed', 'failed']
+      const statusValues = [...KNOWN_STATUSES]
+      // Values are code constants, not input — but they are interpolated into
+      // DDL (CHECK cannot take bind parameters), so refuse anything that is not
+      // a plain identifier rather than trusting that forever.
+      if (!statusValues.every((v) => /^[a-z_]+$/.test(v))) {
+        throw new Error(`KNOWN_STATUSES holds a value unsafe for DDL: ${statusValues.join(', ')}`)
+      }
+      const checkList = statusValues.map((v) => `'${v}'`).join(', ')
       const offending = await client.query<{ status: string; count: string }>(
         `SELECT status, COUNT(*)::text AS count
            FROM hr_requests
@@ -913,16 +930,25 @@ export async function POST(request: Request) {
           `⚠️ hr_requests_status_check: NOT applied — existing rows hold values outside the allowed list (${detail}). Resolve those rows first.`
         )
       } else {
-        await client.query(
-          `ALTER TABLE hr_requests DROP CONSTRAINT IF EXISTS hr_requests_status_check`
-        )
-        await client.query(
-          `ALTER TABLE hr_requests
-             ADD CONSTRAINT hr_requests_status_check
-             CHECK (status IN ('pending', 'running', 'scheduled', 'completed', 'failed'))`
-        )
+        // One transaction, so a failed ADD rolls the DROP back instead of
+        // leaving the column with no constraint at all.
+        await client.query('BEGIN')
+        try {
+          await client.query(
+            `ALTER TABLE hr_requests DROP CONSTRAINT IF EXISTS hr_requests_status_check`
+          )
+          await client.query(
+            `ALTER TABLE hr_requests
+               ADD CONSTRAINT hr_requests_status_check
+               CHECK (status IN (${checkList}))`
+          )
+          await client.query('COMMIT')
+        } catch (swapErr) {
+          await client.query('ROLLBACK').catch(() => {})
+          throw swapErr
+        }
         results.push(
-          "✅ hr_requests_status_check constraint (now permits 'scheduled' — repairs future-dated onboarding/offboarding)"
+          `✅ hr_requests_status_check constraint (permits ${checkList} — repairs future-dated onboarding/offboarding)`
         )
       }
     } catch (error) {

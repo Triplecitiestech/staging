@@ -77,7 +77,117 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function ActionCard({ action }: { action: PendingAction }) {
+function ResolveControl({
+  action,
+  onResolved,
+}: {
+  action: PendingAction
+  onResolved: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Only stuck requests are candidates; deletions and healthy rows never are.
+  if (action.kind !== 'wedged_running' && action.kind !== 'never_started') return null
+
+  if (action.resolvable === false) {
+    return (
+      <p className="mt-3 text-xs text-slate-500">
+        Cannot be marked resolved yet: {action.resolveBlockedReason}
+      </p>
+    )
+  }
+  if (action.resolvable !== true) return null
+
+  async function submit() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/hr/pending-actions/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: action.requestId, note }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json?.success !== true) {
+        setError(json?.error ?? `Request failed (${res.status})`)
+        return
+      }
+      setOpen(false)
+      setNote('')
+      onResolved()
+    } catch (err) {
+      setError((err as Error)?.message ?? 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20"
+        >
+          Mark resolved manually
+        </button>
+      </div>
+    )
+  }
+
+  const noteLength = note.trim().length
+  return (
+    <div className="mt-4 rounded-lg border border-white/10 bg-slate-900/60 p-3">
+      <label htmlFor={`resolve-${action.requestId}`} className="block text-sm text-slate-300">
+        What was done by hand, and where is it recorded?
+      </label>
+      <p className="mt-1 text-xs text-slate-500">
+        This only updates the platform&apos;s record. It changes nothing in Microsoft 365 or
+        Autotask, and the platform will never re-run this request.
+      </p>
+      <textarea
+        id={`resolve-${action.requestId}`}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={3}
+        maxLength={1000}
+        placeholder="e.g. Account verified signing in normally, unblocked by hand — see T20260914.0005"
+        className="mt-2 w-full rounded-lg border border-white/10 bg-slate-800 p-2 text-sm text-slate-200 placeholder:text-slate-600"
+      />
+      {error && <p className="mt-2 text-xs text-rose-300">{error}</p>}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={saving || noteLength < 10}
+          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Confirm resolved'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            setError(null)
+          }}
+          disabled={saving}
+          className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:text-white"
+        >
+          Cancel
+        </button>
+        {noteLength > 0 && noteLength < 10 && (
+          <span className="self-center text-xs text-slate-500">At least 10 characters</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ActionCard({ action, onResolved }: { action: PendingAction; onResolved: () => void }) {
   const style = SEVERITY_STYLE[action.severity]
   const overdue = action.daysUntilEffective !== null && action.daysUntilEffective < 0
 
@@ -166,6 +276,8 @@ function ActionCard({ action }: { action: PendingAction }) {
           {action.errorMessage}
         </p>
       )}
+
+      <ResolveControl action={action} onResolved={onResolved} />
     </div>
   )
 }
@@ -174,6 +286,9 @@ export default function HrPendingPage() {
   const [data, setData] = useState<ApiPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Bumped after a request is marked resolved, to re-read the list.
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -203,7 +318,7 @@ export default function HrPendingPage() {
 
     load()
     return () => controller.abort()
-  }, [])
+  }, [reloadKey])
 
   const summary = data?.summary
 
@@ -233,9 +348,10 @@ export default function HrPendingPage() {
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-400">
             Onboarding and offboarding requests that never finished, plus any account
-            deletion still armed on a 30-day hold. This page is{' '}
-            <strong className="text-slate-300">read-only</strong> — it reports what the
-            platform recorded and changes nothing.
+            deletion still armed on a 30-day hold. The page reports what the platform
+            recorded. Its one action — marking a stuck request resolved after it was
+            handled by hand — updates that record only and changes nothing in Microsoft
+            365 or Autotask.
           </p>
         </header>
 
@@ -312,7 +428,11 @@ export default function HrPendingPage() {
             ) : (
               <div className="space-y-4">
                 {data.actions.map((action) => (
-                  <ActionCard key={action.requestId} action={action} />
+                  <ActionCard
+                    key={action.requestId}
+                    action={action}
+                    onResolved={() => setReloadKey((k) => k + 1)}
+                  />
                 ))}
               </div>
             )}

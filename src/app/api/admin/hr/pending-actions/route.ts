@@ -3,6 +3,7 @@ import { getPool } from '@/lib/db-pool'
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 import {
   buildPendingActionsReport,
+  TERMINAL_STATUSES,
   type HrRequestRow,
 } from '@/lib/hr/pending-actions'
 
@@ -20,7 +21,9 @@ export const dynamic = 'force-dynamic'
  * See docs/incidents/2026-09-03-tribros-scheduled-deletion-rca.md
  *
  * GET is the only method. There is deliberately no cancel, retry or re-arm
- * verb here: this route reports state and nothing else. Acting on a finding is
+ * verb here: this route reports state and nothing else. The one write that
+ * exists — marking a stuck request resolved manually — lives at
+ * ./resolve, so this route stays read-only. Acting on a finding is
  * a human task, and a destructive action needs the guards proposed in the RCA
  * before any code should be allowed to trigger it.
  */
@@ -79,13 +82,14 @@ export async function GET() {
       `SELECT ${COLUMNS}
          FROM hr_requests
         WHERE status IS NULL
-           OR status NOT IN ('completed', 'failed')
+           OR NOT (status = ANY($1::text[]))
            OR scheduled_deletion_date IS NOT NULL
         ORDER BY created_at DESC
-        LIMIT 500`
+        LIMIT 500`,
+      [TERMINAL_STATUSES]
     )
 
-    const report = buildPendingActionsReport(rows, todayEastern())
+    const report = buildPendingActionsReport(rows, todayEastern(), new Date())
 
     return apiOk(
       {
