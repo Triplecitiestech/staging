@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { AutotaskClient, mapAtTaskStatus, mapAtTaskPriority, mapAtProjectStatus, mapLocalProjectStatusToAt } from '@/lib/autotask'
+import { AutotaskClient, mapAtTaskStatus, getTaskStatusLabelMap, mapAtTaskPriority, mapAtProjectStatus, mapLocalProjectStatusToAt } from '@/lib/autotask'
 import type { TaskStatus, Priority } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -104,6 +104,9 @@ export async function POST(request: NextRequest) {
       log.push(`ERROR fetching tasks: ${error instanceof Error ? error.message : 'Unknown'}`)
     }
 
+    // Live Tasks.status labels so every "Complete…" status (5 and 52) syncs as done.
+    const taskStatusLabels = await getTaskStatusLabelMap(client)
+
     // Group tasks by phaseID
     const tasksByPhase = new Map<number, typeof allAtTasks>()
     for (const task of allAtTasks) {
@@ -155,7 +158,7 @@ export async function POST(request: NextRequest) {
 
       for (const atTask of phaseTasks) {
         const atTaskId = String(atTask.id)
-        const status = mapAtTaskStatus(atTask.status) as TaskStatus
+        const status = mapAtTaskStatus(atTask.status, taskStatusLabels) as TaskStatus
         const priority = mapAtTaskPriority(atTask.priority || 2) as Priority
         const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 

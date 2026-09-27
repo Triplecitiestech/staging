@@ -3277,11 +3277,57 @@ export function mapAtProjectStatus(atStatus: number): 'ACTIVE' | 'COMPLETED' | '
 }
 
 /**
+ * Is this Tasks.status LABEL a completed state?
+ *
+ * This instance has TWO complete statuses: 5 "Complete" and 52 "Complete - No
+ * Notify" (live Tasks.status picklist, 2026-09-27). Autotask does NOT stamp
+ * completedDateTime when a task is moved to 52 through the API, so neither the
+ * date nor the id 5 alone identifies a finished task. Matching the label keeps
+ * any future "Complete - …" status covered without another hardcoded id.
+ */
+export function isCompleteTaskStatusLabel(label: string | null | undefined): boolean {
+  return !!label && label.trim().toLowerCase().startsWith('complete');
+}
+
+// Tasks.status id -> label, cached per instance so a sync run does not re-read
+// entityInformation once per project.
+const TASK_STATUS_LABEL_TTL_MS = 30 * 60_000;
+const globalForTaskStatus = globalThis as unknown as {
+  __atTaskStatusLabels?: { map: Map<number, string>; expiresAt: number };
+};
+
+/**
+ * Live Tasks.status id -> label map (includes inactive ids so historical
+ * values still resolve). On a lookup failure returns an EMPTY map and logs —
+ * mapAtTaskStatus then degrades to its id-only mapping rather than failing
+ * the sync.
+ */
+export async function getTaskStatusLabelMap(client: AutotaskClient): Promise<Map<number, string>> {
+  const cached = globalForTaskStatus.__atTaskStatusLabels;
+  if (cached && cached.expiresAt > Date.now()) return cached.map;
+  try {
+    const map = await client.picklistLabelMap('Tasks', 'status');
+    globalForTaskStatus.__atTaskStatusLabels = { map, expiresAt: Date.now() + TASK_STATUS_LABEL_TTL_MS };
+    return map;
+  } catch (err) {
+    console.warn(
+      `[autotask] Tasks.status picklist unavailable; task completion falls back to id ${AT_TASK_STATUS_COMPLETE} only: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return new Map();
+  }
+}
+
+/**
  * Map Autotask task status number to our TaskStatus enum.
  * Uses individual constants to avoid duplicate-value bugs.
+ *
+ * Pass `statusLabelById` (from getTaskStatusLabelMap) so every complete-labelled
+ * status — including 52 "Complete - No Notify" — maps to REVIEWED_AND_DONE.
+ * Without it only id 5 is recognised as done.
  */
-export function mapAtTaskStatus(atStatus: number): string {
+export function mapAtTaskStatus(atStatus: number, statusLabelById?: Map<number, string>): string {
   if (atStatus === AT_TASK_STATUS_COMPLETE) return 'REVIEWED_AND_DONE';
+  if (isCompleteTaskStatusLabel(statusLabelById?.get(atStatus))) return 'REVIEWED_AND_DONE';
   if (atStatus === AT_TASK_STATUS_IN_PROGRESS) return 'WORK_IN_PROGRESS';
   if (atStatus === AT_TASK_STATUS_WAITING_CUSTOMER) return 'WAITING_ON_CLIENT';
   if (atStatus === AT_TASK_STATUS_NEW) return 'NOT_STARTED';

@@ -23,8 +23,11 @@ import {
   WILMAR_MILESTONES,
   WILMAR_GO_LIVE_PHASE_NUMBER,
   findWilmarPhaseDefinition,
+  isTaskComplete,
+  bucketWilmarTasks,
   type WilmarPhaseDefinition,
 } from './wilmar-status';
+import { mapAtTaskStatus, isCompleteTaskStatusLabel } from './autotask';
 
 /**
  * Autotask project 55's phase list, read live 2026-09-07 via
@@ -247,5 +250,92 @@ describe('the TODAY marker sits in the segment today actually falls in', () => {
 
   it('returns 0 when no milestone date resolves at all', () => {
     expect(computeTodayPositionPercent(RAIL.map((a) => ({ ...a, date: null })), d('2026-09-07'))).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task completion + bucketing
+//
+// 2026-09-27: Autotask does not stamp completedDateTime when a task is moved to
+// 52 "Complete - No Notify" through the API. Deciding "complete" by the date
+// alone showed Phase 3 as 11 of 14 while all 14 were complete in Autotask.
+// ---------------------------------------------------------------------------
+
+/** Tasks.status labels, read live 2026-09-27 via autotask_entity_picklist (subset). */
+const TASK_STATUS_LABELS = new Map<number, string>([
+  [1, 'New'],
+  [5, 'Complete'],
+  [52, 'Complete - No Notify'],
+  [8, 'In Progress'],
+  [7, 'Waiting Customer'],
+  [12, 'Waiting Vendor'],
+  [19, 'Customer Note Added'],
+]);
+
+describe('isTaskComplete', () => {
+  it('status 5 with a completedDateTime is complete', () => {
+    expect(isTaskComplete({ status: 5, completedDateTime: '2026-09-02T14:00:00Z' }, TASK_STATUS_LABELS)).toBe(true);
+  });
+  it('status 52 with NO completedDateTime is complete (the regression)', () => {
+    expect(isTaskComplete({ status: 52, completedDateTime: undefined }, TASK_STATUS_LABELS)).toBe(true);
+  });
+  it('status 8 and status 7 are not complete', () => {
+    expect(isTaskComplete({ status: 8 }, TASK_STATUS_LABELS)).toBe(false);
+    expect(isTaskComplete({ status: 7 }, TASK_STATUS_LABELS)).toBe(false);
+  });
+  it('a completedDateTime counts even if the label is unknown', () => {
+    expect(isTaskComplete({ status: 999, completedDateTime: '2026-09-02T14:00:00Z' }, new Map())).toBe(true);
+  });
+  it('"Customer Note Added" is not mistaken for a complete status', () => {
+    expect(isTaskComplete({ status: 19 }, TASK_STATUS_LABELS)).toBe(false);
+  });
+});
+
+describe('bucketWilmarTasks', () => {
+  it('buckets 5+date and 52-no-date as complete, 8 in progress, 7 waiting', () => {
+    const buckets = bucketWilmarTasks(
+      [
+        { status: 5, completedDateTime: '2026-09-02T14:00:00Z' },
+        { status: 52 },
+        { status: 8 },
+        { status: 7 },
+      ],
+      TASK_STATUS_LABELS
+    );
+    expect(buckets).toEqual({ complete: 2, inProgress: 1, waiting: 1, notStarted: 0 });
+  });
+
+  it('reproduces Phase 3 of project 55: 11 at status 5 + 3 at status 52 = 14 of 14', () => {
+    const phase3 = [
+      ...Array.from({ length: 11 }, () => ({ status: 5, completedDateTime: '2026-09-02T14:00:00Z' })),
+      ...Array.from({ length: 3 }, () => ({ status: 52 })),
+    ];
+    expect(bucketWilmarTasks(phase3, TASK_STATUS_LABELS).complete).toBe(14);
+  });
+
+  it('buckets are exclusive and sum to the task count', () => {
+    const tasks = [1, 5, 52, 8, 7, 12, 19].map((status) => ({ status }));
+    const b = bucketWilmarTasks(tasks, TASK_STATUS_LABELS);
+    expect(b.complete + b.inProgress + b.waiting + b.notStarted).toBe(tasks.length);
+    expect(b).toEqual({ complete: 2, inProgress: 1, waiting: 2, notStarted: 2 });
+  });
+});
+
+describe('mapAtTaskStatus (sync path)', () => {
+  it('maps 52 "Complete - No Notify" to REVIEWED_AND_DONE when labels are supplied', () => {
+    expect(mapAtTaskStatus(52, TASK_STATUS_LABELS)).toBe('REVIEWED_AND_DONE');
+    expect(mapAtTaskStatus(5, TASK_STATUS_LABELS)).toBe('REVIEWED_AND_DONE');
+    expect(mapAtTaskStatus(8, TASK_STATUS_LABELS)).toBe('WORK_IN_PROGRESS');
+    expect(mapAtTaskStatus(7, TASK_STATUS_LABELS)).toBe('WAITING_ON_CLIENT');
+  });
+  it('still maps 5 to done when the picklist could not be read', () => {
+    expect(mapAtTaskStatus(5)).toBe('REVIEWED_AND_DONE');
+    expect(mapAtTaskStatus(5, new Map())).toBe('REVIEWED_AND_DONE');
+  });
+  it('isCompleteTaskStatusLabel matches only labels starting with "complete"', () => {
+    expect(isCompleteTaskStatusLabel('Complete - No Notify')).toBe(true);
+    expect(isCompleteTaskStatusLabel('  complete ')).toBe(true);
+    expect(isCompleteTaskStatusLabel('Customer Note Added')).toBe(false);
+    expect(isCompleteTaskStatusLabel(undefined)).toBe(false);
   });
 });

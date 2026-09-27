@@ -16,6 +16,7 @@ import { DattoRmmClient, type DattoAlert } from '@/lib/datto-rmm';
 import { DattoSaasClient } from '@/lib/datto-saas';
 import { DnsFilterClient } from '@/lib/dnsfilter';
 import { matchesCompanyName } from '@/utils';
+import { isResolvedStatus } from '@/lib/reporting/types';
 import type {
   BackupData,
   ContentFilteringData,
@@ -45,8 +46,6 @@ const SAAS_WORKLOAD_LABELS: Record<string, string> = {
 
 const SERVICE_DESK_SOURCE = 'Autotask PSA + Datto RMM';
 
-/** Autotask default "Complete" status id (always treated as closed). */
-const STATUS_COMPLETE = 5;
 /** Datto alert priority order for display (highest first). */
 const ALERT_PRIORITY_ORDER = ['critical', 'high', 'moderate', 'low', 'information'];
 
@@ -132,7 +131,10 @@ async function buildTicketVolume(ctx: TbrContext): Promise<SectionState<TicketVo
     for (const t of tickets) {
       const created = new Date(t.createDate);
       const completed = t.completedDate ? new Date(t.completedDate) : null;
-      const isClosed = !!completed || t.status === STATUS_COMPLETE;
+      // Shared resolved-status set (5 Complete AND 52 Complete - No Notify, plus
+      // any picklist-discovered resolved label) — never id 5 alone, which counted
+      // every "Complete - No Notify" ticket as still open.
+      const isClosed = !!completed || isResolvedStatus(t.status);
 
       yearEntry(created.getFullYear()).created++;
       if (completed) {
