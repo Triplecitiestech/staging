@@ -13,7 +13,7 @@
  * reach a public page.
  */
 
-import { AutotaskClient, AutotaskProjectPhase } from '@/lib/autotask';
+import { AutotaskClient, AutotaskProjectPhase, AutotaskTask, isCompleteTaskStatusLabel } from '@/lib/autotask';
 import { withTimeout } from '@/lib/resilience';
 
 // ============================================================
@@ -407,6 +407,54 @@ function clampPercent(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
+/**
+ * Is this task finished?
+ *
+ * completedDateTime alone is NOT enough: Autotask does not stamp it when a task
+ * is moved to 52 "Complete - No Notify" through the API, so those tasks read as
+ * not started (Phase 3 showed 11 of 14 while all 14 were complete). The live
+ * Tasks.status label is the second signal — any status whose label starts
+ * with "complete" (5 "Complete", 52 "Complete - No Notify"). No ids hardcoded.
+ */
+export function isTaskComplete(
+  task: Pick<AutotaskTask, 'status' | 'completedDateTime'>,
+  statusLabelById: Map<number, string>
+): boolean {
+  if (task.completedDateTime) return true;
+  return isCompleteTaskStatusLabel(statusLabelById.get(task.status));
+}
+
+export interface WilmarTaskBuckets {
+  complete: number;
+  inProgress: number;
+  waiting: number;
+  notStarted: number;
+}
+
+/**
+ * Bucket tasks for the overall progress row. Buckets are mutually exclusive and
+ * sum to tasks.length. "Waiting on access or vendor" = any status labelled
+ * "Waiting …" (7 Waiting Customer, 9 Waiting Materials, 12 Waiting Vendor,
+ * 21/25 Waiting on (Down) Payment on this instance).
+ */
+export function bucketWilmarTasks(
+  tasks: Array<Pick<AutotaskTask, 'status' | 'completedDateTime'>>,
+  statusLabelById: Map<number, string>
+): WilmarTaskBuckets {
+  const buckets: WilmarTaskBuckets = { complete: 0, inProgress: 0, waiting: 0, notStarted: 0 };
+  for (const task of tasks) {
+    if (isTaskComplete(task, statusLabelById)) {
+      buckets.complete++;
+      continue;
+    }
+    const label = (statusLabelById.get(task.status) ?? '').toLowerCase();
+    if (label.includes('progress')) buckets.inProgress++;
+    else if (label.includes('waiting')) buckets.waiting++;
+    else buckets.notStarted++;
+  }
+  return buckets;
+}
+
 export async function getWilmarStatusData(): Promise<WilmarStatusResult> {
   try {
     const data = await withTimeout(() => fetchWilmarStatusData(), OVERALL_TIMEOUT_MS, 'Wilmar status data');
@@ -423,11 +471,12 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
   const client = new AutotaskClient();
   const today = dateOnly(new Date());
 
-  const [project, phases, tasks, statusPicklist] = await Promise.all([
+  const [project, phases, tasks, statusLabelById] = await Promise.all([
     client.getProject(WILMAR_AUTOTASK_PROJECT_ID),
     client.getProjectPhases(WILMAR_AUTOTASK_PROJECT_ID),
     client.getProjectTasks(WILMAR_AUTOTASK_PROJECT_ID),
-    client.getEntityPicklist('Tasks', 'status'),
+    // Includes inactive ids so a task on a retired status still resolves its label.
+    client.picklistLabelMap('Tasks', 'status'),
   ]);
 
   // ---- Resolve all 10 phases: externalID first, title prefix as fallback ----
@@ -449,32 +498,18 @@ async function fetchWilmarStatusData(): Promise<WilmarStatusData> {
   }
 
   const matchedPhaseIds = new Set(phaseMatches.map((m) => m.phase!.id));
-  const statusLabelById = new Map(statusPicklist.map((p) => [p.id, p.label.toLowerCase()]));
 
   // ---- Overall progress: tasks in the 10 mirrored phases ----
   const scopedTasks = tasks.filter((t) => t.phaseID != null && matchedPhaseIds.has(t.phaseID));
 
-  let complete = 0;
-  let inProgress = 0;
-  let waiting = 0;
-  let notStarted = 0;
-  for (const task of scopedTasks) {
-    if (task.completedDateTime) {
-      complete++;
-      continue;
-    }
-    const label = statusLabelById.get(task.status) ?? '';
-    if (label.includes('progress')) inProgress++;
-    else if (label.includes('waiting')) waiting++;
-    else notStarted++;
-  }
+  const { complete, inProgress, waiting, notStarted } = bucketWilmarTasks(scopedTasks, statusLabelById);
   const totalTasks = scopedTasks.length;
   const overallPercent = totalTasks > 0 ? Math.round((complete / totalTasks) * 100) : 0;
 
   // ---- Phase cards (1-10, phase-number order) ----
   const phaseCards: WilmarPhaseCard[] = phaseMatches.map(({ def, phase }) => {
     const phaseTasks = tasks.filter((t) => t.phaseID === phase!.id);
-    const phaseComplete = phaseTasks.filter((t) => t.completedDateTime).length;
+    const phaseComplete = phaseTasks.filter((t) => isTaskComplete(t, statusLabelById)).length;
     const phaseTotal = phaseTasks.length;
     return {
       eyebrow: def.eyebrow,

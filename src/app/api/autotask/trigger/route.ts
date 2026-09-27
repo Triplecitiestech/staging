@@ -10,6 +10,7 @@ import {
   AutotaskProjectNote,
   mapAtProjectStatus,
   mapAtTaskStatus,
+  getTaskStatusLabelMap,
   mapAtTaskPriority,
   generateSlug,
 } from '@/lib/autotask';
@@ -455,6 +456,9 @@ async function handleResync(client: AutotaskClient, page: number) {
         pLog.errors.push(`Tasks API: ${err instanceof Error ? err.message : String(err)}`);
       }
 
+      // Live Tasks.status labels so every "Complete…" status (5 and 52) syncs as done.
+      const taskStatusLabels = await getTaskStatusLabelMap(client);
+
       // Build phase map
       const phaseIdMap = new Map<number, string>();
 
@@ -475,7 +479,7 @@ async function handleResync(client: AutotaskClient, page: number) {
         const defaultPhase = await getOrCreateDefaultPhase(project.id);
         for (const atTask of atTasks) {
           try {
-            const result = await syncTask(atTask, defaultPhase.id);
+            const result = await syncTask(atTask, defaultPhase.id, taskStatusLabels);
             if (result.created) pLog.tasksCreated++;
             else pLog.tasksUpdated++;
           } catch (err) {
@@ -488,7 +492,7 @@ async function handleResync(client: AutotaskClient, page: number) {
           try {
             const localPhaseId = atTask.phaseID ? phaseIdMap.get(atTask.phaseID) : undefined;
             const phaseId = localPhaseId || (await getOrCreateDefaultPhase(project.id)).id;
-            const result = await syncTask(atTask, phaseId);
+            const result = await syncTask(atTask, phaseId, taskStatusLabels);
             if (result.created) pLog.tasksCreated++;
             else pLog.tasksUpdated++;
           } catch (err) {
@@ -1356,6 +1360,9 @@ async function syncProjectPhasesAndTasks(
     errors.push(`Failed to fetch tasks for AT project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Live Tasks.status labels so every "Complete…" status (5 and 52) syncs as done.
+  const taskStatusLabels = await getTaskStatusLabelMap(client);
+
   const phaseIdMap = new Map<number, string>();
 
   // If no phases but we have tasks, create a default phase
@@ -1363,7 +1370,7 @@ async function syncProjectPhasesAndTasks(
     const defaultPhase = await getOrCreateDefaultPhase(projectId);
     for (const atTask of atTasks) {
       try {
-        const result = await syncTask(atTask, defaultPhase.id);
+        const result = await syncTask(atTask, defaultPhase.id, taskStatusLabels);
         if (result.created) tasksCreated++;
         else tasksUpdated++;
       } catch (err) {
@@ -1396,7 +1403,7 @@ async function syncProjectPhasesAndTasks(
     try {
       const localPhaseId = atTask.phaseID ? phaseIdMap.get(atTask.phaseID) : undefined;
       const phaseId = localPhaseId || (await getOrCreateDefaultPhase(projectId)).id;
-      const result = await syncTask(atTask, phaseId);
+      const result = await syncTask(atTask, phaseId, taskStatusLabels);
       if (result.created) tasksCreated++;
       else tasksUpdated++;
     } catch (err) {
@@ -1492,7 +1499,8 @@ async function syncPhase(
 
 async function syncTask(
   atTask: AutotaskTask,
-  phaseId: string
+  phaseId: string,
+  taskStatusLabels?: Map<number, string>
 ): Promise<{ created: boolean }> {
   const atId = String(atTask.id);
 
@@ -1501,7 +1509,7 @@ async function syncTask(
     select: { id: true, dueDate: true, completedAt: true, notes: true },
   });
 
-  const status = mapAtTaskStatus(atTask.status) as TaskStatus;
+  const status = mapAtTaskStatus(atTask.status, taskStatusLabels) as TaskStatus;
   const priority = mapAtTaskPriority(atTask.priority) as Priority;
   const isComplete = status === 'REVIEWED_AND_DONE' || status === 'NOT_APPLICABLE';
 
