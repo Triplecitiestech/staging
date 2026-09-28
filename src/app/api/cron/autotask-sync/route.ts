@@ -9,6 +9,7 @@ import {
   AutotaskTask,
   mapAtProjectStatus,
   mapAtTaskStatus,
+  getTaskStatusLabelMap,
   mapAtTaskPriority,
   generateSlug,
 } from '@/lib/autotask';
@@ -510,6 +511,9 @@ async function syncProjectPhasesAndTasks(
     console.error(`[Autotask Sync] Failed to fetch tasks for project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Live Tasks.status labels so every "Complete…" status (5 and 52) syncs as done.
+  const taskStatusLabels = await getTaskStatusLabelMap(client);
+
   // Create a mapping of AT phase ID -> local phase ID
   const phaseIdMap = new Map<number, string>();
 
@@ -518,7 +522,7 @@ async function syncProjectPhasesAndTasks(
     const defaultPhase = await getOrCreateDefaultPhase(projectId);
     // All tasks will be assigned to this default phase
     for (const atTask of atTasks) {
-      const result = await syncTask(atTask, defaultPhase.id);
+      const result = await syncTask(atTask, defaultPhase.id, taskStatusLabels);
       if (result.created) tasksCreated++;
       else tasksUpdated++;
     }
@@ -541,7 +545,7 @@ async function syncProjectPhasesAndTasks(
     // If task has a phase we don't have mapped, use default phase
     const phaseId = localPhaseId || (await getOrCreateDefaultPhase(projectId)).id;
 
-    const result = await syncTask(atTask, phaseId);
+    const result = await syncTask(atTask, phaseId, taskStatusLabels);
     if (result.created) tasksCreated++;
     else tasksUpdated++;
   }
@@ -629,7 +633,8 @@ async function syncPhase(
 
 async function syncTask(
   atTask: AutotaskTask,
-  phaseId: string
+  phaseId: string,
+  taskStatusLabels?: Map<number, string>
 ): Promise<{ created: boolean }> {
   const atId = String(atTask.id);
 
@@ -638,7 +643,7 @@ async function syncTask(
     select: { id: true, dueDate: true, completedAt: true, notes: true },
   });
 
-  const status = mapAtTaskStatus(atTask.status) as TaskStatus;
+  const status = mapAtTaskStatus(atTask.status, taskStatusLabels) as TaskStatus;
   const priority = mapAtTaskPriority(atTask.priority) as Priority;
 
   if (existing) {
