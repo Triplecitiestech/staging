@@ -40,6 +40,7 @@ import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
 import { registerKaseyaQuoteManagerTools } from '@/lib/mcp-kaseya-quote-manager-tools'
 import { registerRingCentralTools } from '@/lib/mcp-ringcentral-tools'
+import { registerSocTools } from '@/lib/mcp-soc-tools'
 import {
   recordingServer,
   buildCapabilityReport,
@@ -422,6 +423,11 @@ export function registerAllConnectorTools(mcpServer: ConnectorMcpServer): {
       // Every transcript carries a MEASURED coverage verdict, because RingCentral
       // silently stops transcribing when a call becomes a three-way conference.
       registerRingCentralTools(server)
+
+      // ── SOC analyzer (read-only dry run) ──────────────────────────────────
+      // Runs the real analyzer against a ticket with every write captured and
+      // nothing persisted — see src/lib/mcp-soc-tools.ts.
+      registerSocTools(server)
 
       // ── Bootstrap (registered LAST so it sees every tool above) ────────────
       // Tool discovery was the largest hidden cost of the 2026-09-09 session:

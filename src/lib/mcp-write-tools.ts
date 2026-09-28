@@ -35,9 +35,8 @@ import { getEntityCapabilitySnapshot } from '@/lib/connector/autotask-capability
 import { resolvePicklistId } from '@/lib/connector/autotask-picklists'
 import { classifyError } from '@/lib/resilience'
 import {
-  buildCustomerUpdateEmail,
   customerMailReadiness,
-  isSendableEmailAddress,
+  deliverCustomerNoteWithEmail,
   sendCustomerUpdateEmail,
 } from '@/lib/customer-mail'
 
@@ -484,6 +483,8 @@ async function addCustomerNoteAndEmail(input: {
 }): Promise<McpToolResult> {
   const { ticketId, message, title } = input
 
+  // Readiness is checked BEFORE the signed-in user is resolved, exactly as it
+  // always was — the shared core re-checks it for callers that do not.
   const readiness = customerMailReadiness()
   if (!readiness.ready) return failureResult({ ...readiness.failure, tool: CUSTOMER_NOTE_TOOL })
 
@@ -491,104 +492,91 @@ async function addCustomerNoteAndEmail(input: {
   const rid = await resolveResourceId(typeof signedIn === 'string' ? signedIn : undefined)
   const client = new AutotaskClient()
 
-  // The recipient comes from the ticket and nowhere else.
-  const ticket = await client.getTicket(ticketId)
-  if (!ticket) {
-    return customerEmailRefusal(`Ticket ${ticketId} was not found.`, 'Check the ticket id with autotask_get_ticket_by_number.', { ticketId })
-  }
-  const ticketNumber = ticket.ticketNumber ?? String(ticketId)
-  if (!ticket.contactID) {
-    return customerEmailRefusal(
-      `Ticket ${ticketNumber} has no contact, so there is nobody to email.`,
-      'Set the contact first with autotask_update_ticket ({ ticketId, contactID } — find the id with autotask_company_contacts), then call this again.',
-      { ticketId, ticketNumber, contactID: null },
-    )
-  }
-  const contact = await client.getContactById(ticket.contactID)
-  if (!contact) {
-    return customerEmailRefusal(
-      `Ticket ${ticketNumber} points at contact ${ticket.contactID}, which Autotask did not return.`,
-      'Open the ticket in Autotask and re-select the contact, or set a valid one with autotask_update_ticket.',
-      { ticketId, ticketNumber, contactID: ticket.contactID },
-    )
-  }
-  const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || null
-  if (!contact.isActive) {
-    return customerEmailRefusal(
-      `The ticket's contact ${contactName ?? contact.id} is INACTIVE in Autotask.`,
-      'Confirm with the user who should receive this update and set that contact on the ticket with autotask_update_ticket.',
-      { ticketId, ticketNumber, contactID: contact.id },
-    )
-  }
-  if (!isSendableEmailAddress(contact.emailAddress)) {
-    return customerEmailRefusal(
-      `The ticket's contact ${contactName ?? contact.id} has no usable email address in Autotask.`,
-      'Add the address to the contact with autotask_update_contact (or pick a different contact on the ticket), then call this again.',
-      { ticketId, ticketNumber, contactID: contact.id },
-    )
-  }
-  const to = contact.emailAddress.trim()
+  // The ordering, refusals and send live in ONE place (src/lib/customer-mail.ts)
+  // so the SOC analyzer's automatic customer update is this code path, not a copy.
+  const out = await deliverCustomerNoteWithEmail(
+    {
+      readiness: () => readiness,
+      getTicket: (id) => client.getTicket(id),
+      getContact: (id) => client.getContactById(id),
+      createNote: (id, note) => write.createTicketNote(id, note, rid),
+      readBackNote: (id, noteId) => readBackNote(client, id, noteId),
+      sendEmail: sendCustomerUpdateEmail,
+    },
+    { ticketId, message, title },
+  )
 
-  // Note first: it is the record the email refers to.
-  const res = await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)
-  const noteId = (res as { itemId?: number } | null)?.itemId
-  if (!noteId) {
+  if (!out.ok && out.stage === 'readiness') return failureResult({ ...out.failure, tool: CUSTOMER_NOTE_TOOL })
+  if (!out.ok && out.stage === 'precheck') {
+    const ticketNumber = out.ticketNumber ?? String(ticketId)
+    const who = out.contactName ?? out.contactID
+    switch (out.reason) {
+      case 'ticket_not_found':
+        return customerEmailRefusal(`Ticket ${ticketId} was not found.`, 'Check the ticket id with autotask_get_ticket_by_number.', { ticketId })
+      case 'no_contact':
+        return customerEmailRefusal(
+          `Ticket ${ticketNumber} has no contact, so there is nobody to email.`,
+          'Set the contact first with autotask_update_ticket ({ ticketId, contactID } — find the id with autotask_company_contacts), then call this again.',
+          { ticketId, ticketNumber, contactID: null },
+        )
+      case 'contact_not_found':
+        return customerEmailRefusal(
+          `Ticket ${ticketNumber} points at contact ${out.contactID}, which Autotask did not return.`,
+          'Open the ticket in Autotask and re-select the contact, or set a valid one with autotask_update_ticket.',
+          { ticketId, ticketNumber, contactID: out.contactID },
+        )
+      case 'contact_inactive':
+        return customerEmailRefusal(
+          `The ticket's contact ${who} is INACTIVE in Autotask.`,
+          'Confirm with the user who should receive this update and set that contact on the ticket with autotask_update_ticket.',
+          { ticketId, ticketNumber, contactID: out.contactID },
+        )
+      case 'no_email':
+        return customerEmailRefusal(
+          `The ticket's contact ${who} has no usable email address in Autotask.`,
+          'Add the address to the contact with autotask_update_contact (or pick a different contact on the ticket), then call this again.',
+          { ticketId, ticketNumber, contactID: out.contactID },
+        )
+    }
+  }
+  if (!out.ok && out.stage === 'note') {
     return failureResult({
       reasonCode: 'VERIFY_FAILED',
-      message: `Autotask accepted the note write on ticket ${ticketNumber} but returned no note id, so the note could not be confirmed. The customer was NOT emailed.`,
-      remediation: `Check ticket ${ticketNumber} in Autotask for the note before doing anything else. Do not call this tool again until you know whether the note exists — a second call would post it twice.`,
+      message: `Autotask accepted the note write on ticket ${out.ticketNumber} but returned no note id, so the note could not be confirmed. The customer was NOT emailed.`,
+      remediation: `Check ticket ${out.ticketNumber} in Autotask for the note before doing anything else. Do not call this tool again until you know whether the note exists — a second call would post it twice.`,
       surface: 'autotask',
       tool: CUSTOMER_NOTE_TOOL,
-      details: { ticketId, ticketNumber, noteCreated: 'unknown', customerEmailed: false, verificationState: 'unverified' },
+      details: { ticketId, ticketNumber: out.ticketNumber, noteCreated: 'unknown', customerEmailed: false, verificationState: 'unverified' },
     })
   }
-  const back = await readBackNote(client, ticketId, noteId).catch(() => null)
-
-  const email = buildCustomerUpdateEmail({ ticketNumber, ticketTitle: ticket.title ?? null, contactFirstName: contact.firstName ?? null, message })
-  let sent: Awaited<ReturnType<typeof sendCustomerUpdateEmail>>
-  try {
-    sent = await sendCustomerUpdateEmail({ to, toName: contactName, email })
-  } catch (e) {
+  if (!out.ok && out.stage === 'send') {
+    const e = out.error
     const { reasonCode, mayHaveSent } = classifyCustomerMailFailure(e)
     return failureResult({
       reasonCode,
       message:
-        `The customer-visible note WAS posted on ticket ${ticketNumber} (note ${noteId}), but emailing ${contactName ?? 'the contact'} failed. ` +
+        `The customer-visible note WAS posted on ticket ${out.ticketNumber} (note ${out.noteId}), but emailing ${out.contactName ?? 'the contact'} failed. ` +
         (mayHaveSent
           ? 'The send TIMED OUT, so the email may or may not have gone out.'
           : 'The customer has NOT been emailed.'),
       remediation:
         'Do NOT call this tool again — the note already exists and a second call would post it twice. ' +
-        (mayHaveSent ? `Check Sent Items in ${readiness.sender} before resending anything. ` : '') +
-        `To reach the customer now, open note ${noteId} in Autotask and send it from the Notification panel (tick Ticket Contact), or email them directly.` +
+        (mayHaveSent ? `Check Sent Items in ${out.sender} before resending anything. ` : '') +
+        `To reach the customer now, open note ${out.noteId} in Autotask and send it from the Notification panel (tick Ticket Contact), or email them directly.` +
         (reasonCode === 'PERMISSION_DENIED' ? ' The mail app\'s permission needs fixing: docs/runbooks/CUSTOMER_MAIL_SETUP.md.' : ''),
       surface: 'customer_mail',
       tool: CUSTOMER_NOTE_TOOL,
       vendorError: (e instanceof Error ? e.message : String(e)).slice(0, 800),
-      details: { ticketId, ticketNumber, noteId, noteCreated: true, customerEmailed: mayHaveSent ? 'unknown' : false, sender: readiness.sender },
+      details: { ticketId, ticketNumber: out.ticketNumber, noteId: out.noteId, noteCreated: true, customerEmailed: mayHaveSent ? 'unknown' : false, sender: out.sender },
     })
   }
+  if (!out.ok) throw new Error('unreachable customer-note outcome')
 
-  // Audit trail inside Autotask. Best effort — the email is already gone.
-  let auditNoteId: number | null = null
-  let auditNoteError: string | null = null
-  try {
-    const audit = await write.createTicketNote(
-      ticketId,
-      {
-        title: 'Customer emailed',
-        description: `Customer update (note ${noteId}) emailed to ${contactName ?? 'the ticket contact'} <${to}> from ${sent.sender} at ${sent.acceptedAt}. Sent through the TCT connector; Microsoft 365 accepted it for delivery (HTTP ${sent.httpStatus}). Subject: ${sent.subject}`,
-        publish: 2,
-      },
-      rid,
-    )
-    auditNoteId = (audit as { itemId?: number } | null)?.itemId ?? null
-  } catch (e) {
-    auditNoteError = e instanceof Error ? e.message : String(e)
-  }
-
+  const { sent, to, auditNoteId, auditNoteError } = out
+  const contactName = out.contact.name
+  const back = out.readBack as Record<string, unknown> | null
   return ok({
-    result: res,
+    result: out.noteResult,
     ticketUrl: getAutotaskTicketUrl(String(ticketId)),
     ...(back ?? { noteReadBack: false, readBackNote: 'The read-back query failed; the note was created but its stored publish level was not confirmed.' }),
     customerNotified: true,
@@ -596,7 +584,7 @@ async function addCustomerNoteAndEmail(input: {
       status: sent.status,
       to,
       toName: contactName,
-      contactID: contact.id,
+      contactID: out.contact.id,
       sender: sent.sender,
       subject: sent.subject,
       acceptedAt: sent.acceptedAt,

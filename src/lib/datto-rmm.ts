@@ -34,6 +34,9 @@ export interface DattoSite {
   name: string;
   description: string;
   devicesCount: number;
+  /** The Autotask company this site is mapped to IN Datto RMM (the API's own mapping), when set. */
+  autotaskCompanyId?: string | null;
+  autotaskCompanyName?: string | null;
 }
 
 export interface DattoSoftwareItem {
@@ -236,6 +239,8 @@ export class DattoRmmClient {
       name: s.name || '',
       description: s.description || '',
       devicesCount: s.devicesStatus?.numberOfDevices || 0,
+      autotaskCompanyId: s.autotaskCompanyId == null || s.autotaskCompanyId === '' ? null : String(s.autotaskCompanyId),
+      autotaskCompanyName: s.autotaskCompanyName ?? null,
     }));
   }
 
@@ -370,6 +375,8 @@ interface RawSite {
   name?: string;
   description?: string;
   devicesStatus?: { numberOfDevices?: number };
+  autotaskCompanyId?: string | number | null;
+  autotaskCompanyName?: string | null;
 }
 
 interface RawAlert {

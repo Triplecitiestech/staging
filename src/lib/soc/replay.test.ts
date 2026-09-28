@@ -1,0 +1,498 @@
+/**
+ * OFFLINE REPLAY of the Wilmar SOC incident — Autotask T20260927.0006 (36101)
+ * and its absorbed twin T20260927.0005 (36100), 2026-09-27/28.
+ *
+ * Runs the REAL pipeline (runTriagePipeline → enrichment → evidence →
+ * classification → delivery) against payloads captured read-only on
+ * 2026-09-28 (src/lib/soc/__fixtures__/wilmar-t20260927.json — its
+ * _provenance block says exactly what was captured and what was reconstructed).
+ *
+ * NOTHING CAN LEAVE THIS PROCESS:
+ *   - global fetch is replaced by a router that serves fixture GETs and records
+ *     a VIOLATION for any other method or any unrouted URL (every test asserts
+ *     zero violations);
+ *   - the Autotask client is a fake whose write methods record a violation;
+ *   - Autotask writes and the customer email go through recordingWriter();
+ *   - every vendor base URL is on the reserved .invalid TLD;
+ *   - the IT lead's address in the fixture is an .invalid placeholder.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fixtureJson from './__fixtures__/wilmar-t20260927.json'
+
+const F = fixtureJson as unknown as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+
+const violations = vi.hoisted(() => [] as string[])
+const llmScript = vi.hoisted(() => ({ outputs: [] as string[] }))
+
+vi.hoisted(() => {
+  process.env.ANTHROPIC_API_KEY = 'fixture'
+  process.env.ROCKETCYBER_API_TOKEN = 'fixture'
+  process.env.ROCKETCYBER_API_URL = 'https://rocketcyber.fixture.invalid/v3'
+  process.env.DATTO_RMM_API_URL = 'https://rmm.fixture.invalid'
+  process.env.DATTO_RMM_API_KEY = 'fixture'
+  process.env.DATTO_RMM_API_SECRET = 'fixture'
+  process.env.DATTO_EDR_API_TOKEN = 'fixture'
+  process.env.DATTO_EDR_API_URL = 'https://edr.fixture.invalid/api'
+  process.env.DNSFILTER_API_TOKEN = 'fixture'
+  process.env.DNSFILTER_API_URL = 'https://dnsfilter.fixture.invalid/v1'
+  delete process.env.SOC_AUTO_CUSTOMER_NOTIFY
+  delete process.env.CONNECTOR_CUSTOMER_EMAIL_ENABLED
+  delete process.env.CUSTOMER_MAIL_TENANT_ID
+})
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    $queryRaw: vi.fn(async () => []),
+    $executeRawUnsafe: vi.fn(async (sql: string) => { violations.push(`prisma write attempted: ${String(sql).slice(0, 60)}`); return 0 }),
+  },
+}))
+vi.mock('@/lib/db-pool', () => ({
+  getPool: () => ({ connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }) }),
+}))
+vi.mock('@/lib/graph', () => ({ getTenantCredentials: async () => null }))
+vi.mock('@/lib/api-usage-tracker', () => ({ trackAnthropicCall: (_op: string, _m: string, fn: () => unknown) => fn() }))
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class {
+    messages = {
+      create: async () => ({
+        content: [{ type: 'text', text: llmScript.outputs.shift() ?? '{"executiveSummary":"","customerImpact":""}' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'end_turn',
+      }),
+    }
+  },
+}))
+vi.mock('@/lib/datto-rmm', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/lib/datto-rmm')>()
+  // The real client — its request path, mapping and paging all run — minus the
+  // OAuth token POST, which the guard would (correctly) refuse.
+  ;(mod.DattoRmmClient.prototype as unknown as { getAccessToken: () => Promise<string> }).getAccessToken = async () => 'fixture-token'
+  return mod
+})
+vi.mock('@/lib/saas-alerts', () => ({
+  SaasAlertsClient: class {
+    isConfigured() { return true }
+    missingCredentials() { return [] }
+    async getCustomers() { return { customers: F.saasAlerts.customers } }
+    async getEvents() { return { events: F.saasAlerts.events } }
+  },
+}))
+vi.mock('@/lib/autotask', () => {
+  const at = () => F.autotask
+  class AutotaskClient {
+    async getCompanyById(id: number) { return id === 450 ? at().company : id === 451 ? { ...at().company, id: 451, companyName: 'Replay Co-Managed Without IT Lead' } : null }
+    async listContracts({ companyId }: { companyId?: number }) { return companyId === 450 ? at().contracts : [] }
+    async getProjectsByCompany(id: number) { return id === 450 ? at().projects : [] }
+    async getCompanyTickets(id: number) { return id === 450 ? at().openTickets : [] }
+    async getTicket(id: number) { return at().liveTickets.find((t: { id: number }) => t.id === id) ?? null }
+    async getContactById(id: number) { return at().contacts.find((c: { id: number }) => c.id === id) ?? null }
+    async getTicketNoteByNoteId() { return null }
+    async getTicketNotes() { return [] }
+    async createTicketNote() { violations.push('AutotaskClient.createTicketNote'); throw new Error('network write blocked') }
+    async updateTicketNote() { violations.push('AutotaskClient.updateTicketNote'); throw new Error('network write blocked') }
+    async patchTicket() { violations.push('AutotaskClient.patchTicket'); throw new Error('network write blocked') }
+  }
+  return {
+    AutotaskClient,
+    getAutotaskTicketUrl: (id: string) => `https://ww14.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?TicketId=${id}`,
+  }
+})
+
+// ── The network guard ──────────────────────────────────────────────────────
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+}
+function route(url: string): unknown {
+  const u = new URL(url)
+  const p = u.pathname
+  if (u.host === 'rocketcyber.fixture.invalid') {
+    if (p === '/v3/incidents') {
+      const inc = F.rocketcyber.incidents[u.searchParams.get('id') ?? '']
+      return { data: inc ? [inc] : [] }
+    }
+    const ev = p.match(/^\/v3\/incidents\/(\d+)\/events$/)
+    if (ev) return { data: F.rocketcyber.accountEvents }
+    const one = p.match(/^\/v3\/incidents\/(\d+)$/)
+    if (one) return F.rocketcyber.incidents[one[1]] ?? {}
+    if (p === '/v3/events') return { data: F.rocketcyber.accountEvents }
+  }
+  if (u.host === 'rmm.fixture.invalid') {
+    if (p === '/api/v2/account/sites') return { sites: F.dattoRmm.sites, pageDetails: {} }
+    const dev = p.match(/^\/api\/v2\/site\/([^/]+)\/devices$/)
+    if (dev) return { devices: F.dattoRmm.siteDevices[dev[1]] ?? [], pageDetails: {} }
+    const al = p.match(/^\/api\/v2\/site\/([^/]+)\/alerts\/(open|resolved)$/)
+    if (al) return { alerts: F.dattoRmm.siteAlerts[al[1]]?.[al[2]] ?? [], pageDetails: { nextPageUrl: null } }
+    if (/^\/api\/v2\/device\/[^/]+\/software$/.test(p)) return { software: [] }
+  }
+  if (u.host === 'edr.fixture.invalid') {
+    if (p === '/api/Organizations') return F.dattoEdr.organizations
+    if (p === '/api/Alerts') return F.dattoEdr.alerts
+  }
+  if (u.host === 'dnsfilter.fixture.invalid') {
+    if (p === '/v1/organizations') return F.dnsFilter.organizations
+    if (p === '/v1/traffic_reports/query_logs') return F.dnsFilter.queryLogs
+  }
+  return undefined
+}
+const guardedFetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+  const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
+  if (method !== 'GET') {
+    violations.push(`network ${method} ${url}`)
+    throw new Error(`replay guard: ${method} ${url} blocked`)
+  }
+  const body = route(url)
+  if (body === undefined) {
+    violations.push(`unrouted GET ${url}`)
+    throw new Error(`replay guard: unrouted GET ${url}`)
+  }
+  return json(body)
+})
+
+import { runTriagePipeline } from './engine'
+import { prisma } from '@/lib/prisma'
+import { memoryStore, recordingWriter, type SocAssessmentStore } from './delivery'
+import { lintCustomerMessage } from './evidence'
+import { buildCapabilityReport } from '@/lib/connector/capability-registry'
+import type { SecurityTicket, SocConfig, TriageResult } from './types'
+
+const CONFIG: SocConfig = {
+  agent_enabled: true,
+  dry_run: false,
+  correlation_window_minutes: 15,
+  confidence_auto_close: 0.9,
+  confidence_flag_review: 0.7,
+  confidence_floor: 0.5,
+  max_ai_calls_per_run: 100,
+  screening_model: 'screening-model',
+  deep_analysis_model: 'narrative-model',
+  internal_site_ids: [],
+  auto_post_internal_note: true,
+  confidence_uncorroborated_cap: 0.5,
+  recurring_pattern_threshold: 3,
+}
+const NOW = new Date(F.now)
+const IT_LEAD = 30683760
+const READY = () => ({ ready: true as const, sender: 'support@triplecitiestech.com' })
+
+/** The adversarial LLM: what the incident's 92% run actually claimed. */
+const BAD_SCREENING = '{"alertSource":"rocketcyber","category":"malware","extractedIps":["4.39.23.157"],"isFalsePositive":false,"confidence":0.92,"reasoning":"x","needsDeepAnalysis":true,"recommendedAction":"escalate","relatedTicketNumbers":[]}'
+const BAD_NARRATIVE_A = JSON.stringify({
+  executiveSummary: 'Microsoft Defender detected Trojan:Win32/NSteal.SA on WIL0170. Corroborated by Datto RMM and DNSFilter. The raw events show active adversary lateral movement to WIL0225 and WIL0178. Confidence is 92%.',
+  customerImpact: 'Do not use any company accounts until further notice.',
+})
+const BAD_NARRATIVE_B = JSON.stringify({
+  executiveSummary: 'Incident #13135961 (NTask.SD) on an unknown device. Attacker moved laterally. Confidence 50%.',
+  customerImpact: 'Multiple devices have been compromised.',
+})
+
+function tickets(...ids: string[]): SecurityTicket[] {
+  return ids.map((id) => ({ ...F.localTickets.find((t: SecurityTicket) => t.autotaskTicketId === id) }))
+}
+function seededWriter(opts: { readiness?: () => ReturnType<typeof READY> } = {}) {
+  return recordingWriter({
+    seed: { tickets: F.autotask.liveTickets, contacts: F.autotask.contacts },
+    readiness: opts.readiness ?? READY,
+    acceptedAt: '2026-09-28T04:52:30.000Z',
+  })
+}
+async function replay(ids: string[], rt: { writer?: ReturnType<typeof seededWriter>; store?: SocAssessmentStore; trigger?: 'ingest' | 'manual' | 'cron'; narrative?: string } = {}) {
+  llmScript.outputs.push(BAD_SCREENING, rt.narrative ?? BAD_NARRATIVE_A)
+  const writer = rt.writer ?? seededWriter()
+  const store = rt.store ?? memoryStore()
+  const run = await runTriagePipeline(tickets(...ids), CONFIG, [], { trigger: rt.trigger ?? 'ingest', writer, store, persist: false, llm: 'on', now: () => NOW })
+  return { run, writer, store, result: run.results[0] as TriageResult | undefined }
+}
+
+beforeEach(() => {
+  violations.length = 0
+  llmScript.outputs.length = 0
+  vi.stubGlobal('fetch', guardedFetch)
+  delete process.env.SOC_AUTO_CUSTOMER_NOTIFY
+})
+afterEach(() => {
+  expect(violations, `A real network or database write was attempted during the replay: ${violations.join(' | ')}`).toEqual([])
+  vi.unstubAllGlobals()
+})
+
+describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', () => {
+  it('anchors to ONE incident id and ONE threat name, from the RocketCyber record', async () => {
+    const { result } = await replay(['36101'])
+    expect(result).toBeDefined()
+    expect(result!.enrichment?.primary?.incidentId).toBe('13135962')
+    expect(result!.enrichment?.primary?.threatName).toBe('Trojan:Win32/NSteal.SA')
+    expect(result!.enrichment?.primary?.recordSource).toBe('RocketCyber')
+    // The twin's incident and threat never replace this one's.
+    expect(result!.ticketNote).toMatch(/RocketCyber incident 13135962 on ticket T20260927\.0006\s+\|\s+Threat: Trojan:Win32\/NSteal\.SA/)
+    expect(result!.ticketNote).not.toMatch(/incident 13135961/)
+    // The other account events stay out of "the alert".
+    const alertEvents = result!.enrichment!.events!.filter((e) => e.disposition === 'alert')
+    expect(alertEvents).toHaveLength(1)
+    expect(alertEvents[0].deviceHostname).toBe('WIL0170')
+  })
+
+  it('labels 4.39.23.157 as the Wilmar - Washington office connection, and 192.168.0.136 as internal', async () => {
+    const { result } = await replay(['36101'])
+    const ips = result!.enrichment!.ipClassifications!
+    const office = ips.find((i) => i.ip === '4.39.23.157')!
+    expect(office.class).toBe('client_office')
+    expect(office.label).toMatch(/^client office connection \(Wilmar - Washington/)
+    expect(office.reputationLookupApplies).toBe(false)
+    const internal = ips.find((i) => i.ip === '192.168.0.136')!
+    expect(internal.class).toBe('internal')
+    expect(internal.label).toMatch(/RFC1918/)
+    expect(result!.ticketNote).toMatch(/4\.39\.23\.157: client office connection \(Wilmar - Washington/)
+  })
+
+  it('finds both TCT change windows and excludes events inside them from corroboration', async () => {
+    const { result } = await replay(['36101'])
+    const windows = result!.enrichment!.changeWindows!
+    const install = windows.find((w) => w.kind === 'agent_install')!
+    expect(install).toBeDefined()
+    expect(install.siteName).toBe('Wilmar - Washington')
+    expect(install.startUtc <= '2026-09-26T19:37:00.000Z').toBe(true)
+    expect(install.endUtc >= '2026-09-26T19:52:00.000Z').toBe(true)
+    expect(install.deviceCount).toBeGreaterThanOrEqual(30)
+    expect(install.label).toMatch(/^coincides with TCT-initiated change \(Wilmar - Washington: security-agent install\/self-heal alerts across \d+ devices/)
+
+    const scan = windows.find((w) => w.kind === 'resource_spike')!
+    expect(scan).toBeDefined()
+    expect(scan.startUtc.startsWith('2026-09-28T04:22')).toBe(true)
+    expect(scan.endUtc >= '2026-09-28T04:55:00.000Z').toBe(true)
+    expect(scan.deviceCount).toBeGreaterThanOrEqual(15)
+
+    // The WIL0225 lsass event at 04:46:51 sits inside the scan window. It has no
+    // record id (the capture could not provide one), so it is a data gap — and
+    // it still carries the change-window label. Nothing inside a window counts.
+    const events = result!.enrichment!.events!
+    const wil0225 = events.find((e) => e.deviceHostname === 'WIL0225')!
+    expect(wil0225.disposition).toBe('data_gap')
+    expect(wil0225.reason).toMatch(/coincides with TCT-initiated change/)
+    // WIL0170's own Datto RMM CPU alert inside the scan window is a TCT change.
+    const inWindow = events.filter((e) => e.disposition === 'tct_change')
+    expect(inWindow.length).toBeGreaterThan(0)
+    for (const e of inWindow) expect(e.changeWindow?.label).toMatch(/coincides with TCT-initiated change/)
+    expect(events.filter((e) => e.disposition === 'corroboration')).toEqual([])
+  })
+
+  it('never says "Corroborated by Datto RMM / DNSFilter" — device existence and 0 blocks are context', async () => {
+    const { result } = await replay(['36101'])
+    const corr = result!.enrichment!.signals!.corroboration
+    expect(corr.sourcesUsed).toEqual([])
+    expect(corr.corroboratingTelemetry).toBe(false)
+    expect(corr.contextSources).toContain('Datto RMM')
+    const note = result!.ticketNote
+    expect(note).not.toMatch(/Corroborated by/i)
+    expect(note).toMatch(/CORROBORATION[^\n]*\n- None\./)
+    expect(note).toMatch(/DNSFilter: 0 blocked queries/)
+    // The adversarial AI narrative ("Corroborated by…", "lateral movement", "92%") was dropped.
+    expect(note).not.toMatch(/lateral/i)
+    expect(note).not.toMatch(/92%/)
+    expect(note).toMatch(/AI sentence\(s\) removed/)
+  })
+
+  it('shows a visibility map with the sources that were not connected', async () => {
+    const { result } = await replay(['36101'])
+    const vis = Object.fromEntries(result!.enrichment!.visibility!.map((v) => [v.source, v.state]))
+    expect(vis).toEqual({
+      'RocketCyber': 'connected',
+      'Datto RMM': 'connected',
+      'Datto EDR': 'unverified_mapping',
+      'DNSFilter': 'unverified_mapping',
+      'SaaS Alerts': 'unverified_mapping',
+      'M365': 'not_connected',
+    })
+    expect(result!.ticketNote).toMatch(/VISIBILITY FOR THIS CLIENT[^\n]*\n(- .*\n)*- M365 tenant: not connected for this client — unknown/)
+  })
+
+  it('classifies in code: Suspicious, 50%, high risk — the LLM\'s 92% has no effect', async () => {
+    const { result } = await replay(['36101'])
+    expect(result!.assessment!.classification).toBe('suspicious_review')
+    expect(result!.confidence).toBe(0.5)
+    expect(result!.assessment!.riskLevel).toBe('high')
+  })
+
+  it('addresses the co-managed IT lead with a containment summary and an ordered handoff — no lockdown language', async () => {
+    const { result, writer } = await replay(['36101'])
+    const msg = result!.assessment!.customerMessageDraft!
+    expect(msg.startsWith('Hi Pat,')).toBe(true)
+    // What happened states Defender's own action; "what we have done" is TCT's only.
+    expect(msg).toMatch(/Microsoft Defender flagged a file on the computer WIL0170 as malicious \(Defender's name for it is Trojan:Win32\/NSteal\.SA\) on Sun, Sep 27, 2026, 3:06 AM PDT and reported it as quarantined\./)
+    expect(msg).toMatch(/What we have done so far:\n- Reviewed the alert and the computer's recent activity in our monitoring\.\n- Opened ticket T20260927\.0006 to track this\.\n- We have not disconnected WIL0170 or changed any accounts; those steps are below\./)
+    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Sent automatically at 2026-09-28T04:52:30\.000Z to Pat \(the co-managed IT lead; set as the ticket contact first\)/)
+    // A malware detection is not an identity change (RocketCyber's remediation boilerplate says "password reset").
+    expect(result!.enrichment!.signals!.identityChange).toBe(false)
+    expect(result!.ticketNote).not.toMatch(/Identity\/MFA change/)
+    expect(result!.ticketNote).not.toMatch(/GFI Archiver/)
+    expect(msg).toMatch(/Because your team handles day-to-day IT, here is what we recommend you do next, in this order:\n1\. /)
+    expect(msg).toMatch(/\n2\. Keep WIL0170 off the network/)
+    expect(msg).toMatch(/set up again, or reply here and we will secure it for you/)
+    expect(msg).toMatch(/Ticket: https:\/\/ww14\.autotask\.net\/Mvc\/ServiceDesk\/TicketDetail\.mvc\?TicketId=36101/)
+    expect(lintCustomerMessage(msg, { lockdownPermitted: false })).toEqual([])
+    expect(msg).not.toMatch(/do not use any company accounts/i)
+    // It went to the IT lead: contact set first (the ticket had none), then one send.
+    expect(writer.calls.filter((c) => c.op === 'setTicketContact')).toEqual([{ op: 'setTicketContact', ticketId: 36101, contactId: IT_LEAD }])
+    expect(writer.sends).toHaveLength(1)
+    expect(writer.sends[0].to).toBe('it-lead@wilmar-replay.example.invalid')
+  })
+
+  it('records every send in an internal note with recipient, time and the exact text', async () => {
+    const { writer, result } = await replay(['36101'])
+    const audit = writer.calls.find((c) => c.op === 'createCustomerNote' && c.title === 'Customer emailed')
+    expect(audit).toBeDefined()
+    const body = (audit as { body: string }).body
+    expect(body).toMatch(/Recipient: Pat <it-lead@wilmar-replay\.example\.invalid>/)
+    expect(body).toMatch(/Accepted by Microsoft 365 at: 2026-09-28T04:52:30\.000Z/)
+    expect(body).toContain(result!.assessment!.customerMessageDraft!)
+  })
+})
+
+describe('Determinism', () => {
+  it('two replays with DIFFERENT LLM output give identical classification, confidence and message text', async () => {
+    const a = await replay(['36101'], { narrative: BAD_NARRATIVE_A })
+    const b = await replay(['36101'], { narrative: BAD_NARRATIVE_B })
+    expect(b.result!.assessment!.classification).toBe(a.result!.assessment!.classification)
+    expect(b.result!.confidence).toBe(a.result!.confidence)
+    expect(b.result!.assessment!.customerMessageDraft).toBe(a.result!.assessment!.customerMessageDraft)
+    expect(b.writer.sends[0].text).toBe(a.writer.sends[0].text)
+  })
+})
+
+describe('Idempotency — one assessment, one email per incident', () => {
+  it('first run: exactly one assessment note and one stubbed send', async () => {
+    const { writer } = await replay(['36101'])
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC Analyst Assessment')).toHaveLength(1)
+    expect(writer.sends).toHaveLength(1)
+  })
+
+  it('an ingest retry (the "Round-Trip … timed out" callout) does nothing at all', async () => {
+    const writer = seededWriter()
+    const store = memoryStore()
+    await replay(['36101'], { writer, store })
+    const callsAfterFirst = writer.calls.length
+    const second = await replay(['36101'], { writer, store, trigger: 'ingest' })
+    expect(second.run.results).toHaveLength(0)
+    expect(second.run.ticketDetails[0].status).toBe('skipped')
+    expect(second.run.ticketDetails[0].reason).toMatch(/Already assessed/)
+    expect(writer.calls.length).toBe(callsAfterFirst)
+    expect(writer.sends).toHaveLength(1)
+  })
+
+  it('a manual re-run EDITS the note in place and sends nothing more', async () => {
+    const writer = seededWriter()
+    const store = memoryStore()
+    const first = await replay(['36101'], { writer, store })
+    const noteId = first.result!.delivery!.noteId
+    await replay(['36101'], { writer, store, trigger: 'manual' })
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC Analyst Assessment')).toHaveLength(1)
+    const edits = writer.calls.filter((c) => c.op === 'updateNote')
+    expect(edits).toHaveLength(1)
+    expect((edits[0] as { noteId: number }).noteId).toBe(noteId)
+    expect(writer.sends).toHaveLength(1)
+  })
+
+  it('a later run that changes the classification flags a technician instead of emailing again', async () => {
+    const writer = seededWriter()
+    const store = memoryStore()
+    await replay(['36101'], { writer, store })
+    const rec = (await store.findByTicket('36101'))[0]
+    await store.update('36101', rec.rcIncidentId, { notifiedClassification: 'confirmed_malicious' })
+    await replay(['36101'], { writer, store, trigger: 'manual' })
+    expect(writer.sends).toHaveLength(1)
+    const flags = writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Classification changed after customer update')
+    expect(flags).toHaveLength(1)
+    // …and only once for that classification.
+    await replay(['36101'], { writer, store, trigger: 'manual' })
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Classification changed after customer update')).toHaveLength(1)
+  })
+
+  it('the twin race (both tickets open, ingested separately) yields ONE assessment and ONE email', async () => {
+    const writer = seededWriter()
+    const store = memoryStore()
+    const both = tickets('36100', '36101').map((t) => ({ ...t, status: 1, statusLabel: 'New' }))
+    for (const t of both) {
+      llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
+      await runTriagePipeline([t], CONFIG, [], { trigger: 'ingest', writer, store, persist: false, llm: 'on', now: () => NOW })
+    }
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC Analyst Assessment')).toHaveLength(1)
+    expect(writer.sends).toHaveLength(1)
+    const twin = (await store.findByTicket('36101'))[0]
+    expect(twin.status).toBe('twin')
+    expect(twin.twinOfTicketId).toBe('36100')
+  })
+
+  it('the twin pair in one batch is grouped: one assessment on the primary, the other recorded as a twin', async () => {
+    const writer = seededWriter()
+    const store = memoryStore()
+    const both = tickets('36100', '36101').map((t) => ({ ...t, status: 1, statusLabel: 'New' }))
+    llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
+    const run = await runTriagePipeline(both, CONFIG, [], { trigger: 'cron', writer, store, persist: false, llm: 'on', now: () => NOW })
+    expect(run.results).toHaveLength(1)
+    expect(writer.sends).toHaveLength(1)
+    expect((await store.findByTicket('36101'))[0].status).toBe('twin')
+    expect(run.results[0].ticketNote).toMatch(/Twin tickets[^\n]*T20260927\.0006 \(incident 13135962, Trojan:Win32\/NSteal\.SA\)/)
+  })
+})
+
+describe('Deploy safety — tickets analysed before idempotency records existed', () => {
+  it('an automatic trigger on T20260927.0006 (legacy analysis row, no record) does nothing — no note, no email', async () => {
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ one: 1 }] as never)
+    const writer = seededWriter()
+    const run = await runTriagePipeline(tickets('36101'), CONFIG, [], { trigger: 'ingest', writer, store: memoryStore(), persist: true, llm: 'on', now: () => NOW })
+    expect(run.results).toHaveLength(0)
+    expect(run.ticketDetails[0].reason).toMatch(/Already assessed before idempotency records existed/)
+    expect(writer.calls).toEqual([])
+    expect(llmScript.outputs).toEqual([])
+  })
+})
+
+describe('No recipient, no send', () => {
+  it('a co-managed company with no configured IT lead and a ticket with no contact: zero sends, ONE explanation note', async () => {
+    const writer = recordingWriter({
+      seed: { tickets: [{ id: 36101, ticketNumber: 'T20260927.0006', title: 'x', companyID: 451, contactID: null }], contacts: [] },
+      readiness: READY,
+    })
+    const t = { ...tickets('36101')[0], autotaskCompanyId: '451', companyName: 'Replay Co-Managed Without IT Lead' }
+    llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
+    const run = await runTriagePipeline([t], CONFIG, [], { trigger: 'ingest', writer, store: memoryStore(), persist: false, llm: 'on', now: () => NOW })
+    expect(run.results[0].assessment!.classification).toBe('suspicious_review')
+    expect(writer.sends).toHaveLength(0)
+    expect(writer.calls.filter((c) => c.op === 'setTicketContact')).toHaveLength(0)
+    const explanations = writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')
+    expect(explanations).toHaveLength(1)
+    expect((explanations[0] as { body: string }).body).toMatch(/The ticket has no contact and no co-managed IT lead is configured for this company/)
+  })
+
+  it('the customer email path not being configured is also zero sends + one explanation (and the contact is not changed)', async () => {
+    // Real readiness: CONNECTOR_CUSTOMER_EMAIL_ENABLED is unset in this test.
+    const w = recordingWriter({ seed: { tickets: F.autotask.liveTickets, contacts: F.autotask.contacts } })
+    llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
+    await runTriagePipeline(tickets('36101'), CONFIG, [], { trigger: 'ingest', writer: w, store: memoryStore(), persist: false, llm: 'on', now: () => NOW })
+    expect(w.sends).toHaveLength(0)
+    expect(w.calls.filter((c) => c.op === 'setTicketContact')).toHaveLength(0)
+    expect(w.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')).toHaveLength(1)
+  })
+})
+
+describe('Kill switch SOC_AUTO_CUSTOMER_NOTIFY', () => {
+  it('off → zero sends, and the capability report shows it off', async () => {
+    process.env.SOC_AUTO_CUSTOMER_NOTIFY = 'off'
+    const { writer, result } = await replay(['36101'])
+    expect(writer.sends).toHaveLength(0)
+    expect(writer.calls.filter((c) => c.op === 'setTicketContact' || c.op === 'createCustomerNote')).toEqual([])
+    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Not sent automatically — SOC_AUTO_CUSTOMER_NOTIFY is off/)
+    const report = buildCapabilityReport([])
+    expect(report.writeGuardrails.killSwitches.SOC_AUTO_CUSTOMER_NOTIFY).toBe(false)
+    expect(report.writeGuardrails.automations.find((a) => a.envVar === 'SOC_AUTO_CUSTOMER_NOTIFY')?.enabled).toBe(false)
+  })
+
+  it('unset → on (the default), and the report says so', () => {
+    delete process.env.SOC_AUTO_CUSTOMER_NOTIFY
+    const report = buildCapabilityReport([])
+    expect(report.writeGuardrails.killSwitches.SOC_AUTO_CUSTOMER_NOTIFY).toBe(true)
+    const a = report.writeGuardrails.automations.find((x) => x.envVar === 'SOC_AUTO_CUSTOMER_NOTIFY')!
+    expect(a.enabled).toBe(true)
+    expect(a.source).toBe('default')
+  })
+})

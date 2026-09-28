@@ -772,3 +772,66 @@ export function formatTicketNote(
   note += '\n═══ End SOC Analysis ═══';
   return note;
 }
+
+/**
+ * Narrative-only prompt (2026-09-28). The classification, confidence, event
+ * dispositions, visibility and the customer message are all computed in code
+ * (src/lib/soc/evidence.ts) BEFORE this runs; the model is asked to describe
+ * them in plain words and nothing else. Its output still passes guardNarrative()
+ * before it is used, so a sentence claiming corroboration, a percentage, or
+ * spread the evidence does not show is dropped.
+ */
+export function buildNarrativePrompt(n: {
+  ticket: SecurityTicket;
+  classificationLabel: string;
+  rationale: string[];
+  alertLines: string[];
+  corroborationLines: string[];
+  contextLines: string[];
+  changeLines: string[];
+  visibilityLines: string[];
+  ipLines: string[];
+  dataGaps: string[];
+  coManaged: boolean;
+}): string {
+  const list = (xs: string[]) => (xs.length ? xs.join('\n') : '- none');
+  return `You are writing the summary paragraph of a SOC assessment for Triple Cities Tech technicians.
+The classification below is FINAL. It was computed in code from the evidence; do not change it, argue with it, or restate a confidence number.
+
+TICKET: ${n.ticket.ticketNumber} — ${n.ticket.title}
+COMPANY: ${n.ticket.companyName || 'unknown'}${n.coManaged ? ' (co-managed: the client has its own IT lead)' : ''}
+CLASSIFICATION (final): ${n.classificationLabel}
+WHY (computed): ${n.rationale.join(' ')}
+
+THE ALERT:
+${list(n.alertLines)}
+
+CORROBORATION (independent sources reporting their own signal about the same device/user/IOC):
+${list(n.corroborationLines)}
+
+CONTEXT (does not raise or lower concern):
+${list(n.contextLines)}
+
+TCT-INITIATED CHANGES (TCT's own work — NOT attacker activity):
+${list(n.changeLines)}
+
+WHAT COULD BE SEEN FOR THIS CLIENT:
+${list(n.visibilityLines)}
+
+IP ADDRESSES:
+${list(n.ipLines)}
+
+DATA GAPS:
+${list(n.dataGaps)}
+
+RULES:
+- Describe only what the lists above show. If a list says "none", say nothing happened there or that it could not be checked — never infer.
+- Do not use the words "corroborated" or "corroboration" (the code states corroboration).
+- Do not claim spread, lateral movement, or multiple compromised devices/accounts unless the CORROBORATION list names two or more devices or accounts.
+- Events under TCT-INITIATED CHANGES are TCT's own work; never describe them as attacker activity.
+- A source that was not connected is unknown, not clean.
+- No percentages.
+
+Respond ONLY with JSON (no markdown):
+{ "executiveSummary": "2-4 plain sentences", "customerImpact": "one plain sentence" }`;
+}
