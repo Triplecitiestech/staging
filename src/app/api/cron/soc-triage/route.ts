@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
         t."ticketNumber",
         t."companyId",
         c."displayName" as "companyName",
+        c."autotaskCompanyId" as "autotaskCompanyId",
         t.title,
         t.description,
         t.status,
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
 
     // Run triage pipeline with circuit breaker on Anthropic API
     const result = await withCircuitBreaker(
-      () => runTriagePipeline(tickets, config, rules),
+      () => runTriagePipeline(tickets, config, rules, { trigger: 'cron' }),
       { name: 'anthropic-api', failureThreshold: 3, resetTimeoutMs: 120_000 },
     );
 

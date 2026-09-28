@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { loadSocConfig, loadActiveRules, runTriagePipeline } from '@/lib/soc/engine';
+import { loadSocConfig, loadActiveRules, runTriagePipeline, type SocRuntime } from '@/lib/soc/engine';
+import { liveReads, pgStore, readOnlyStore, recordingWriter } from '@/lib/soc/delivery';
 import type { SecurityTicket } from '@/lib/soc/types';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const ticketIds: string[] = body.ticketIds || [];
     const reprocess: boolean = body.reprocess || false;
+    // dryRun: analyse the given tickets exactly as a live run would, but write
+    // NOTHING — no Autotask note, no contact change, no email, no DB rows.
+    const dryRun: boolean = body.dryRun === true;
+    if (dryRun && ticketIds.length === 0) {
+      return NextResponse.json({ error: 'dryRun requires ticketIds' }, { status: 400 });
+    }
     // Reprocess is heavier (up to 4 AI calls per ticket: screen + deep + reasoning + action plan)
     // Each ticket takes ~15-25s, so limit reprocess to 5 tickets to stay within 300s timeout
     const defaultLimit = reprocess ? 5 : 50;
@@ -41,10 +48,12 @@ export async function POST(request: NextRequest) {
 
     let tickets: SecurityTicket[];
 
-    if (ticketIds.length > 0) {
+    if (ticketIds.length > 0 && !dryRun) {
       // Targeted reprocess of specific tickets. Clean up their prior analyses,
       // incidents, and pending actions first so re-running doesn't pile up
-      // duplicate incidents.
+      // duplicate incidents. soc_assessment_records is deliberately NOT cleared:
+      // it holds the assessment note id (edited in place on this re-run) and
+      // whether the customer was already emailed (never twice).
       await Promise.all([
         prisma.$executeRawUnsafe(
           `DELETE FROM soc_pending_actions WHERE "autotaskTicketId" = ANY($1::text[])`,
@@ -63,7 +72,8 @@ export async function POST(request: NextRequest) {
         `DELETE FROM soc_ticket_analysis WHERE "autotaskTicketId" = ANY($1::text[])`,
         ticketIds,
       );
-
+    }
+    if (ticketIds.length > 0) {
       // Process specific tickets (re-process even if already analyzed/closed)
       tickets = await prisma.$queryRaw<SecurityTicket[]>`
         SELECT
@@ -71,6 +81,7 @@ export async function POST(request: NextRequest) {
           t."ticketNumber",
           t."companyId",
           c."displayName" as "companyName",
+          c."autotaskCompanyId" as "autotaskCompanyId",
           t.title,
           t.description,
           t.status,
@@ -100,6 +111,7 @@ export async function POST(request: NextRequest) {
           t."ticketNumber",
           t."companyId",
           c."displayName" as "companyName",
+          c."autotaskCompanyId" as "autotaskCompanyId",
           t.title,
           t.description,
           t.status,
@@ -127,6 +139,7 @@ export async function POST(request: NextRequest) {
           t."ticketNumber",
           t."companyId",
           c."displayName" as "companyName",
+          c."autotaskCompanyId" as "autotaskCompanyId",
           t.title,
           t.description,
           t.status,
@@ -170,12 +183,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await runTriagePipeline(tickets, config, rules);
+    const runtime: SocRuntime = dryRun
+      ? { trigger: 'dry_run', writer: recordingWriter({ reads: await liveReads() }), store: readOnlyStore(pgStore({ readOnly: true })), persist: false }
+      // Only an explicit re-run of named tickets (or a bulk reprocess) may
+      // re-assess; "process unprocessed tickets" behaves like the cron.
+      : { trigger: ticketIds.length > 0 || reprocess ? 'manual' : 'cron' };
+    const result = await runTriagePipeline(tickets, config, rules, runtime);
 
     return NextResponse.json({
       status: 'ok',
       triggeredBy: session.user.email,
-      dryRun: config.dry_run,
+      dryRun: dryRun || config.dry_run,
+      ...(dryRun ? { preview: result.results.map(r => ({ ticketId: r.ticketId, classification: r.assessment?.classification, confidence: r.confidence, delivery: r.delivery, customerMessage: r.assessment?.customerMessageDraft ?? null, internalNote: r.ticketNote })) } : {}),
       ticketsFound: tickets.length,
       ...result.meta,
       ticketDetails: result.ticketDetails,

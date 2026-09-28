@@ -2716,6 +2716,26 @@ export class AutotaskClient {
   }
 
   /**
+   * Edit an existing ticket note IN PLACE — PATCH carrying only the supplied
+   * fields, same path order and semantics as updateTicketNote() in
+   * autotask-write.ts (the connector's autotask_update_ticket_note).
+   *
+   * Exists on THIS client because the SOC analyzer creates its assessment notes
+   * with this API user, and editing a note with the identity that created it is
+   * the permission that is certain to exist; the connector's write user acts
+   * through technician impersonation instead. Used so a SOC re-run corrects its
+   * one note rather than stacking another (Wilmar T20260927.0006, 2026-09-27).
+   */
+  async updateTicketNote(ticketId: number, noteId: number, fields: { description?: string; title?: string }): Promise<void> {
+    const payload = { id: noteId, ...fields };
+    try {
+      await this.patch(`Tickets/${ticketId}/Notes`, payload);
+    } catch {
+      await this.patch('TicketNotes', payload);
+    }
+  }
+
+  /**
    * Update (PATCH) a ticket in Autotask
    */
   async patchTicket(ticketId: number, data: Record<string, unknown>): Promise<void> {

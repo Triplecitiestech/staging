@@ -25,12 +25,32 @@ import { prisma } from '@/lib/prisma';
 import { getPool } from '@/lib/db-pool';
 import { matchesCompanyName } from '@/utils';
 import { RocketCyberClient } from '@/lib/rocketcyber';
-import { DattoRmmClient } from '@/lib/datto-rmm';
+import { DattoRmmClient, type DattoDevice } from '@/lib/datto-rmm';
 import { SaasAlertsClient } from '@/lib/saas-alerts';
 import { detectAlertSource, isIdentityChangeAlert } from './rules';
 import { extractIps, extractIpv6 } from './ip-extractor';
 import { classifyEventTiming } from '@/lib/reporting/business-hours';
 import { fetchM365Identity } from './m365-identity';
+import { listSiteAlerts } from '@/lib/mcp-datto-rmm-tools';
+import { extractDetectionFields, getEventMillis, eventId as rcEventId } from '@/lib/rocketcyber';
+import {
+  alertSourceName,
+  buildEgressIndex,
+  classifyIp,
+  detectAutotaskChangeContext,
+  detectFleetChangeWindows,
+  extractIpv4s,
+  resolveCompanyProfile,
+  signalFromThreatName,
+  toIsoUtc,
+  type AutotaskWorkInput,
+  type CompanySecurityProfile,
+  type EvidenceEventInput,
+  type EvidenceSignal,
+  type PrimaryDetection,
+  type RmmAlertInput,
+  type VisibilityEntry,
+} from './evidence';
 import type {
   SecurityTicket,
   DeviceVerification,
@@ -77,19 +97,27 @@ async function getPlatformMappings(companyId: string | null, platform: string): 
   }
 }
 
+/** How far back the planned-change check looks from the alert. */
+export const CHANGE_LOOKBACK_HOURS = 72;
+
 /** Main entry: assemble the full cross-stack evidence bundle for a ticket. */
 export async function enrichTicket(
   ticket: SecurityTicket,
   deviceVerification: DeviceVerification | null,
+  opts: { now?: Date } = {},
 ): Promise<EnrichmentBundle> {
+  const now = opts.now ?? new Date();
   const sourceSystem = detectAlertSource(ticket) as AlertSource;
   const text = `${ticket.title}\n${ticket.description || ''}`;
   const { incidentId, accountId } = extractRocketCyberIds(text);
   const companyId = ticket.companyId;
+  const atCompanyId = ticket.autotaskCompanyId ?? null;
   const companyName = ticket.companyName || null;
 
   const dataSources: DataSourceStatus[] = [];
   const dataGaps: string[] = [];
+  const visibility: VisibilityEntry[] = [];
+  const contextSummaries: string[] = [];
 
   // 1. RocketCyber — fetch first; its device/org fields improve downstream lookups.
   let rocketCyber: RocketCyberDetail | null = null;
@@ -97,23 +125,36 @@ export async function enrichTicket(
     const rc = await fetchRocketCyber(incidentId, accountId);
     rocketCyber = rc.detail;
     dataSources.push(rc.status);
+    visibility.push(rc.visibility);
     if (rc.gap) dataGaps.push(rc.gap);
   } else {
     dataSources.push({ source: 'RocketCyber', status: 'no_data', detail: 'Not a RocketCyber-sourced ticket; no incident ID found in ticket text.' });
+    visibility.push({ source: 'RocketCyber', state: 'not_queried', mappedTo: null, detail: 'not a RocketCyber alert' });
   }
 
+  const body = parseRocketCyberBody(text);
   const hostname = resolveHostname(rocketCyber, text, deviceVerification);
-  const alertTime = rocketCyber?.eventTime || rocketCyber?.createdAt || ticket.createDate;
+  const alertTime = rocketCyber?.eventTime || rocketCyber?.createdAt || body.platformTimeUtc || ticket.createDate;
   const { allIps } = extractIps(text);
+  const alertIso = toIsoUtc(alertTime) ?? now.toISOString();
+  const changeFrom = new Date(Math.min(Date.parse(alertIso), now.getTime()) - CHANGE_LOOKBACK_HOURS * 3600_000).toISOString();
+  const changeTo = now.toISOString();
 
-  // 2. Datto RMM first — it resolves the device (by hostname, or by the source
-  //    IP against the company's known devices), which scopes the EDR lookup.
-  const device = await fetchDeviceHealth(companyId, companyName, hostname, allIps);
+  // 2. Company context from Autotask: co-managed flag, contracts, open work.
+  const company = await fetchCompanyContext(atCompanyId, companyName, changeFrom, changeTo, ticket.autotaskTicketId);
+  dataGaps.push(...company.gaps);
+
+  // 3. Datto RMM first — it resolves the device (by hostname, or by the source
+  //    IP against the company's known devices), which scopes the EDR lookup,
+  //    and yields the client's egress IPs and the fleet-wide change windows.
+  const device = await fetchDeviceHealth(companyId, atCompanyId, companyName, hostname, allIps, { fromUtc: changeFrom, toUtc: changeTo });
   dataSources.push(device.status);
+  visibility.push(device.visibility);
   if (device.gap) dataGaps.push(device.gap);
+  dataGaps.push(...device.changeGaps);
   const effectiveHostname = device.result?.hostname || hostname;
 
-  // 3–5. Correlate the rest of the stack in parallel.
+  // 4–6. Correlate the rest of the stack in parallel.
   const [edr, dns, saas] = await Promise.all([
     fetchEdr(companyId, companyName, effectiveHostname, alertTime),
     fetchDns(companyId, companyName, alertTime, effectiveHostname, allIps),
@@ -122,21 +163,31 @@ export async function enrichTicket(
 
   for (const r of [edr, dns, saas]) {
     dataSources.push(r.status);
+    visibility.push(r.visibility);
     if (r.gap) dataGaps.push(r.gap);
   }
+  if (dns.result) {
+    contextSummaries.push(`DNSFilter: ${dns.result.totalBlocked} blocked quer${dns.result.totalBlocked === 1 ? 'y' : 'ies'} in the ±6h window${dns.result.deviceScoped ? '' : ' (org-level, not tied to this device)'} — absence of blocks is not evidence either way.`);
+  }
+  if (edr.result && edr.result.detectionCount === 0) {
+    contextSummaries.push(`Datto EDR: no detections in the ±6h window${edr.result.deviceScoped ? ` for ${effectiveHostname}` : ''} — absence of detections is not evidence either way.`);
+  }
+  if (saas.result && saas.result.eventCount === 0) {
+    contextSummaries.push('SaaS Alerts: no events in the ±6h window — absence of events is not evidence either way.');
+  }
 
-  // 6. Known benign catalogue (informational only).
+  // 7. Known benign catalogue (informational only).
   const knownBenignMatches = await matchKnownBenign({
-    path: rocketCyber?.path || null,
+    path: rocketCyber?.path || body.filePath || null,
     processName: rocketCyber?.process || null,
-    hash: rocketCyber?.hash || null,
+    hash: rocketCyber?.hash || body.hash || null,
     companyId,
     hostname,
   });
 
   if (!hostname) dataGaps.push('Could not determine the affected device hostname from the alert; device-level correlation skipped.');
 
-  // 7. M365 tenant correlation — ONLY for identity/MFA-change alerts. Scoped to
+  // 8. M365 tenant correlation — ONLY for identity/MFA-change alerts. Scoped to
   //    the customer's own tenant (getTenantCredentials), so it is authoritative
   //    for what actually happened and can never reach another customer.
   let m365Identity: M365IdentityCorrelation | null = null;
@@ -146,17 +197,38 @@ export async function enrichTicket(
     m365Identity = m365.result;
     dataSources.push(m365.status);
     if (m365.gap) dataGaps.push(m365.gap);
+    visibility.push(m365VisibilityFromStatus(m365.status, m365.result));
+  } else {
+    visibility.push(await m365TenantVisibility(companyId));
   }
+
+  // 9. The client's own egress IPs and every IP in the evidence.
+  const egress = buildEgressIndex(device.devices.map(d => ({ hostname: d.hostname, extIpAddress: d.extIpAddress, siteName: d.siteName })));
+  const ipText = [
+    text,
+    rocketCyber ? JSON.stringify([rocketCyber.rawIncident, rocketCyber.rawEvents, rocketCyber.otherEvents]) : '',
+    ...(saas.result?.events || []).map(e => e.ip || ''),
+  ].join('\n');
+  const ipClassifications = extractIpv4s(ipText).map(ip => classifyIp(ip, egress));
+
+  // 10. The detection this assessment is anchored to, and every correlated event.
+  const primary = primaryDetection(ticket, rocketCyber, body, sourceSystem, hostname);
+  const eventInputs = buildEvidenceInputs({
+    ticket, sourceSystem, primary, rocketCyber, edr: edr.result, dns: dns.result, saas: saas.result,
+    deviceRecord: device.deviceRecord, rmmAlerts: device.rmmAlerts, alertDevice: effectiveHostname,
+  });
 
   // Assemble the independent signal axes (timing, geo, corroboration, identity-change).
   // recurrence is a placeholder here — the engine fills it from the analysis history.
+  const alertIpClass = ipClassifications.find(c => c.class !== 'internal') ?? null;
   const signals = buildSignals({
     ticket,
     alertTime,
     saasEvents: saas.result?.events || [],
     ticketText: text,
     ipv4: allIps,
-    onKnownNetwork: !!device.networkMatch || deviceVerification?.verified === true,
+    onKnownNetwork: !!device.networkMatch || deviceVerification?.verified === true
+      || alertIpClass?.class === 'client_office' || alertIpClass?.class === 'client_device_egress',
     dataSources,
     rocketCyber,
     deviceHealth: device.result,
@@ -164,7 +236,13 @@ export async function enrichTicket(
     edr: edr.result,
     dns: dns.result,
     m365: m365Identity,
+    timezone: company.profile.timezone,
   });
+
+  const changeWindows = detectFleetChangeWindows(device.rmmAlerts, {
+    siteDeviceCounts: device.siteDeviceCounts, fromUtc: changeFrom, toUtc: changeTo,
+  });
+  const changeContext = detectAutotaskChangeContext(company.work, { fromUtc: changeFrom, toUtc: changeTo, excludeTicketIds: [Number(ticket.autotaskTicketId)] });
 
   return {
     sourceSystem,
@@ -179,9 +257,345 @@ export async function enrichTicket(
     m365Identity,
     knownBenignMatches,
     dataSources,
-    dataGaps,
+    dataGaps: Array.from(new Set(dataGaps)),
     signals,
+    visibility,
+    eventInputs,
+    changeWindows,
+    changeContext,
+    ipClassifications,
+    profile: company.profile,
+    primary,
+    contextSummaries,
   };
+}
+
+// ── RocketCyber alert body (the notification RocketCyber writes into the ticket) ──
+
+export interface RocketCyberBody {
+  signature: string | null;
+  device: string | null;
+  filePath: string | null;
+  hash: string | null;
+  detectionUtc: string | null;
+  platformTimeUtc: string | null;
+  threatSource: string | null;
+  executionStatus: string | null;
+  detectionState: string | null;
+}
+
+/** Parse the RocketCyber-generated alert body. Never the title. */
+export function parseRocketCyberBody(text: string): RocketCyberBody {
+  const g = (re: RegExp) => { const m = text.match(re); const v = m?.[1]?.trim(); return v && !/^undefined$/i.test(v) ? v : null; };
+  const epoch = g(/Defender Detection Time:\s*(\d{9,13})/i);
+  return {
+    signature: g(/detected by signature\s+([^\s\r\n]+)/i),
+    device: g(/Device:\s*([A-Za-z0-9][A-Za-z0-9._-]{1,62})/),
+    filePath: g(/File Path:\s*([^\r\n]+)/i),
+    hash: g(/\b(?:SHA1|SHA256|MD5):\s*([0-9a-f]{32,64})/i),
+    detectionUtc: epoch ? toIsoUtc(epoch) : null,
+    platformTimeUtc: g(/Platform Time:\s*(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/i),
+    threatSource: g(/Threat Source:\s*([^|\r\n]+)/i),
+    executionStatus: g(/Execution Status:\s*([^|\r\n]+)/i),
+    detectionState: g(/Detection State:\s*([^|\r\n]+)/i),
+  };
+}
+
+const SIGNATURE_RE = /^[A-Za-z]+:[A-Za-z0-9]+\/[A-Za-z0-9._!-]+$/;
+
+/**
+ * The detection the assessment is anchored to. Incident id and threat name come
+ * from the RocketCyber API record when it was retrieved (and only if its id is
+ * the id the ticket names); otherwise from RocketCyber's own notification in
+ * the ticket body. NEVER from the ticket title.
+ */
+export function primaryDetection(
+  ticket: SecurityTicket,
+  rc: RocketCyberDetail | null,
+  body: RocketCyberBody,
+  sourceSystem: string,
+  hostname: string | null,
+): PrimaryDetection {
+  const bodyText = ticket.description || '';
+  const apiRecord = rc && rc.incidentRecordId === rc.incidentId ? rc : null;
+  if (apiRecord) {
+    const threat = apiRecord.threatName && SIGNATURE_RE.test(apiRecord.threatName.trim())
+      ? apiRecord.threatName.trim()
+      : body.signature ?? apiRecord.threatName;
+    return {
+      retrieved: true,
+      recordSource: 'RocketCyber',
+      incidentId: apiRecord.incidentId,
+      threatName: threat,
+      signal: signalFromThreatName(threat, `${apiRecord.description || ''} ${bodyText}`),
+      deviceHostname: (apiRecord.device || '').split('|')[0].trim() || body.device || hostname,
+      user: apiRecord.userContext,
+      timestampUtc: toIsoUtc(apiRecord.eventTime) ?? body.detectionUtc ?? toIsoUtc(apiRecord.createdAt),
+      actionReported: apiRecord.actionTaken ?? (body.threatSource ? `threat source: ${body.threatSource}` : null),
+      executionStatus: body.executionStatus,
+    };
+  }
+  const { incidentId } = extractRocketCyberIds(`${ticket.title}\n${bodyText}`);
+  if (sourceSystem === 'rocketcyber' && body.signature) {
+    return {
+      retrieved: true,
+      recordSource: 'RocketCyber alert notification (ticket body — API record not retrieved)',
+      incidentId,
+      threatName: body.signature,
+      signal: signalFromThreatName(body.signature, bodyText),
+      deviceHostname: body.device || hostname,
+      user: null,
+      timestampUtc: body.detectionUtc ?? body.platformTimeUtc,
+      actionReported: body.threatSource ? `threat source: ${body.threatSource}` : null,
+      executionStatus: body.executionStatus,
+    };
+  }
+  if (sourceSystem === 'saas_alerts' || sourceSystem === 'datto_edr') {
+    const email = `${ticket.title}\n${bodyText}`.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0] ?? null;
+    return {
+      retrieved: true,
+      recordSource: sourceSystem === 'saas_alerts' ? 'SaaS Alerts' : 'Datto EDR',
+      incidentId: null,
+      threatName: null,
+      signal: 'suspicious',
+      deviceHostname: hostname,
+      user: email,
+      timestampUtc: toIsoUtc(ticket.createDate),
+      actionReported: null,
+      executionStatus: null,
+    };
+  }
+  return {
+    retrieved: false,
+    recordSource: rc ? 'RocketCyber (returned a different incident — ignored)' : 'no detection record',
+    incidentId,
+    threatName: null,
+    signal: 'suspicious',
+    deviceHostname: hostname,
+    user: null,
+    timestampUtc: toIsoUtc(ticket.createDate),
+    actionReported: null,
+    executionStatus: null,
+  };
+}
+
+function rcSignal(ev: unknown, threat: string | null): EvidenceSignal {
+  const raw = JSON.stringify(ev ?? {}).toLowerCase();
+  if (/"verdict"\s*:\s*"malicious"/.test(raw)) return 'malicious';
+  if (/"verdict"\s*:\s*"informational"/.test(raw)) return 'informational';
+  return threat && signalFromThreatName(threat) === 'malicious' ? 'malicious' : 'suspicious';
+}
+
+/** Every correlated record, as an attributable evidence input. Pure. */
+export function buildEvidenceInputs(a: {
+  ticket: SecurityTicket;
+  sourceSystem: string;
+  primary: PrimaryDetection;
+  rocketCyber: RocketCyberDetail | null;
+  edr: EdrCorrelation | null;
+  dns: DnsCorrelation | null;
+  saas: SaasCorrelation | null;
+  deviceRecord: { uid: string | null; hostname: string; lastSeen: string | null; summary: string } | null;
+  rmmAlerts: RmmAlertInput[];
+  alertDevice: string | null;
+}): EvidenceEventInput[] {
+  const out: EvidenceEventInput[] = [];
+  const src = alertSourceName(a.sourceSystem);
+  const p = a.primary;
+
+  // The alert itself.
+  if (p.retrieved) {
+    out.push({
+      source: src ?? 'Autotask',
+      sourceRecordId: p.incidentId ?? `ticket ${a.ticket.ticketNumber}`,
+      deviceHostname: p.deviceHostname,
+      user: p.user,
+      ioc: a.rocketCyber?.hash ?? null,
+      timestampUtc: p.timestampUtc,
+      signal: p.signal,
+      summary: [p.threatName, a.rocketCyber?.path].filter(Boolean).join(' — ') || a.ticket.title.slice(0, 160),
+      isAlert: true,
+    });
+  }
+
+  // Other RocketCyber events on the account (other devices / times).
+  for (const ev of a.rocketCyber?.otherEvents ?? []) {
+    const f = extractDetectionFields(ev);
+    const ms = getEventMillis(ev);
+    out.push({
+      source: 'RocketCyber',
+      sourceRecordId: rcEventId(ev),
+      deviceHostname: (f.device || '').split('|')[0].trim() || null,
+      user: f.userContext,
+      ioc: f.hash,
+      timestampUtc: ms != null ? new Date(ms).toISOString() : toIsoUtc(f.eventTime),
+      signal: rcSignal(ev, f.threatName),
+      summary: `Other RocketCyber detection: ${f.threatName || f.detectionMessage?.slice(0, 100) || 'unnamed'}`,
+    });
+  }
+
+  // Datto EDR detections.
+  for (const d of a.edr?.detections ?? []) {
+    const suspicious = ['bad', 'suspicious'].includes(d.threatName.toLowerCase()) || ['compromised', 'malicious', 'suspicious'].includes(d.status);
+    out.push({
+      source: 'Datto EDR',
+      sourceRecordId: d.id ?? null,
+      deviceHostname: d.hostname,
+      user: d.owner ?? null,
+      ioc: d.hash,
+      timestampUtc: toIsoUtc(d.timestamp),
+      signal: d.status === 'malicious' || d.status === 'compromised' ? 'malicious' : suspicious ? 'suspicious' : 'informational',
+      summary: `EDR ${d.threatName} detection: ${d.name}${d.path ? ` (${d.path})` : ''}`,
+    });
+  }
+
+  // DNSFilter threat-flagged lookups (the query log carries no record id).
+  for (const s of a.dns?.samples ?? []) {
+    if (!s.threat) continue;
+    out.push({
+      source: 'DNSFilter',
+      sourceRecordId: null,
+      deviceHostname: s.device,
+      user: null,
+      ioc: s.fqdn,
+      timestampUtc: toIsoUtc(s.time),
+      signal: 'suspicious',
+      summary: `DNSFilter threat-flagged lookup ${s.fqdn}${s.categories ? ` [${s.categories}]` : ''}`,
+    });
+  }
+
+  // SaaS Alerts events.
+  for (const e of a.saas?.events ?? []) {
+    const sev = `${e.severity}`.toLowerCase();
+    out.push({
+      source: 'SaaS Alerts',
+      sourceRecordId: e.id ?? null,
+      deviceHostname: null,
+      user: e.user,
+      ioc: e.ip,
+      timestampUtc: toIsoUtc(e.time),
+      signal: /critical|high/.test(sev) ? 'suspicious' : 'informational',
+      summary: `SaaS Alerts ${e.type}${e.description ? `: ${e.description.slice(0, 100)}` : ''}`,
+    });
+  }
+
+  // The managed-device record (existence, patch, AV) — context by definition.
+  if (a.deviceRecord) {
+    out.push({
+      source: 'Datto RMM',
+      sourceRecordId: a.deviceRecord.uid,
+      deviceHostname: a.deviceRecord.hostname,
+      user: null,
+      ioc: null,
+      timestampUtc: toIsoUtc(a.deviceRecord.lastSeen),
+      signal: 'informational',
+      summary: a.deviceRecord.summary,
+    });
+  }
+
+  // Datto RMM monitoring alerts on the alert's own device (health, not security).
+  const dev = (a.alertDevice || '').toLowerCase();
+  for (const r of a.rmmAlerts) {
+    if (!dev || (r.deviceHostname || '').toLowerCase() !== dev) continue;
+    out.push({
+      source: 'Datto RMM',
+      sourceRecordId: r.alertUid,
+      deviceHostname: r.deviceHostname,
+      user: null,
+      ioc: null,
+      timestampUtc: r.timestampUtc,
+      signal: 'informational',
+      summary: `Datto RMM ${r.type.replace(/_ctx$/, '')} alert: ${r.contextText.slice(0, 100)}`,
+    });
+  }
+  return out;
+}
+
+// ── Company context (Autotask) ──
+
+async function fetchCompanyContext(
+  atCompanyId: string | null,
+  companyName: string | null,
+  fromUtc: string,
+  toUtc: string,
+  alertTicketId: string,
+): Promise<{ profile: CompanySecurityProfile; work: AutotaskWorkInput[]; gaps: string[] }> {
+  const gaps: string[] = [];
+  let isEnabledForComanaged: boolean | null = null;
+  let contractNames: string[] = [];
+  const work: AutotaskWorkInput[] = [];
+  const id = atCompanyId ? parseInt(atCompanyId, 10) : NaN;
+  if (Number.isNaN(id)) {
+    gaps.push('The ticket\'s Autotask company id is not known locally, so co-managed status and open TCT work could not be read — planned-change check incomplete.');
+    return { profile: resolveCompanyProfile({ autotaskCompanyId: null, companyName, isEnabledForComanaged: null, activeContractNames: [] }), work, gaps };
+  }
+  try {
+    const { AutotaskClient } = await import('@/lib/autotask');
+    const client = new AutotaskClient();
+    const [company, contracts, projects, tickets] = await Promise.allSettled([
+      client.getCompanyById(id),
+      client.listContracts({ companyId: id, activeOnly: true }),
+      client.getProjectsByCompany(id),
+      client.getCompanyTickets(id, Math.ceil(CHANGE_LOOKBACK_HOURS / 24) + 1, true),
+    ]);
+    if (company.status === 'fulfilled' && company.value) {
+      const flag = (company.value as unknown as Record<string, unknown>).isEnabledForComanaged;
+      isEnabledForComanaged = typeof flag === 'boolean' ? flag : null;
+    } else gaps.push('Autotask company record could not be read — co-managed flag unknown.');
+    if (contracts.status === 'fulfilled') contractNames = contracts.value.map(c => c.contractName).filter(Boolean);
+    else gaps.push('Autotask contracts could not be read.');
+    if (projects.status === 'fulfilled') {
+      for (const pr of projects.value) {
+        const r = pr as unknown as Record<string, unknown>;
+        if (r.completedDateTime) continue;
+        work.push({
+          kind: 'project', id: pr.id, number: (r.projectNumber as string) ?? null, title: pr.projectName,
+          status: String(pr.status), startUtc: toIsoUtc(pr.startDateTime), endUtc: toIsoUtc(pr.endDateTime),
+          lastActivityUtc: toIsoUtc(pr.lastActivityDateTime),
+        });
+      }
+    } else gaps.push('Autotask projects could not be read — planned-change check incomplete (open onboarding/security-stack projects unknown).');
+    if (tickets.status === 'fulfilled') {
+      for (const t of tickets.value) {
+        const r = t as unknown as Record<string, unknown>;
+        if (String(r.id) === alertTicketId) continue;
+        work.push({
+          kind: 'ticket', id: Number(r.id), number: (r.ticketNumber as string) ?? null, title: String(r.title ?? ''),
+          status: r.status == null ? null : String(r.status), startUtc: toIsoUtc(r.createDate), endUtc: null,
+          lastActivityUtc: toIsoUtc(r.lastActivityDate),
+        });
+      }
+    } else gaps.push('Autotask open tickets could not be read — planned-change check incomplete.');
+  } catch (err) {
+    gaps.push(`Autotask company context failed (${msg(err)}) — co-managed status and planned-change check incomplete.`);
+  }
+  return {
+    profile: resolveCompanyProfile({ autotaskCompanyId: atCompanyId, companyName, isEnabledForComanaged, activeContractNames: contractNames }),
+    work,
+    gaps,
+  };
+}
+
+// ── M365 tenant visibility (is the client's tenant connected at all?) ──
+
+async function m365TenantVisibility(companyId: string | null): Promise<VisibilityEntry> {
+  if (!companyId) return { source: 'M365', state: 'not_connected', mappedTo: null, detail: 'no local company record' };
+  try {
+    const { getTenantCredentials } = await import('@/lib/graph');
+    const creds = await getTenantCredentials(companyId);
+    return creds
+      ? { source: 'M365', state: 'connected', mappedTo: `tenant ${String((creds as { tenantId?: string }).tenantId ?? '').slice(0, 8)}…`, detail: 'not queried for this alert type (identity alerts only)' }
+      : { source: 'M365', state: 'not_connected', mappedTo: null, detail: 'no tenant consent/app registration recorded for this client' };
+  } catch (err) {
+    return { source: 'M365', state: 'unreachable', mappedTo: null, detail: msg(err).slice(0, 120) };
+  }
+}
+
+function m365VisibilityFromStatus(status: DataSourceStatus, result: M365IdentityCorrelation | null): VisibilityEntry {
+  if (status.status === 'not_configured') return { source: 'M365', state: 'not_connected', mappedTo: null, detail: status.detail };
+  if (status.status === 'error') return { source: 'M365', state: 'unreachable', mappedTo: null, detail: status.detail };
+  if (result && result.permissionGaps.length > 0) return { source: 'M365', state: 'permission_blocked', mappedTo: null, detail: result.permissionGaps.join('; ') };
+  return { source: 'M365', state: 'connected', mappedTo: result?.userPrincipalName ?? null, detail: status.detail };
 }
 
 /**
@@ -222,13 +636,14 @@ function buildSignals(params: {
   edr: EdrCorrelation | null;
   dns: DnsCorrelation | null;
   m365: M365IdentityCorrelation | null;
+  timezone?: string;
 }): AssessmentSignals {
   // ── Timing ──
   const eventDate = new Date(params.alertTime);
   const validTime = !Number.isNaN(eventDate.getTime());
   const timing = validTime
     ? (() => {
-        const t = classifyEventTiming(eventDate);
+        const t = params.timezone ? classifyEventTiming(eventDate, { startHour: 8, endHour: 17, workDays: [1, 2, 3, 4, 5], timezone: params.timezone }) : classifyEventTiming(eventDate);
         return {
           eventTimeUtc: eventDate.toISOString(),
           eventTimeLocal: t.localTime,
@@ -252,24 +667,16 @@ function buildSignals(params: {
     ? 'matched_known_network'
     : (alertIp || alertLocation) ? 'no_baseline_match' : 'unknown';
 
-  // ── Corroboration ── (independent telemetry — SaaS events are the alert itself, NOT corroboration)
-  // For identity alerts, an M365 audit confirmation of a benign RE-ENROLLMENT
-  // (the method was removed AND a strong method re-registered, with a strong
-  // method still present) is positive, authoritative corroboration from the
-  // tenant — the source of truth. A removal with no re-registration, or only a
-  // weak factor left, is NOT treated as corroborating (stays cautious).
-  const m365BenignReenrollment = Boolean(
-    params.m365 && params.m365.removeThenReregister && params.m365.hasStrongMethodRemaining,
-  );
-  const sourcesUsed = params.dataSources.filter(s => s.status === 'used').map(s => s.source);
-  const corroboratingTelemetry = Boolean(
-    (params.rocketCyber && (params.rocketCyber.process || params.rocketCyber.path || params.rocketCyber.hash)) ||
-    params.deviceHealth ||
-    params.networkMatch ||
-    (params.edr && params.edr.deviceScoped && params.edr.detectionCount > 0) ||
-    (params.dns && params.dns.deviceScoped) ||
-    m365BenignReenrollment,
-  );
+  // ── Corroboration ── PLACEHOLDER. The engine replaces this with the result of
+  // attributeEvents()/classifyFromEvidence() in evidence.ts: corroboration is an
+  // INDEPENDENT source reporting its OWN malicious/suspicious signal about the
+  // same device, user or IOC. Device existence (deviceHealth), a network match,
+  // or "DNSFilter blocked 0 queries" are context and never set this — the old
+  // expression here did, which is how Wilmar T20260927.0006 read "Corroborated
+  // by: Datto RMM, DNSFilter".
+  const sourcesUsed: string[] = [];
+  const corroboratingTelemetry = false;
+  void params.dataSources; void params.rocketCyber; void params.deviceHealth; void params.networkMatch; void params.edr; void params.dns; void params.m365;
 
   return {
     timing,
@@ -350,15 +757,19 @@ interface SourceResult<T> {
   gap?: string;
 }
 
+type VisibleResult<T> = SourceResult<T> & { visibility: VisibilityEntry };
+
 async function fetchRocketCyber(
   incidentId: string | null,
   accountId: string | null,
-): Promise<{ detail: RocketCyberDetail | null; status: DataSourceStatus; gap?: string }> {
+): Promise<{ detail: RocketCyberDetail | null; status: DataSourceStatus; visibility: VisibilityEntry; gap?: string }> {
   const client = new RocketCyberClient();
+  const org = accountId ? `account ${accountId}` : null;
   if (!client.isConfigured()) {
     return {
       detail: null,
       status: { source: 'RocketCyber', status: 'not_configured', detail: 'ROCKETCYBER_API_TOKEN not set.' },
+      visibility: { source: 'RocketCyber', state: 'not_configured', mappedTo: org, detail: 'API token not set' },
       gap: 'RocketCyber API not configured — could not pull the detailed detection record behind the alert.',
     };
   }
@@ -366,6 +777,7 @@ async function fetchRocketCyber(
     return {
       detail: null,
       status: { source: 'RocketCyber', status: 'no_data', detail: 'No RocketCyber incident ID found in ticket.' },
+      visibility: { source: 'RocketCyber', state: 'not_connected', mappedTo: org, detail: 'no incident id in the ticket' },
       gap: 'No RocketCyber incident ID in the ticket; detailed detection data unavailable.',
     };
   }
@@ -375,7 +787,8 @@ async function fetchRocketCyber(
       return {
         detail: null,
         status: { source: 'RocketCyber', status: 'no_data', detail: `Incident #${incidentId} returned no data from the API (account ${accountId || 'unknown'}).` },
-        gap: `RocketCyber incident #${incidentId} could not be retrieved from the API.`,
+        visibility: { source: 'RocketCyber', state: 'unreachable', mappedTo: org, detail: `incident ${incidentId} not returned by the API` },
+        gap: `RocketCyber incident #${incidentId} could not be retrieved from the API — the assessment falls back to RocketCyber's alert text in the ticket body.`,
       };
     }
     const summary = [
@@ -387,6 +800,7 @@ async function fetchRocketCyber(
     const gotDetail = !!(detail.process || detail.path || detail.hash);
     return {
       detail,
+      visibility: { source: 'RocketCyber', state: 'connected', mappedTo: `account ${detail.accountId ?? accountId ?? 'unknown'}`, detail: `incident ${incidentId} retrieved${detail.otherEvents.length ? `; ${detail.otherEvents.length} other account event(s) kept separate` : ''}` },
       status: {
         source: 'RocketCyber',
         status: gotDetail ? 'used' : 'no_data',
@@ -400,27 +814,51 @@ async function fetchRocketCyber(
     return {
       detail: null,
       status: { source: 'RocketCyber', status: 'error', detail: msg(err) },
+      visibility: { source: 'RocketCyber', state: 'unreachable', mappedTo: org, detail: msg(err).slice(0, 120) },
       gap: `RocketCyber lookup failed: ${msg(err)}`,
     };
   }
 }
 
+interface RmmResult extends SourceResult<DeviceHealth> {
+  networkMatch?: CompanyNetworkMatch | null;
+  visibility: VisibilityEntry;
+  /** Every device on the client's mapped sites (egress IPs come from these). */
+  devices: DattoDevice[];
+  siteDeviceCounts: Record<string, number>;
+  /** Open + resolved site alerts in the planned-change window. */
+  rmmAlerts: RmmAlertInput[];
+  changeGaps: string[];
+  deviceRecord: { uid: string | null; hostname: string; lastSeen: string | null; summary: string } | null;
+}
+
+/** Flatten an RMM alertContext into the text used only to categorise it. */
+function rmmContextText(ctx: Record<string, unknown> | null): string {
+  if (!ctx) return '';
+  const samples = ctx.samples && typeof ctx.samples === 'object' ? Object.values(ctx.samples as Record<string, unknown>).map(String).join(' ') : '';
+  const extra = ['type', 'serviceName', 'status', 'description', 'diskName'].map(k => (ctx[k] == null ? '' : `${k}=${String(ctx[k])}`)).filter(Boolean).join(' ');
+  return `${samples} ${extra}`.trim();
+}
+
 async function fetchDeviceHealth(
   companyId: string | null,
+  atCompanyId: string | null,
   companyName: string | null,
   hostname: string | null,
   alertIps: string[],
-): Promise<SourceResult<DeviceHealth> & { networkMatch?: CompanyNetworkMatch | null }> {
+  window: { fromUtc: string; toUtc: string },
+): Promise<RmmResult> {
+  const empty = { devices: [] as DattoDevice[], siteDeviceCounts: {}, rmmAlerts: [] as RmmAlertInput[], deviceRecord: null };
   const client = new DattoRmmClient();
   if (!client.isConfigured()) {
     return {
+      ...empty,
       result: null,
       status: { source: 'Datto RMM', status: 'not_configured', detail: 'DATTO_RMM_API_KEY/SECRET not set.' },
+      visibility: { source: 'Datto RMM', state: 'not_configured', mappedTo: null, detail: 'API credentials not set' },
       gap: 'Datto RMM not configured — no device health (patch/AV/reboot/online) available.',
+      changeGaps: ['Datto RMM not configured — the planned-change check (fleet-wide installs, reboots, resource spikes) could not run; a TCT-initiated change cannot be ruled out.'],
     };
-  }
-  if (!hostname && alertIps.length === 0) {
-    return { result: null, status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname or IP to look up.' } };
   }
 
   try {
@@ -428,32 +866,87 @@ async function fetchDeviceHealth(
     const mappings = await getPlatformMappings(companyId, 'datto_rmm');
 
     if (mappings && mappings.some(m => m.externalId === '__none__')) {
-      return { result: null, status: { source: 'Datto RMM', status: 'not_configured', detail: 'Company marked as not using Datto RMM.' } };
-    }
-
-    let matchedSites = sites;
-    if (mappings && mappings.length > 0) {
-      const ids = new Set(mappings.map(m => m.externalId));
-      matchedSites = sites.filter(s => ids.has(s.uid) || ids.has(String(s.id)));
-    } else if (companyName) {
-      matchedSites = sites.filter(s => matchesCompanyName(companyName, s.name));
-    } else {
-      matchedSites = [];
-    }
-
-    if (matchedSites.length === 0) {
       return {
+        ...empty,
         result: null,
-        status: { source: 'Datto RMM', status: 'no_data', detail: `No Datto RMM site mapped/matched for ${companyName || 'this company'}.` },
-        gap: `No Datto RMM site is mapped to ${companyName || 'this company'}; map it at the compliance Connect Tools step for device correlation.`,
+        status: { source: 'Datto RMM', status: 'not_configured', detail: 'Company marked as not using Datto RMM.' },
+        visibility: { source: 'Datto RMM', state: 'not_connected', mappedTo: null, detail: 'company marked as not using Datto RMM' },
+        changeGaps: ['Datto RMM is not used for this client — the planned-change check could not run; a TCT-initiated change cannot be ruled out.'],
       };
     }
 
+    // Site resolution, most authoritative first. Datto RMM's OWN mapping of a
+    // site to an Autotask company is exact and needs no compliance-tool step —
+    // before 2026-09-28 it was never consulted, so Wilmar's sites read as
+    // "unmapped" on one run and "known device" on the next.
+    const byRmm = atCompanyId ? sites.filter(s => s.autotaskCompanyId === atCompanyId) : [];
+    const mappedIds = new Set((mappings ?? []).map(m => m.externalId));
+    const byMapping = sites.filter(s => mappedIds.has(s.uid) || mappedIds.has(String(s.id)));
+    let matchedSites = Array.from(new Map([...byRmm, ...byMapping].map(s => [s.uid, s])).values());
+    let basis = byRmm.length ? `Datto RMM sites mapped to Autotask company ${atCompanyId}` : byMapping.length ? 'compliance platform mapping' : '';
+    let verified = matchedSites.length > 0;
+    if (matchedSites.length === 0 && companyName) {
+      matchedSites = sites.filter(s => matchesCompanyName(companyName, s.name));
+      basis = 'company-name match';
+      verified = false;
+    }
+    matchedSites.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (matchedSites.length === 0) {
+      return {
+        ...empty,
+        result: null,
+        status: { source: 'Datto RMM', status: 'no_data', detail: `No Datto RMM site mapped/matched for ${companyName || 'this company'}.` },
+        visibility: { source: 'Datto RMM', state: 'not_connected', mappedTo: null, detail: 'no site mapped to this Autotask company' },
+        gap: `No Datto RMM site is mapped to ${companyName || 'this company'}; map the site to the Autotask company in Datto RMM (or at the compliance Connect Tools step) for device correlation.`,
+        changeGaps: ['No Datto RMM site is mapped — the planned-change check could not run; a TCT-initiated change cannot be ruled out.'],
+      };
+    }
+    const visibility: VisibilityEntry = {
+      source: 'Datto RMM',
+      state: verified ? 'connected' : 'unverified_mapping',
+      mappedTo: matchedSites.slice(0, 5).map(s => s.name).join(', '),
+      detail: basis,
+    };
+
     // Pull all devices from the matched site(s) once (live per-site fetch — the
     // global /account/devices endpoint only returns a tiny subset).
-    const all: Awaited<ReturnType<DattoRmmClient['getSiteDevices']>> = [];
+    const all: DattoDevice[] = [];
+    const siteDeviceCounts: Record<string, number> = {};
+    const changeGaps: string[] = [];
+    const rmmAlerts: RmmAlertInput[] = [];
     for (const site of matchedSites.slice(0, 5)) {
-      try { all.push(...await client.getSiteDevices(site.uid)); } catch { /* skip site */ }
+      try {
+        const devs = await client.getSiteDevices(site.uid);
+        all.push(...devs);
+        siteDeviceCounts[site.name] = devs.length;
+      } catch (e) {
+        changeGaps.push(`Datto RMM devices for site ${site.name} could not be read (${msg(e)}).`);
+      }
+      // Site alerts through the connector's own sweep (datto_rmm_alerts).
+      for (const status of ['open', 'resolved'] as const) {
+        try {
+          const { alerts, truncated } = await listSiteAlerts(site.uid, status, { max: 250, maxPages: 4 });
+          if (truncated) changeGaps.push(`Datto RMM ${status} alerts for ${site.name} were truncated at 1000 — older alerts in the change window may be missing.`);
+          for (const a of alerts) {
+            if (!a.alertUid || !a.timestamp) continue;
+            rmmAlerts.push({
+              alertUid: a.alertUid, type: a.type, timestampUtc: a.timestamp, resolvedOnUtc: a.resolvedOn,
+              deviceHostname: a.deviceName, siteName: a.siteName ?? site.name, contextText: rmmContextText(a.alertContext),
+            });
+          }
+        } catch (e) {
+          changeGaps.push(`Datto RMM ${status} alerts for site ${site.name} could not be read (${msg(e)}) — planned-change check incomplete.`);
+        }
+      }
+    }
+    if (matchedSites.length > 5) changeGaps.push(`Only the first 5 of ${matchedSites.length} Datto RMM sites were checked.`);
+    changeGaps.push('Datto RMM job history is not listable through its API (a job can only be read by its UID), so job-based change detection is unavailable — only fleet-wide alert patterns are checked.');
+    const inWindow = rmmAlerts.filter(a => a.timestampUtc >= window.fromUtc && a.timestampUtc <= window.toUtc);
+    const base = { devices: all, siteDeviceCounts, rmmAlerts: inWindow, visibility, changeGaps };
+
+    if (!hostname && alertIps.length === 0) {
+      return { ...base, result: null, deviceRecord: null, status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname or IP to look up.' } };
     }
 
     // 1. Exact device by hostname.
@@ -485,17 +978,21 @@ async function fetchDeviceHealth(
     if (!device) {
       if (networkMatch) {
         return {
+          ...base,
           result: null,
+          deviceRecord: null,
           networkMatch,
           status: {
             source: 'Datto RMM',
             status: 'used',
-            detail: `Source IP ${networkMatch.ip} matches ${companyName || 'the company'}'s known network — ${networkMatch.deviceCount} managed device(s) behind it (e.g. ${networkMatch.hostnames.slice(0, 4).join(', ')}). Activity originated from a known company location.`,
+            detail: `Source IP ${networkMatch.ip} matches ${companyName || 'the company'}'s known network — ${networkMatch.deviceCount} managed device(s) behind it (e.g. ${networkMatch.hostnames.slice(0, 4).join(', ')}). Context only, not corroboration.`,
           },
         };
       }
       return {
+        ...base,
         result: null,
+        deviceRecord: null,
         status: { source: 'Datto RMM', status: 'no_data', detail: hostname ? `Device "${hostname}" not found in the mapped site(s).` : `Source IP not matched to any managed device for ${companyName || 'this company'}.` },
         gap: hostname ? `Device "${hostname}" was not found in the mapped Datto RMM site(s).` : 'Could not match the alert to a known company device in Datto RMM.',
       };
@@ -527,14 +1024,24 @@ async function fetchDeviceHealth(
       device.antivirusStatus && `AV: ${device.antivirusStatus}`,
     ].filter(Boolean).join(', ');
     return {
+      ...base,
       result: health,
-      status: { source: 'Datto RMM', status: 'used', detail: `Known company device "${device.hostname}" — ${bits}.` },
+      deviceRecord: {
+        uid: device.id || null,
+        hostname: device.hostname,
+        lastSeen: device.lastSeen || null,
+        summary: `Managed device record (${device.siteName || 'site unknown'}) — ${bits}. Proves the device exists and its state; not a security signal.`,
+      },
+      status: { source: 'Datto RMM', status: 'used', detail: `Known company device "${device.hostname}" — ${bits}. Context only, not corroboration.` },
     };
   } catch (err) {
     return {
+      ...empty,
       result: null,
       status: { source: 'Datto RMM', status: 'error', detail: msg(err) },
+      visibility: { source: 'Datto RMM', state: 'unreachable', mappedTo: null, detail: msg(err).slice(0, 120) },
       gap: `Datto RMM lookup failed: ${msg(err)}`,
+      changeGaps: [`Datto RMM lookup failed (${msg(err)}) — the planned-change check could not run; a TCT-initiated change cannot be ruled out.`],
     };
   }
 }
@@ -556,6 +1063,7 @@ interface EdrDetectionData {
  * top-level. We flatten `data` up before reading anything.
  */
 interface RawEdrAlert extends EdrDetectionData {
+  id?: string | number;
   severity?: string; mitreId?: string; mitreTactic?: string;
   description?: string; sourceName?: string;
   data?: EdrDetectionData;
@@ -592,18 +1100,20 @@ async function fetchEdr(
   companyName: string | null,
   hostname: string | null,
   alertTime: string,
-): Promise<SourceResult<EdrCorrelation>> {
+): Promise<VisibleResult<EdrCorrelation>> {
+  const V = (state: VisibilityEntry['state'], mappedTo: string | null, detail: string): VisibilityEntry => ({ source: 'Datto EDR', state, mappedTo, detail });
   const token = process.env.DATTO_EDR_API_TOKEN;
   if (!token) {
     return {
       result: null,
       status: { source: 'Datto EDR', status: 'not_configured', detail: 'DATTO_EDR_API_TOKEN not set.' },
+      visibility: V('not_configured', null, 'API token not set'),
       gap: 'Datto EDR not configured — could not check for related endpoint detections.',
     };
   }
   const mappings = await getPlatformMappings(companyId, 'datto_edr');
   if (mappings && mappings.some(m => m.externalId === '__none__')) {
-    return { result: null, status: { source: 'Datto EDR', status: 'not_configured', detail: 'Company marked as not using Datto EDR.' } };
+    return { result: null, status: { source: 'Datto EDR', status: 'not_configured', detail: 'Company marked as not using Datto EDR.' }, visibility: V('not_connected', null, 'company marked as not using Datto EDR') };
   }
 
   try {
@@ -618,6 +1128,7 @@ async function fetchEdr(
     // detections, which is misleading. If we can't resolve the org, we skip.
     let orgId = mappings && mappings.length > 0 && mappings[0].externalId !== 'msp_wide' ? mappings[0].externalId : null;
     let orgName = mappings && mappings.length > 0 ? mappings[0].externalName : null;
+    const edrMapped = !!orgId;
     if (!orgId && companyName) {
       try {
         const orgsRes = await fetch(`${edrUrl}/Organizations?${tokenParam}`, {
@@ -635,10 +1146,12 @@ async function fetchEdr(
       return {
         result: null,
         status: { source: 'Datto EDR', status: 'no_data', detail: `No Datto EDR org mapped/matched for ${companyName || 'this company'} — map it in Compliance > Connect Tools to enable EDR correlation.` },
+        visibility: V('not_connected', null, 'no EDR organization mapped or name-matched'),
         gap: `No Datto EDR organization resolved for ${companyName || 'this company'}; EDR correlation was skipped (not run MSP-wide to avoid other customers' data).`,
       };
     }
 
+    const edrVis = V(edrMapped ? 'connected' : 'unverified_mapping', orgName || orgId, edrMapped ? 'compliance platform mapping' : 'company-name match');
     const where: Record<string, unknown> = {
       createdOn: { gte: since.toISOString(), lte: until.toISOString() },
       organizationId: orgId,
@@ -652,6 +1165,7 @@ async function fetchEdr(
       return {
         result: null,
         status: { source: 'Datto EDR', status: 'error', detail: `Alerts query failed (${res.status}) for org "${orgName || orgId}"` },
+        visibility: V('unreachable', orgName || orgId, `alerts query failed (${res.status})`),
         gap: `Datto EDR alerts query failed (${res.status}).`,
       };
     }
@@ -669,6 +1183,7 @@ async function fetchEdr(
       return {
         result: { detectionCount: 0, suspiciousCount: 0, unclassifiedCount: 0, deviceScoped, byDevice: [], detections: [], rawDetections: [] },
         status: { source: 'Datto EDR', status: 'no_data', detail: deviceScoped ? `No EDR detections for "${hostname}" in window (org "${orgName || orgId}").` : `No EDR detections in window for org "${orgName || orgId}".` },
+        visibility: edrVis,
       };
     }
 
@@ -692,6 +1207,7 @@ async function fetchEdr(
     // Surface suspicious detections first (with detail), then a few others.
     const ordered = [...suspicious, ...list.filter(a => !isSuspiciousThreat(a))];
     const detections = ordered.slice(0, 15).map(e => ({
+      id: e.id == null ? null : String(e.id),
       name: e.name || e.path || e.flagName || e.type || 'detection',
       path: e.path || null,
       hash: e.sha256 || e.md5 || null,
@@ -717,11 +1233,13 @@ async function fetchEdr(
     return {
       result: { detectionCount: list.length, suspiciousCount: suspicious.length, unclassifiedCount: unclassified, deviceScoped, byDevice, detections, rawDetections },
       status: { source: 'Datto EDR', status: 'used', detail: detailNote },
+      visibility: edrVis,
     };
   } catch (err) {
     return {
       result: null,
       status: { source: 'Datto EDR', status: 'error', detail: msg(err) },
+      visibility: V('unreachable', null, msg(err).slice(0, 120)),
       gap: `Datto EDR lookup failed: ${msg(err)}`,
     };
   }
@@ -739,18 +1257,20 @@ async function fetchDns(
   alertTime: string,
   hostname: string | null,
   alertIps: string[],
-): Promise<SourceResult<DnsCorrelation>> {
+): Promise<VisibleResult<DnsCorrelation>> {
+  const V = (state: VisibilityEntry['state'], mappedTo: string | null, detail: string): VisibilityEntry => ({ source: 'DNSFilter', state, mappedTo, detail });
   const token = process.env.DNSFILTER_API_TOKEN;
   if (!token) {
     return {
       result: null,
       status: { source: 'DNSFilter', status: 'not_configured', detail: 'DNSFILTER_API_TOKEN not set.' },
+      visibility: V('not_configured', null, 'API token not set'),
       gap: 'DNSFilter not configured.',
     };
   }
   const mappings = await getPlatformMappings(companyId, 'dnsfilter');
   if (mappings && mappings.some(m => m.externalId === '__none__')) {
-    return { result: null, status: { source: 'DNSFilter', status: 'not_configured', detail: 'Company marked as not using DNSFilter.' } };
+    return { result: null, status: { source: 'DNSFilter', status: 'not_configured', detail: 'Company marked as not using DNSFilter.' }, visibility: V('not_connected', null, 'company marked as not using DNSFilter') };
   }
 
   try {
@@ -760,7 +1280,7 @@ async function fetchDns(
     // Resolve the org id from the mapping, or by name match.
     const orgRes = await fetch(`${baseUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) });
     if (!orgRes.ok) {
-      return { result: null, status: { source: 'DNSFilter', status: 'error', detail: `Organizations endpoint failed (${orgRes.status})` }, gap: `DNSFilter lookup failed (${orgRes.status}).` };
+      return { result: null, status: { source: 'DNSFilter', status: 'error', detail: `Organizations endpoint failed (${orgRes.status})` }, visibility: V('unreachable', null, `organizations endpoint failed (${orgRes.status})`), gap: `DNSFilter lookup failed (${orgRes.status}).` };
     }
     const orgJson = (await orgRes.json()) as { data?: Array<{ id: string; attributes?: { name?: string } }> };
     const orgs = orgJson.data ?? [];
@@ -778,9 +1298,11 @@ async function fetchDns(
       return {
         result: null,
         status: { source: 'DNSFilter', status: 'no_data', detail: `No DNSFilter org mapped/matched for ${companyName || 'this company'}.` },
+        visibility: V('not_connected', null, 'no DNSFilter organization mapped or name-matched'),
         gap: `No DNSFilter org mapped to ${companyName || 'this company'}.`,
       };
     }
+    const dnsVis = V(mappings && mappings.length > 0 ? 'connected' : 'unverified_mapping', orgName || orgId, mappings && mappings.length > 0 ? 'compliance platform mapping' : 'company-name match');
 
     // Pull blocked queries from the query log for the org in the alert window.
     // query_logs rejects a full-ISO `from` more than 9 days before now with 400,
@@ -806,6 +1328,7 @@ async function fetchDns(
       return {
         result: null,
         status: { source: 'DNSFilter', status: 'error', detail: `query_logs failed (${logRes.status}) for org "${orgName}"` },
+        visibility: V('unreachable', orgName, `query_logs failed (${logRes.status})`),
         gap: `DNSFilter query_logs failed (${logRes.status}).`,
       };
     }
@@ -860,31 +1383,35 @@ async function fetchDns(
       status: {
         source: 'DNSFilter',
         status: 'used',
-        detail: `${totalBlocked} blocked DNS quer${totalBlocked === 1 ? 'y' : 'ies'} in window for org "${orgName}"${usePreciseWindow ? '' : ' (historical alert — day-granularity sample)'}${deviceScoped ? ` — ${deviceVals.length} tied to this device` : ''}${threats.length > 0 ? `; ${threats.length} flagged as threats` : ''}.`,
+        detail: `${totalBlocked} blocked DNS quer${totalBlocked === 1 ? 'y' : 'ies'} in window for org "${orgName}"${usePreciseWindow ? '' : ' (historical alert — day-granularity sample)'}${deviceScoped ? ` — ${deviceVals.length} tied to this device` : ''}${threats.length > 0 ? `; ${threats.length} flagged as threats` : ''}. Context only unless a threat-flagged lookup is tied to this device.`,
       },
+      visibility: dnsVis,
       gap: deviceScoped ? undefined : 'DNSFilter blocked-query data could not be tied to this specific device/IP (org-level).',
     };
   } catch (err) {
     return {
       result: null,
       status: { source: 'DNSFilter', status: 'error', detail: msg(err) },
+      visibility: V('unreachable', null, msg(err).slice(0, 120)),
       gap: `DNSFilter lookup failed: ${msg(err)}`,
     };
   }
 }
 
-async function fetchSaasAlerts(companyId: string | null, companyName: string | null, alertTime: string): Promise<SourceResult<SaasCorrelation>> {
+async function fetchSaasAlerts(companyId: string | null, companyName: string | null, alertTime: string): Promise<VisibleResult<SaasCorrelation>> {
+  const V = (state: VisibilityEntry['state'], mappedTo: string | null, detail: string): VisibilityEntry => ({ source: 'SaaS Alerts', state, mappedTo, detail });
   const client = new SaasAlertsClient();
   if (!client.isConfigured()) {
     return {
       result: null,
       status: { source: 'SaaS Alerts', status: 'not_configured', detail: `Missing ${client.missingCredentials().join(', ')}.` },
+      visibility: V('not_configured', null, 'API credentials not set'),
       gap: 'SaaS Alerts not configured — could not correlate identity/SaaS events.',
     };
   }
   const mappings = await getPlatformMappings(companyId, 'saas_alerts');
   if (mappings && mappings.some(m => m.externalId === '__none__')) {
-    return { result: null, status: { source: 'SaaS Alerts', status: 'not_configured', detail: 'Company marked as not using SaaS Alerts.' } };
+    return { result: null, status: { source: 'SaaS Alerts', status: 'not_configured', detail: 'Company marked as not using SaaS Alerts.' }, visibility: V('not_connected', null, 'company marked as not using SaaS Alerts') };
   }
   let customerIds = (mappings ?? []).map(m => m.externalId).filter(id => id && id !== '__none__');
   let matchedBy = 'mapping';
@@ -903,10 +1430,12 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
     return {
       result: null,
       status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts customer mapped or name-matched for ${companyName || 'this company'}.` },
+      visibility: V('not_connected', null, 'no SaaS Alerts customer mapped or name-matched'),
       gap: `No SaaS Alerts customer resolved for ${companyName || 'this company'}; map it at the compliance Connect Tools step for reliable identity correlation.`,
     };
   }
 
+  const saasVis = V(matchedBy === 'mapping' ? 'connected' : 'unverified_mapping', customerIds.join(', '), matchedBy === 'mapping' ? 'compliance platform mapping' : 'company-name match');
   try {
     const center = new Date(alertTime).getTime() || Date.now();
     const since = new Date(center - WINDOW_MS).toISOString();
@@ -916,6 +1445,7 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
       const { events: rows } = await client.getEvents({ customerId, since, until, limit: 200 });
       for (const e of rows) {
         events.push({
+          id: e.eventId || e.id || null,
           type: e.jointType || e.eventType || e.type || 'event',
           severity: e.alertStatus || e.severity || 'unknown',
           description: e.jointDesc || e.description || '',
@@ -938,6 +1468,7 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
           status: 'no_data',
           detail: `No SaaS Alerts events for ${matchedBy}-resolved customer id(s) [${idList}] in the ±6h window (${since} – ${until}).`,
         },
+        visibility: saasVis,
         // If the alert itself came from SaaS Alerts but the events query is empty,
         // the customer→id resolution is the likely culprit (especially on a fuzzy
         // name-match). Point the tech at the durable fix.
@@ -949,11 +1480,13 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
     return {
       result: { eventCount: events.length, events: events.slice(0, 10) },
       status: { source: 'SaaS Alerts', status: 'used', detail: `${events.length} SaaS Alerts event(s) for the ${matchedBy}-resolved customer(s) near alert time.` },
+      visibility: saasVis,
     };
   } catch (err) {
     return {
       result: null,
       status: { source: 'SaaS Alerts', status: 'error', detail: msg(err) },
+      visibility: V('unreachable', customerIds.join(', '), msg(err).slice(0, 120)),
       gap: `SaaS Alerts lookup failed: ${msg(err)}`,
     };
   }

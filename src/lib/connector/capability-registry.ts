@@ -34,6 +34,7 @@ import {
 } from './tool-authorization'
 import { FIXABLE_BY, REASON_CODE_MEANING } from './failure-envelope'
 import { ATTACHMENT_CONTENT_TYPES, ATTACHMENT_MAX_BYTES } from '@/lib/autotask-attachments'
+import { AUTOMATION_KILL_SWITCHES, allAutomationSwitchStates, type AutomationSwitchState } from './kill-switches'
 
 // ---------------------------------------------------------------------------
 // Recorded registry
@@ -319,6 +320,7 @@ export const VENDORS = {
   sales: 'TCT Sales Calculator (our own pricing)',
   kqm: 'Kaseya Quote Manager (Datto Commerce)',
   ringcentral: 'RingCentral (RingEX + RingSense)',
+  soc: 'TCT SOC analyzer',
   tct: 'TCT connector (meta)',
 } as const
 
@@ -624,6 +626,13 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     'Diffs the connector\'s implemented Autotask surface against live entityInformation',
     'A full sweep is one metadata lookup per entity (cached) — scope it with entities[] when you only care about a few',
     'unchecked[] means the lookup failed — never read that as "no gaps"',
+  ),
+
+  // ── SOC analyzer ─────────────────────────────────────────────────────────
+  soc_triage_dry_run: r(
+    'READ-ONLY by construction: every Autotask write and the customer email go to a recording writer; the assessment store is read-only; nothing is persisted',
+    'Both LLM calls are off — classification and confidence are computed in code from the evidence, so the preview is the real outcome',
+    'The live automatic customer update is governed by SOC_AUTO_CUSTOMER_NOTIFY (see writeGuardrails.automations); this tool never sends',
   ),
 
   // ── Autotask: ticket-scoped writes (impersonated) ────────────────────────
@@ -1229,6 +1238,11 @@ function killSwitchState(): Record<string, boolean> {
   for (const facts of Object.values(TOOL_FACTS)) {
     if (facts.killSwitch) flags[facts.killSwitch] = process.env[facts.killSwitch] === 'true'
   }
+  // Background-automation switches (not tied to a tool) come from their own
+  // declaration table, resolved by the SAME function the runtime gate calls —
+  // so the report and the behaviour can never disagree. Some default ON, which
+  // is why they are not read with the `=== 'true'` rule above.
+  for (const s of allAutomationSwitchStates()) flags[s.envVar] = s.enabled
   return flags
 }
 
@@ -1275,6 +1289,8 @@ export interface CapabilityReport {
     model: string
     approvalUrl: string
     killSwitches: Record<string, boolean>
+    /** Background automations (no tool row) and the switch that stops each one. */
+    automations: Array<AutomationSwitchState & { controls: string; surface: string; default: string; takesEffect: string }>
   }
   tools: CapabilityToolRow[]
   knownLimits: Record<string, KnownLimit[]>
@@ -1426,6 +1442,16 @@ export function buildCapabilityReport(
         'Destructive and multi-target config changes are STAGED, not applied: stage → a human approves on the admin page behind staff login the connector token cannot reach → single-use, drift-checked execute. Tools flagged stagedApprovalRequired cannot bypass this. Being told to get approval is the gate working, not an error to route around.',
       approvalUrl: `${process.env.NEXT_PUBLIC_BASE_URL ?? 'https://www.triplecitiestech.com'}/admin/connector/staged-writes`,
       killSwitches: flags,
+      automations: allAutomationSwitchStates().map((st) => {
+        const decl = AUTOMATION_KILL_SWITCHES[st.key]
+        return {
+          ...st,
+          controls: decl.controls,
+          surface: decl.surface,
+          default: decl.default,
+          takesEffect: 'On the next deployment — Vercel applies environment-variable changes to new deployments only (a redeploy of the current commit is enough).',
+        }
+      }),
     },
     tools: rows,
     knownLimits: limits,

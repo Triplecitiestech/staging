@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
           t."autotaskTicketId",
           t."ticketNumber",
           t."companyId",
+          c."autotaskCompanyId" as "autotaskCompanyId",
+          c."displayName" as "companyName",
           t.title,
           t.description,
           t.status,
@@ -58,6 +60,7 @@ export async function POST(request: NextRequest) {
           t."sourceLabel",
           t."createDate"::text as "createDate"
         FROM tickets t
+        LEFT JOIN companies c ON c.id = t."companyId"
         WHERE NOT EXISTS (
           SELECT 1 FROM soc_ticket_analysis sa
           WHERE sa."autotaskTicketId" = t."autotaskTicketId"
@@ -73,6 +76,8 @@ export async function POST(request: NextRequest) {
           t."autotaskTicketId",
           t."ticketNumber",
           t."companyId",
+          c."autotaskCompanyId" as "autotaskCompanyId",
+          c."displayName" as "companyName",
           t.title,
           t.description,
           t.status,
@@ -85,6 +90,7 @@ export async function POST(request: NextRequest) {
           t."sourceLabel",
           t."createDate"::text as "createDate"
         FROM tickets t
+        LEFT JOIN companies c ON c.id = t."companyId"
         WHERE NOT EXISTS (
           SELECT 1 FROM soc_ticket_analysis sa
           WHERE sa."autotaskTicketId" = t."autotaskTicketId"
@@ -103,7 +109,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await runTriagePipeline(tickets, config, rules);
+    // Bootstrap keeps no assessment records, so it can never email anyone.
+    const result = await runTriagePipeline(tickets, config, rules, { trigger: 'bootstrap', store: null });
 
     const nextCursor = tickets[tickets.length - 1].autotaskTicketId;
 

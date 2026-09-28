@@ -21,8 +21,10 @@ export const maxDuration = 120;
  * Auth (any of): Authorization: Bearer <secret>, Basic auth (secret in the
  * password field), x-soc-secret header, ?secret= query, or `secret` body field.
  * Secret = SOC_INGEST_SECRET (falls back to MIGRATION_SECRET / CRON_SECRET).
- * Idempotent: clears prior SOC records for the ticket so callout retries don't
- * create duplicate incidents.
+ * Idempotent by CLAIM, not by deletion: one assessment per (ticket, RocketCyber
+ * incident). A callout retry, a timed-out round trip, or the absorbed twin of an
+ * already-assessed ticket returns quickly with status 'ok' and the ticket listed
+ * as skipped — nothing is re-analysed, re-posted or re-sent.
  */
 export async function GET(request: NextRequest) {
   return handle(request, {});
@@ -70,19 +72,19 @@ async function handle(request: NextRequest, body: Record<string, string>): Promi
       return NextResponse.json({ status: 'skipped', reason: 'SOC agent disabled', ticketId });
     }
 
-    // 2. Clear prior SOC records so re-ingest is idempotent.
-    await Promise.all([
-      prisma.$executeRawUnsafe(`DELETE FROM soc_pending_actions WHERE "autotaskTicketId" = $1`, ticketId),
-      prisma.$executeRawUnsafe(`DELETE FROM soc_pending_actions WHERE "incidentId" IN (SELECT id FROM soc_incidents WHERE "primaryTicketId" = $1)`, ticketId),
-    ]);
-    await prisma.$executeRawUnsafe(`DELETE FROM soc_incidents WHERE "primaryTicketId" = $1`, ticketId);
-    await prisma.$executeRawUnsafe(`DELETE FROM soc_ticket_analysis WHERE "autotaskTicketId" = $1`, ticketId);
+    // 2. NO clearing of prior SOC records. That "made re-ingest idempotent" by
+    //    deleting the analysis and running it again — so every Autotask callout
+    //    retry after "Round-Trip … The operation has timed out" posted ANOTHER
+    //    assessment note (seven on T20260927.0006 in ten minutes). Idempotency
+    //    is now the claim in soc_assessment_records: an ingest for a ticket that
+    //    is assessed or in progress returns 'skipped' without re-analysing.
 
     // 3. Build the SecurityTicket and run the pipeline on just this ticket.
     const tickets = await prisma.$queryRaw<SecurityTicket[]>`
       SELECT
         t."autotaskTicketId", t."ticketNumber", t."companyId",
         c."displayName" as "companyName",
+        c."autotaskCompanyId" as "autotaskCompanyId",
         t.title, t.description, t.status, t."statusLabel",
         t.priority, t."priorityLabel", t."queueId", t."queueLabel",
         t.source, t."sourceLabel", t."createDate"::text as "createDate"
@@ -95,7 +97,7 @@ async function handle(request: NextRequest, body: Record<string, string>): Promi
     }
 
     const rules = await loadActiveRules();
-    const result = await runTriagePipeline(tickets, config, rules);
+    const result = await runTriagePipeline(tickets, config, rules, { trigger: 'ingest' });
 
     return NextResponse.json({
       status: 'ok',

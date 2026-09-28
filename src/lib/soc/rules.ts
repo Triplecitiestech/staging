@@ -98,7 +98,12 @@ const IDENTITY_CHANGE_KEYWORDS = [
 ];
 
 export function isIdentityChangeAlert(ticket: SecurityTicket): boolean {
-  const text = `${ticket.title} ${ticket.description || ''}`.toLowerCase();
+  // Only the ALERT part of the body. RocketCyber appends generic remediation
+  // boilerplate ("Conduct a password reset across all affected systems…") to
+  // every alert, which made a Defender malware detection on Wilmar
+  // T20260927.0006 read as an identity/MFA change.
+  const alertPart = (ticket.description || '').split(/\n\s*(?:Remediation|Legitimate Behavior)\s*:/i)[0];
+  const text = `${ticket.title} ${alertPart}`.toLowerCase();
   return IDENTITY_CHANGE_KEYWORDS.some(kw => text.includes(kw));
 }
 

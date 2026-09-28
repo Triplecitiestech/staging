@@ -202,7 +202,10 @@ export interface SocReasoning {
 export interface SecurityTicket {
   autotaskTicketId: string;
   ticketNumber: string;
+  /** LOCAL companies.id (uuid) — NOT the Autotask company id. */
   companyId: string | null;
+  /** The Autotask company id (companies.autotaskCompanyId), e.g. "450". */
+  autotaskCompanyId?: string | null;
   companyName?: string;
   title: string;
   description: string | null;
@@ -258,6 +261,16 @@ export interface TriageResult {
   enrichment?: EnrichmentBundle;
   /** True when the internal note was auto-posted to Autotask this run. */
   noteAutoPosted?: boolean;
+  /** What delivery did (or, in a dry run, would have done). */
+  delivery?: {
+    noteAction: string;
+    noteId: number | null;
+    notifyPlan: string;
+    notifyStatus: string;
+    notifyState: string;
+    notifyReason: string;
+    writerCalls?: Array<{ op: string; ticketId: number | null }>;
+  };
 }
 
 // ── Proposed Actions (Dry Run Preview) ──
@@ -416,6 +429,8 @@ export interface EdrCorrelation {
   /** Per-device rollup (hostname → counts) when not device-scoped. */
   byDevice: Array<{ hostname: string; total: number; suspicious: number }>;
   detections: Array<{
+    /** The EDR alert's own id (source record id for attribution). */
+    id?: string | null;
     name: string;
     path: string | null;
     hash: string | null;
@@ -459,6 +474,8 @@ export interface DnsCorrelation {
 export interface SaasCorrelation {
   eventCount: number;
   events: Array<{
+    /** SaaS Alerts' own event id (source record id for attribution). */
+    id?: string | null;
     type: string;
     severity: string;
     description: string;
@@ -594,9 +611,17 @@ export interface RecurrenceSignal {
 
 /** How much independent telemetry actually corroborated the alert. Drives the confidence cap. */
 export interface CorroborationSignal {
-  /** Sources that returned substantive data (status 'used'). */
+  /**
+   * Sources that CORROBORATED — an independent source reporting its own
+   * malicious/suspicious signal about the same device, user or IOC. Before
+   * 2026-09-28 this listed every source that returned data, so "the device
+   * exists in Datto RMM" and "DNSFilter blocked 0 queries" rendered as
+   * "Corroborated by: Datto RMM, DNSFilter" (Wilmar T20260927.0006).
+   */
   sourcesUsed: string[];
-  /** True when independent telemetry (RocketCyber detail, device health, device-scoped EDR/DNS, known-network match) confirmed context. */
+  /** Sources that returned data used only as CONTEXT (existence, patch state, absence of findings). */
+  contextSources?: string[];
+  /** True only when at least one corroborating event exists. */
   corroboratingTelemetry: boolean;
   /** Confidence ceiling applied because corroboration was thin (null = no cap applied). */
   confidenceCeiling: number | null;
@@ -634,6 +659,24 @@ export interface EnrichmentBundle {
    * with incidents persisted before this layer existed.
    */
   signals?: AssessmentSignals | null;
+  /** Item 4 — what each source could actually see for THIS client. */
+  visibility?: import('./evidence').VisibilityEntry[];
+  /** Item 2 — every correlated event, attributed and disposed (alert / corroboration / context / tct_change / data_gap). */
+  events?: import('./evidence').AttributedEvent[];
+  /** Raw evidence inputs, before attribution (engine attributes them). */
+  eventInputs?: import('./evidence').EvidenceEventInput[];
+  /** Item 5 — fleet-wide TCT-initiated change windows found in Datto RMM. */
+  changeWindows?: import('./evidence').ChangeWindow[];
+  /** Item 5 — open onboarding / security-stack work in Autotask (context, not exclusion). */
+  changeContext?: import('./evidence').ChangeContextItem[];
+  /** Item 6 — every IP in the evidence, classified. */
+  ipClassifications?: import('./evidence').IpClassification[];
+  /** Item 7 — co-managed status and recipients. */
+  profile?: import('./evidence').CompanySecurityProfile;
+  /** The detection record the classification is anchored to. */
+  primary?: import('./evidence').PrimaryDetection;
+  /** One-line context statements about sources (e.g. "DNSFilter: 0 blocked queries, org-level"). */
+  contextSummaries?: string[];
 }
 
 // ── Known Benign Security Events ──

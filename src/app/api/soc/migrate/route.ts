@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { SOC_ASSESSMENT_TABLE_SQL } from '@/lib/soc/delivery';
 
 export const dynamic = 'force-dynamic';
 
@@ -255,6 +256,11 @@ export async function POST(request: Request) {
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_benign_active ON soc_known_benign ("isActive", scope)`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_benign_company ON soc_known_benign ("companyId")`);
     created.push('soc_known_benign');
+
+    // Idempotency records: one assessment per (Autotask ticket, RocketCyber
+    // incident). Also created lazily on first use by ensureSocAssessmentTable().
+    for (const sql of SOC_ASSESSMENT_TABLE_SQL) await prisma.$executeRawUnsafe(sql);
+    created.push('soc_assessment_records');
 
     // Seed default config values
     const defaults = [

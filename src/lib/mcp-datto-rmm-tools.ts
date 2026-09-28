@@ -344,6 +344,66 @@ async function pagedGet<T>(
   return { items, pagesFetched, totalCount, truncated, nextPage }
 }
 
+/**
+ * The alerts sweep behind datto_rmm_alerts, shared with the SOC analyzer so it
+ * reads site alerts through this code instead of a second client.
+ */
+async function sweepAlerts(o: {
+  scope: 'account' | 'site' | 'device'
+  siteUid?: string
+  deviceUid?: string
+  status: 'open' | 'resolved'
+  muted?: boolean
+  page?: number
+  max?: number
+  maxPages?: number
+}): Promise<PagedResult<DrmAlert>> {
+  const base = o.scope === 'device' ? `/api/v2/device/${encodeURIComponent(o.deviceUid!)}/alerts/${o.status}`
+    : o.scope === 'site' ? `/api/v2/site/${encodeURIComponent(o.siteUid!)}/alerts/${o.status}`
+    : `/api/v2/account/alerts/${o.status}`
+  return pagedGet<DrmAlert>(base, 'alerts', { muted: o.muted }, { startPage: o.page ?? 0, max: o.max ?? 100, maxPages: o.maxPages ?? 2 })
+}
+
+export interface SiteAlertRow {
+  alertUid: string | null
+  type: string
+  priority: string | null
+  timestamp: string | null
+  resolved: boolean
+  resolvedOn: string | null
+  deviceUid: string | null
+  deviceName: string | null
+  siteUid: string | null
+  siteName: string | null
+  alertContext: Record<string, unknown> | null
+}
+
+/**
+ * One site's alerts (open or resolved), normalised exactly as datto_rmm_alerts
+ * normalises them (buildAlertRow), minus console links. `truncated` is reported,
+ * never hidden — a capped sweep is not "no more alerts".
+ */
+export async function listSiteAlerts(
+  siteUid: string,
+  status: 'open' | 'resolved',
+  opts: { max?: number; maxPages?: number } = {},
+): Promise<{ alerts: SiteAlertRow[]; truncated: boolean }> {
+  const swept = await sweepAlerts({ scope: 'site', siteUid, status, max: opts.max ?? 250, maxPages: opts.maxPages ?? 4 })
+  const noLinks = { siteUrlByUid: new Map<string, string>(), deviceUrlByUid: new Map<string, string>() }
+  return {
+    truncated: swept.truncated,
+    alerts: swept.items.map((a) => {
+      const r = buildAlertRow(a, noLinks)
+      return {
+        alertUid: r.alertUid, type: r.type, priority: r.priority, timestamp: r.timestamp, resolved: r.resolved,
+        resolvedOn: 'resolvedOn' in r ? (r.resolvedOn as string | null) : null,
+        deviceUid: r.device.uid, deviceName: r.device.name, siteUid: r.site.uid, siteName: r.site.name,
+        alertContext: (r.alertContext as Record<string, unknown> | null) ?? null,
+      }
+    }),
+  }
+}
+
 function pageMeta<T>(r: PagedResult<T>) {
   return { pagesFetched: r.pagesFetched, returned: r.items.length, totalCount: r.totalCount, truncated: r.truncated, ...(r.truncated && r.nextPage ? { nextPage: r.nextPage, note: `More pages exist — call again with page=${r.nextPage} to continue.` } : {}) }
 }
@@ -544,10 +604,7 @@ export function registerDattoRmmTools(server: any) {
       if (effScope === 'site' && !siteUid) throw new Error('scope=site requires siteUid.')
       if (effScope === 'device' && !deviceUid) throw new Error('scope=device requires deviceUid.')
       const st = status ?? 'open'
-      const base = effScope === 'device' ? `/api/v2/device/${encodeURIComponent(deviceUid)}/alerts/${st}`
-        : effScope === 'site' ? `/api/v2/site/${encodeURIComponent(siteUid)}/alerts/${st}`
-        : `/api/v2/account/alerts/${st}`
-      const swept = await pagedGet<DrmAlert>(base, 'alerts', { muted }, { startPage: page ?? 0, max: max ?? 100, maxPages: maxPages ?? 2 })
+      const swept = await sweepAlerts({ scope: effScope, siteUid, deviceUid, status: st, muted, page, max, maxPages })
       let alerts = swept.items
       let dateFiltered = 0
       if (sinceDays) {
