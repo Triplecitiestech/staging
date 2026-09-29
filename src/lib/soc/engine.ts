@@ -668,7 +668,7 @@ async function assessGroup(
   const customerStatus = plan.action !== 'send'
     ? plan.statusLine
     : notify.state === 'sent'
-      ? `Sent automatically at ${notify.sentAt} to ${plan.recipient.name ?? `contact ${plan.recipient.contactId}`} (${plan.recipient.basis}${plan.recipient.setContactFirst ? '; set as the ticket contact first' : ''}) — the "Customer emailed" note records the recipient, time and exact text.`
+      ? `Posted as a customer-visible note at ${notify.sentAt} for ${plan.recipient.name ?? `contact ${plan.recipient.contactId}`} (${plan.recipient.basis}${plan.recipient.setContactFirst ? '; set as the ticket contact first' : ''}). ${notify.outcome?.observation.notified === true ? 'Autotask emailed the ticket contact.' : 'Autotask\'s email was NOT confirmed — see the "Customer update posted" note.'}`
       : notify.state === 'send_failed'
         ? `FAILED — ${notify.reason} See the "SOC — Customer update FAILED" note.`
         : `NOT SENT — ${notify.reason} See the "SOC — Customer update NOT sent" note.`;

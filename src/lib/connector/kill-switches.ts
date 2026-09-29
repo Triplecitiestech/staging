@@ -39,7 +39,7 @@ export const AUTOMATION_KILL_SWITCHES = {
     envVar: 'SOC_AUTO_CUSTOMER_NOTIFY',
     default: 'on',
     controls:
-      'The SOC analyzer automatically posting a customer-visible note and emailing the ticket contact when an assessment completes as Suspicious or Confirmed Malicious (once per incident). Off = nothing is sent; the draft stays on the assessment for a technician.',
+      'The SOC analyzer automatically posting a customer-visible note (which Autotask\'s own workflow rule emails to the ticket contact) when an assessment completes as Suspicious or Confirmed Malicious (once per incident). The SOC sends no email itself. Off = nothing is posted; the draft stays on the assessment for a technician.',
     surface: 'src/lib/soc/delivery.ts',
   },
 } as const satisfies Record<string, AutomationKillSwitch>

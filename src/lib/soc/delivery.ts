@@ -20,25 +20,20 @@
  *          customer message of its own,
  *        - the customer is emailed at most once per incident.
  *
- *   3. deliverAssessment() — writes/edits the assessment note, then (when the
- *      classification warrants it and SOC_AUTO_CUSTOMER_NOTIFY is on) posts the
- *      customer update through the connector's shared note+email core
- *      (src/lib/customer-mail.ts → deliverCustomerNoteWithEmail), setting the
- *      ticket contact first when the ticket has none, and records exactly what
- *      was sent in an internal note.
+ *   3. The customer update — when the classification warrants it and
+ *      SOC_AUTO_CUSTOMER_NOTIFY is on, it sets the ticket contact (if the ticket
+ *      has none) and posts ONE customer-visible note. AUTOTASK sends the email:
+ *      a Service Desk workflow rule ("Note Added by" → notify Ticket Contact)
+ *      owned in the Autotask UI. The SOC sends no email itself (owner decision
+ *      2026-09-29: every customer email goes through Autotask). It then OBSERVES
+ *      Tickets.lastCustomerNotificationDateTime to confirm Autotask sent it and
+ *      records the outcome — observed or not — in an internal note, never
+ *      claiming a send it did not observe.
  */
 
 import { getPool } from '@/lib/db-pool'
-import {
-  customerMailReadiness,
-  deliverCustomerNoteWithEmail,
-  isSendableEmailAddress,
-  sendCustomerUpdateEmail,
-  type CustomerMailSendResult,
-  type CustomerNoteAuditContext,
-  type CustomerNoteDeps,
-  type CustomerNoteOutcome,
-} from '@/lib/customer-mail'
+import { isSendableEmailAddress } from '@/lib/customer-mail'
+import { observeNotificationAdvance } from '@/lib/autotask-activity'
 import { automationSwitchState, type AutomationSwitchState } from '@/lib/connector/kill-switches'
 import type { CompanySecurityProfile } from './evidence'
 import type { SocClassification } from './types'
@@ -85,16 +80,32 @@ export type WriterCall =
   | { op: 'updateNote'; ticketId: number; noteId: number; body: string }
   | { op: 'setTicketContact'; ticketId: number; contactId: number }
   | { op: 'createCustomerNote'; ticketId: number; title: string; body: string; publish: number }
-  | { op: 'sendEmail'; to: string; subject: string; text: string }
 
 export interface SocWriter extends SocReads {
   mode: 'live' | 'recording'
   createInternalNote(ticketId: number, title: string, body: string): Promise<{ noteId: number | null }>
   updateNote(ticketId: number, noteId: number, body: string): Promise<void>
   setTicketContact(ticketId: number, contactId: number): Promise<void>
-  /** Dependencies for the shared customer note + email core. */
-  customerNoteDeps(auditNoteBody: (ctx: CustomerNoteAuditContext) => string): CustomerNoteDeps
+  /** Post a CUSTOMER-VISIBLE note (publish 1). Autotask's workflow rule emails the ticket contact. */
+  createCustomerNote(ticketId: number, title: string, body: string): Promise<{ noteId: number | null }>
+  /**
+   * Autotask's own record of whether it notified the customer:
+   * Tickets.lastCustomerNotificationDateTime. `ok: false` = could not be read.
+   */
+  readCustomerNotificationStamp(ticketId: number): Promise<{ ok: boolean; value: string | null }>
+  /** Wait for that stamp to advance past `before` (live: polls up to ~35 s). */
+  observeCustomerNotification(ticketId: number, before: { ok: boolean; value: string | null }): Promise<CustomerNotificationObservation>
 }
+
+export interface CustomerNotificationObservation {
+  /** true = Autotask recorded a customer notification after the note; false = not seen in the window; null = not checked. */
+  notified: boolean | null
+  notifiedAt: string | null
+  windowSeconds: number
+  detail: string
+}
+
+export const CUSTOMER_UPDATE_PUBLISH = 1
 
 export const ASSESSMENT_NOTE_TITLE = 'SOC Analyst Assessment'
 
@@ -153,6 +164,14 @@ export async function liveWriter(): Promise<SocWriter> {
     const created = await client.createTicketNote(ticketId, { title: note.title, description: note.description, noteType: 1, publish: note.publish })
     return { itemId: created?.id || undefined }
   }
+  const readStamp = async (ticketId: number): Promise<{ ok: boolean; value: string | null }> => {
+    try {
+      const st = await client.getTicketActivityStamps(ticketId)
+      return st ? { ok: true, value: st.lastCustomerNotificationDateTime } : { ok: false, value: null }
+    } catch {
+      return { ok: false, value: null }
+    }
+  }
   return {
     mode: 'live',
     ...reads,
@@ -166,15 +185,21 @@ export async function liveWriter(): Promise<SocWriter> {
     async setTicketContact(ticketId, contactId) {
       await client.patchTicket(ticketId, { contactID: contactId })
     },
-    customerNoteDeps(auditNoteBody) {
-      return {
-        readiness: customerMailReadiness,
-        getTicket: (id) => reads.getTicket(id),
-        getContact: (id) => reads.getContact(id),
-        createNote,
-        sendEmail: sendCustomerUpdateEmail,
-        auditNoteBody,
-      }
+    async createCustomerNote(ticketId, title, body) {
+      const r = await createNote(ticketId, { title, description: body, publish: CUSTOMER_UPDATE_PUBLISH })
+      return { noteId: r.itemId ?? null }
+    },
+    readCustomerNotificationStamp: readStamp,
+    async observeCustomerNotification(ticketId, before) {
+      const obs = await observeNotificationAdvance({
+        baselineEstablished: before.ok,
+        before: before.value,
+        readAfter: async () => (await readStamp(ticketId)).value,
+      })
+      if (!before.ok) return { notified: null, notifiedAt: null, windowSeconds: 0, detail: 'Autotask\'s notification timestamp could not be read before the note was posted, so whether it emailed the contact was not checked.' }
+      return obs.verdict.customerNotified
+        ? { notified: true, notifiedAt: obs.after, windowSeconds: obs.windowSeconds, detail: `Autotask recorded a customer notification at ${obs.after} (${obs.observedAfterSeconds ?? obs.windowSeconds} s after the note).` }
+        : { notified: false, notifiedAt: null, windowSeconds: obs.windowSeconds, detail: `Autotask recorded no customer notification within ${obs.windowSeconds} s. It sends asynchronously, so this is "not seen yet", not "not sent".` }
     },
   }
 }
@@ -187,7 +212,8 @@ export interface RecordingSeed {
 
 export interface RecordingWriter extends SocWriter {
   calls: WriterCall[]
-  sends: Array<{ to: string; subject: string; text: string }>
+  /** Customer-visible notes posted — each is one email Autotask's workflow rule would send. */
+  customerNotes: Array<{ ticketId: number; title: string; body: string }>
 }
 
 /**
@@ -200,39 +226,27 @@ export interface RecordingWriter extends SocWriter {
 export function recordingWriter(opts: {
   seed?: RecordingSeed
   reads?: SocReads
-  /** Defaults to the REAL readiness, so a dry run reports what production would do. */
-  readiness?: CustomerNoteDeps['readiness']
-  sender?: string
-  /** acceptedAt stamped on recorded sends (deterministic in tests). */
-  acceptedAt?: string
+  /**
+   * What the simulated Autotask records after a customer-visible note. Omitted
+   * (a dry run): nothing was posted, so nothing is observed — notified: null.
+   */
+  autotaskNotifies?: { at: string } | false
 }): RecordingWriter {
   const tickets = new Map<number, SocTicketSnapshot>((opts.seed?.tickets ?? []).map((t) => [t.id, { ...t }]))
   const contacts = new Map<number, SocContactSnapshot>((opts.seed?.contacts ?? []).map((c) => [c.id, { ...c }]))
   const notes = new Map<number, SocNoteSnapshot>((opts.seed?.notes ?? []).map((n) => [n.id, { ...n }]))
   let nextNoteId = 900_000_001
   const calls: WriterCall[] = []
-  const sends: RecordingWriter['sends'] = []
-  const sender = opts.sender ?? 'support@triplecitiestech.com'
+  const customerNotes: RecordingWriter['customerNotes'] = []
+  const stamps = new Map<number, string | null>()
 
   const getTicket = async (id: number) => tickets.get(id) ?? (opts.reads ? await opts.reads.getTicket(id) : null)
   const getContact = async (id: number) => contacts.get(id) ?? (opts.reads ? await opts.reads.getContact(id) : null)
-  const createNote = async (ticketId: number, note: { title: string; description: string; publish: number }) => {
-    const id = nextNoteId++
-    calls.push({ op: 'createCustomerNote', ticketId, title: note.title, body: note.description, publish: note.publish })
-    notes.set(id, { id, ticketID: ticketId, title: note.title, description: note.description })
-    return { itemId: id }
-  }
-  const sendEmail: typeof sendCustomerUpdateEmail = async ({ to, email }) => {
-    calls.push({ op: 'sendEmail', to, subject: email.subject, text: email.text })
-    sends.push({ to, subject: email.subject, text: email.text })
-    const result: CustomerMailSendResult = { status: 'accepted', httpStatus: 202, sender, to, acceptedAt: opts.acceptedAt ?? new Date().toISOString(), subject: email.subject }
-    return result
-  }
 
   return {
     mode: 'recording',
     calls,
-    sends,
+    customerNotes,
     getTicket,
     getContact,
     async getNote(noteId) {
@@ -260,15 +274,25 @@ export function recordingWriter(opts: {
       const t = (await getTicket(ticketId)) ?? { id: ticketId, ticketNumber: null, title: null, companyID: null, contactID: null }
       tickets.set(ticketId, { ...t, contactID: contactId })
     },
-    customerNoteDeps(auditNoteBody) {
-      return {
-        readiness: opts.readiness ?? customerMailReadiness,
-        getTicket,
-        getContact,
-        createNote,
-        sendEmail,
-        auditNoteBody,
+    async createCustomerNote(ticketId, title, body) {
+      const id = nextNoteId++
+      calls.push({ op: 'createCustomerNote', ticketId, title, body, publish: CUSTOMER_UPDATE_PUBLISH })
+      customerNotes.push({ ticketId, title, body })
+      notes.set(id, { id, ticketID: ticketId, title, description: body })
+      if (opts.autotaskNotifies) stamps.set(ticketId, opts.autotaskNotifies.at)
+      return { noteId: id }
+    },
+    async readCustomerNotificationStamp(ticketId) {
+      return { ok: true, value: stamps.get(ticketId) ?? null }
+    },
+    async observeCustomerNotification(ticketId, before) {
+      if (opts.autotaskNotifies === undefined) {
+        return { notified: null, notifiedAt: null, windowSeconds: 0, detail: 'Dry run — no note was posted, so there was nothing for Autotask to send.' }
       }
+      const after = stamps.get(ticketId) ?? null
+      return after && after !== before.value
+        ? { notified: true, notifiedAt: after, windowSeconds: 0, detail: `Autotask recorded a customer notification at ${after}.` }
+        : { notified: false, notifiedAt: null, windowSeconds: 35, detail: 'Autotask recorded no customer notification within 35 s. It sends asynchronously, so this is "not seen yet", not "not sent".' }
     },
   }
 }
@@ -704,7 +728,7 @@ export async function planCustomerNotify(input: NotifyPlanInput, reads: SocReads
     return {
       action: 'send',
       recipient: { contactId: c!.id, firstName: c!.firstName, name, setContactFirst: false, basis: 'the ticket\'s own contact' },
-      statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (the ticket contact) — see the "Customer emailed" note for the exact text and time.`,
+      statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (the ticket contact) — posted as a customer-visible note; Autotask emails the ticket contact.`,
     }
   }
 
@@ -722,31 +746,44 @@ export async function planCustomerNotify(input: NotifyPlanInput, reads: SocReads
   return {
     action: 'send',
     recipient: { contactId: c!.id, firstName: c!.firstName, name, setContactFirst: true, basis: configuredWhat },
-    statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (${configuredWhat}; set as the ticket contact first) — see the "Customer emailed" note for the exact text and time.`,
+    statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (${configuredWhat}; set as the ticket contact first) — posted as a customer-visible note; Autotask emails the ticket contact.`,
   }
 }
 
 export interface NotifyExecution {
   state: NotifyState
   reason: string
+  /** When the customer-visible note was posted. */
   sentAt: string | null
-  outcome: CustomerNoteOutcome | null
+  /** The posted note and what Autotask was observed to do with it. */
+  outcome: { noteId: number; observation: CustomerNotificationObservation } | null
   notes: string[]
 }
 
 export const CUSTOMER_UPDATE_TITLE = 'Security Alert Update'
 
-/** The internal record of a send: recipient, time, and the exact text. */
-export function socAuditNoteBody(ctx: CustomerNoteAuditContext): string {
+/** The internal record of a customer update: recipient, note, what Autotask did, and the exact text. */
+export function socAuditNoteBody(ctx: {
+  contactName: string | null
+  contactId: number
+  noteId: number
+  postedAt: string
+  observation: CustomerNotificationObservation
+  message: string
+}): string {
+  const o = ctx.observation
   return [
-    'SOC automatic customer update — sent.',
-    `Recipient: ${ctx.contactName ?? 'ticket contact'} <${ctx.to}>`,
-    `Sent from: ${ctx.sent.sender}`,
-    `Accepted by Microsoft 365 at: ${ctx.sent.acceptedAt} (HTTP ${ctx.sent.httpStatus}; accepted, not a delivery receipt)`,
-    `Customer-visible note: ${ctx.noteId}`,
-    `Subject: ${ctx.sent.subject}`,
+    o.notified === true
+      ? 'SOC automatic customer update — posted, and Autotask emailed the ticket contact.'
+      : 'SOC automatic customer update — posted. Autotask\'s email to the contact was NOT confirmed.',
+    `Ticket contact: ${ctx.contactName ?? 'contact'} (Autotask contact ${ctx.contactId})`,
+    `Customer-visible note: ${ctx.noteId}, posted ${ctx.postedAt}`,
+    `Autotask notification: ${o.detail}`,
+    ...(o.notified === true ? [] : [
+      'Check the ticket\'s notification history. If nothing went out, confirm the Autotask workflow rule that emails the Ticket Contact on customer-visible notes is active, or send the note to the contact manually. The SOC will not post it again.',
+    ]),
     '',
-    'Exact text sent:',
+    'Exact text of the customer-visible note:',
     '---',
     ctx.message,
     '---',
@@ -800,16 +837,6 @@ export async function executeCustomerNotify(args: {
     return { state: 'refused', reason: plan.reason, sentAt: null, outcome: null, notes }
   }
 
-  // Readiness BEFORE touching the ticket: never change who Autotask emails for
-  // a message that cannot be sent anyway.
-  const deps = writer.customerNoteDeps(socAuditNoteBody)
-  const ready = deps.readiness()
-  if (!ready.ready) {
-    const reason = `The customer email path is not available: ${ready.failure.message}`
-    await explain(reason)
-    return { state: 'refused', reason, sentAt: null, outcome: null, notes }
-  }
-
   if (plan.recipient.setContactFirst) {
     try {
       await writer.setTicketContact(ticketId, plan.recipient.contactId)
@@ -823,23 +850,35 @@ export async function executeCustomerNotify(args: {
     }
   }
 
-  const outcome = await deliverCustomerNoteWithEmail(deps, { ticketId, message, title: CUSTOMER_UPDATE_TITLE })
-  if (outcome.ok) {
-    return { state: 'sent', reason: 'sent', sentAt: outcome.sent.acceptedAt, outcome, notes }
-  }
-  if (outcome.stage === 'readiness' || outcome.stage === 'precheck') {
-    const reason = outcome.stage === 'readiness' ? outcome.failure.message : `pre-send check failed: ${outcome.reason.replace(/_/g, ' ')}`
+  // Autotask's own "did we notify the customer" stamp, read BEFORE the note so
+  // an advance afterwards is attributable to it.
+  const before = await writer.readCustomerNotificationStamp(ticketId)
+  let noteId: number | null = null
+  try {
+    noteId = (await writer.createCustomerNote(ticketId, CUSTOMER_UPDATE_TITLE, message)).noteId
+  } catch (e) {
+    const reason = `Posting the customer-visible note failed (${e instanceof Error ? e.message : String(e)}).`
     await explain(reason)
-    return { state: 'refused', reason, sentAt: null, outcome, notes }
+    return { state: 'refused', reason, sentAt: null, outcome: null, notes }
   }
-  // The note may exist and the email may or may not have gone out: never retry
-  // (Graph sendMail is not idempotent). Record it as a send failure so no re-run
-  // tries again, and tell a technician.
-  const reason = outcome.stage === 'note'
-    ? 'Autotask returned no id for the customer-visible note, so the email was not sent.'
-    : `The customer-visible note ${outcome.noteId} was posted but the email failed: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`
-  await writer.createInternalNote(ticketId, 'SOC — Customer update FAILED', `${reason}\nDo not re-run expecting a resend — the SOC will not retry a send. Contact the customer directly.`)
-  return { state: 'send_failed', reason, sentAt: null, outcome, notes }
+  if (!noteId) {
+    // It may exist without an id; never post a second copy.
+    const reason = 'Autotask returned no id for the customer-visible note — it may or may not exist. The SOC will not post it again.'
+    await writer.createInternalNote(ticketId, 'SOC — Customer update FAILED', `${reason}\nCheck the ticket before contacting the customer.`)
+    return { state: 'send_failed', reason, sentAt: null, outcome: null, notes }
+  }
+  const postedAt = args.now.toISOString()
+  const observation = await writer.observeCustomerNotification(ticketId, before)
+  const contact = await writer.getContact(plan.recipient.contactId).catch(() => null)
+  const contactName = plan.recipient.name ?? ([contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || null)
+  await writer.createInternalNote(
+    ticketId,
+    observation.notified === true ? 'SOC — Customer emailed by Autotask' : 'SOC — Customer update posted (email not confirmed)',
+    socAuditNoteBody({ contactName, contactId: plan.recipient.contactId, noteId, postedAt, observation, message }),
+  )
+  // 'sent' = the customer-visible note exists; that is what makes it once per
+  // incident. Whether Autotask emailed it is carried in the observation.
+  return { state: 'sent', reason: observation.detail, sentAt: postedAt, outcome: { noteId, observation }, notes }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
