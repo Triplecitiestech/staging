@@ -12,7 +12,8 @@ import {
 } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 300, not 60: a customer update waits up to ~35 s to confirm Autotask sent the email.
+export const maxDuration = 300;
 
 /**
  * GET /api/cron/soc-triage

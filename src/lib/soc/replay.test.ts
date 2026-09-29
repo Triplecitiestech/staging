@@ -174,7 +174,7 @@ const CONFIG: SocConfig = {
 }
 const NOW = new Date(F.now)
 const IT_LEAD = 30683760
-const READY = () => ({ ready: true as const, sender: 'support@triplecitiestech.com' })
+const AUTOTASK_NOTIFIED_AT = '2026-09-28T04:52:30.000Z'
 
 /** The adversarial LLM: what the incident's 92% run actually claimed. */
 const BAD_SCREENING = '{"alertSource":"rocketcyber","category":"malware","extractedIps":["4.39.23.157"],"isFalsePositive":false,"confidence":0.92,"reasoning":"x","needsDeepAnalysis":true,"recommendedAction":"escalate","relatedTicketNumbers":[]}'
@@ -190,11 +190,10 @@ const BAD_NARRATIVE_B = JSON.stringify({
 function tickets(...ids: string[]): SecurityTicket[] {
   return ids.map((id) => ({ ...F.localTickets.find((t: SecurityTicket) => t.autotaskTicketId === id) }))
 }
-function seededWriter(opts: { readiness?: () => ReturnType<typeof READY> } = {}) {
+function seededWriter(opts: { autotaskNotifies?: { at: string } | false } = {}) {
   return recordingWriter({
     seed: { tickets: F.autotask.liveTickets, contacts: F.autotask.contacts },
-    readiness: opts.readiness ?? READY,
-    acceptedAt: '2026-09-28T04:52:30.000Z',
+    autotaskNotifies: opts.autotaskNotifies === undefined ? { at: AUTOTASK_NOTIFIED_AT } : opts.autotaskNotifies,
   })
 }
 async function replay(ids: string[], rt: { writer?: ReturnType<typeof seededWriter>; store?: SocAssessmentStore; trigger?: 'ingest' | 'manual' | 'cron'; narrative?: string } = {}) {
@@ -334,7 +333,7 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     // What happened states Defender's own action; "what we have done" is TCT's only.
     expect(msg).toMatch(/Microsoft Defender flagged a file on the computer WIL0170 as malicious \(Defender's name for it is Trojan:Win32\/NSteal\.SA\) on Sun, Sep 27, 2026, 3:06 AM PDT and reported it as quarantined\./)
     expect(msg).toMatch(/What we have done so far:\n- Reviewed the alert and the computer's recent activity in our monitoring\.\n- Opened ticket T20260927\.0006 to track this\.\n- We have not disconnected WIL0170 or changed any accounts; those steps are below\./)
-    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Sent automatically at 2026-09-28T04:52:30\.000Z to Pat \(the co-managed IT lead; set as the ticket contact first\)/)
+    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Posted as a customer-visible note at 2026-09-28T04:52:00\.000Z for Pat \(the co-managed IT lead; set as the ticket contact first\)\. Autotask emailed the ticket contact\./)
     // A malware detection is not an identity change (RocketCyber's remediation boilerplate says "password reset").
     expect(result!.enrichment!.signals!.identityChange).toBe(false)
     expect(result!.ticketNote).not.toMatch(/Identity\/MFA change/)
@@ -345,20 +344,46 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     expect(msg).toMatch(/Ticket: https:\/\/ww14\.autotask\.net\/Mvc\/ServiceDesk\/TicketDetail\.mvc\?TicketId=36101/)
     expect(lintCustomerMessage(msg, { lockdownPermitted: false })).toEqual([])
     expect(msg).not.toMatch(/do not use any company accounts/i)
-    // It went to the IT lead: contact set first (the ticket had none), then one send.
+    // It went to the IT lead: contact set first (the ticket had none), then ONE
+    // customer-visible note — Autotask's workflow rule is what emails it.
     expect(writer.calls.filter((c) => c.op === 'setTicketContact')).toEqual([{ op: 'setTicketContact', ticketId: 36101, contactId: IT_LEAD }])
-    expect(writer.sends).toHaveLength(1)
-    expect(writer.sends[0].to).toBe('it-lead@wilmar-replay.example.invalid')
+    expect(writer.customerNotes).toHaveLength(1)
+    expect(writer.customerNotes[0].body).toBe(msg)
+    expect(writer.calls.find((c) => c.op === 'createCustomerNote')).toMatchObject({ publish: 1 })
+    // The order matters: the contact must be set BEFORE the note, or Autotask's rule has nobody to email.
+    const ops = writer.calls.map((c) => c.op)
+    expect(ops.indexOf('setTicketContact')).toBeLessThan(ops.indexOf('createCustomerNote'))
   })
 
-  it('records every send in an internal note with recipient, time and the exact text', async () => {
+  it('the SOC never sends email itself — its only customer-facing write is the Autotask note', async () => {
+    const { writer } = await replay(['36101'])
+    const allowed = new Set(['createInternalNote', 'updateNote', 'setTicketContact', 'createCustomerNote'])
+    for (const c of writer.calls) expect(allowed.has(c.op)).toBe(true)
+  })
+
+  it('records the update in an internal note: contact, note, what Autotask did, and the exact text', async () => {
     const { writer, result } = await replay(['36101'])
-    const audit = writer.calls.find((c) => c.op === 'createCustomerNote' && c.title === 'Customer emailed')
+    const audit = writer.calls.find((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer emailed by Autotask')
     expect(audit).toBeDefined()
     const body = (audit as { body: string }).body
-    expect(body).toMatch(/Recipient: Pat <it-lead@wilmar-replay\.example\.invalid>/)
-    expect(body).toMatch(/Accepted by Microsoft 365 at: 2026-09-28T04:52:30\.000Z/)
+    expect(body).toMatch(/Ticket contact: Pat \(Autotask contact 30683760\)/)
+    expect(body).toMatch(/Autotask notification: Autotask recorded a customer notification at 2026-09-28T04:52:30\.000Z/)
     expect(body).toContain(result!.assessment!.customerMessageDraft!)
+  })
+
+  it('when Autotask records no notification, the note says so — it never claims the contact was emailed', async () => {
+    const writer = seededWriter({ autotaskNotifies: false })
+    const { result } = await replay(['36101'], { writer })
+    expect(writer.customerNotes).toHaveLength(1)
+    const audit = writer.calls.find((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update posted (email not confirmed)')
+    expect(audit).toBeDefined()
+    const body = (audit as { body: string }).body
+    expect(body).toMatch(/email to the contact was NOT confirmed/)
+    expect(body).toMatch(/"not seen yet", not "not sent"/)
+    expect(body).not.toMatch(/Autotask emailed/)
+    expect(result!.ticketNote).toMatch(/Autotask's email was NOT confirmed/)
+    // …and a re-run never posts it a second time.
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer emailed by Autotask')).toHaveLength(0)
   })
 })
 
@@ -369,7 +394,7 @@ describe('Determinism', () => {
     expect(b.result!.assessment!.classification).toBe(a.result!.assessment!.classification)
     expect(b.result!.confidence).toBe(a.result!.confidence)
     expect(b.result!.assessment!.customerMessageDraft).toBe(a.result!.assessment!.customerMessageDraft)
-    expect(b.writer.sends[0].text).toBe(a.writer.sends[0].text)
+    expect(b.writer.customerNotes[0].body).toBe(a.writer.customerNotes[0].body)
   })
 })
 
@@ -377,7 +402,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
   it('first run: exactly one assessment note and one stubbed send', async () => {
     const { writer } = await replay(['36101'])
     expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC Analyst Assessment')).toHaveLength(1)
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
   })
 
   it('an ingest retry (the "Round-Trip … timed out" callout) does nothing at all', async () => {
@@ -390,7 +415,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
     expect(second.run.ticketDetails[0].status).toBe('skipped')
     expect(second.run.ticketDetails[0].reason).toMatch(/Already assessed/)
     expect(writer.calls.length).toBe(callsAfterFirst)
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
   })
 
   it('a manual re-run EDITS the note in place and sends nothing more', async () => {
@@ -403,7 +428,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
     const edits = writer.calls.filter((c) => c.op === 'updateNote')
     expect(edits).toHaveLength(1)
     expect((edits[0] as { noteId: number }).noteId).toBe(noteId)
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
   })
 
   it('a later run that changes the classification flags a technician instead of emailing again', async () => {
@@ -413,7 +438,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
     const rec = (await store.findByTicket('36101'))[0]
     await store.update('36101', rec.rcIncidentId, { notifiedClassification: 'confirmed_malicious' })
     await replay(['36101'], { writer, store, trigger: 'manual' })
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
     const flags = writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Classification changed after customer update')
     expect(flags).toHaveLength(1)
     // …and only once for that classification.
@@ -430,7 +455,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
       await runTriagePipeline([t], CONFIG, [], { trigger: 'ingest', writer, store, persist: false, llm: 'on', now: () => NOW })
     }
     expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC Analyst Assessment')).toHaveLength(1)
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
     const twin = (await store.findByTicket('36101'))[0]
     expect(twin.status).toBe('twin')
     expect(twin.twinOfTicketId).toBe('36100')
@@ -443,7 +468,7 @@ describe('Idempotency — one assessment, one email per incident', () => {
     llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
     const run = await runTriagePipeline(both, CONFIG, [], { trigger: 'cron', writer, store, persist: false, llm: 'on', now: () => NOW })
     expect(run.results).toHaveLength(1)
-    expect(writer.sends).toHaveLength(1)
+    expect(writer.customerNotes).toHaveLength(1)
     expect((await store.findByTicket('36101'))[0].status).toBe('twin')
     expect(run.results[0].ticketNote).toMatch(/Twin tickets[^\n]*T20260927\.0006 \(incident 13135962, Trojan:Win32\/NSteal\.SA\)/)
   })
@@ -465,27 +490,23 @@ describe('No recipient, no send', () => {
   it('a co-managed company with no configured IT lead and a ticket with no contact: zero sends, ONE explanation note', async () => {
     const writer = recordingWriter({
       seed: { tickets: [{ id: 36101, ticketNumber: 'T20260927.0006', title: 'x', companyID: 451, contactID: null }], contacts: [] },
-      readiness: READY,
     })
     const t = { ...tickets('36101')[0], autotaskCompanyId: '451', companyName: 'Replay Co-Managed Without IT Lead' }
     llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
     const run = await runTriagePipeline([t], CONFIG, [], { trigger: 'ingest', writer, store: memoryStore(), persist: false, llm: 'on', now: () => NOW })
     expect(run.results[0].assessment!.classification).toBe('suspicious_review')
-    expect(writer.sends).toHaveLength(0)
+    expect(writer.customerNotes).toHaveLength(0)
     expect(writer.calls.filter((c) => c.op === 'setTicketContact')).toHaveLength(0)
     const explanations = writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')
     expect(explanations).toHaveLength(1)
     expect((explanations[0] as { body: string }).body).toMatch(/The ticket has no contact and no co-managed IT lead is configured for this company/)
   })
 
-  it('the customer email path not being configured is also zero sends + one explanation (and the contact is not changed)', async () => {
-    // Real readiness: CONNECTOR_CUSTOMER_EMAIL_ENABLED is unset in this test.
-    const w = recordingWriter({ seed: { tickets: F.autotask.liveTickets, contacts: F.autotask.contacts } })
-    llmScript.outputs.push(BAD_SCREENING, BAD_NARRATIVE_A)
-    await runTriagePipeline(tickets('36101'), CONFIG, [], { trigger: 'ingest', writer: w, store: memoryStore(), persist: false, llm: 'on', now: () => NOW })
-    expect(w.sends).toHaveLength(0)
-    expect(w.calls.filter((c) => c.op === 'setTicketContact')).toHaveLength(0)
-    expect(w.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')).toHaveLength(1)
+  it('does not depend on the Microsoft 365 mail setup — CUSTOMER_MAIL_* unset still posts the Autotask note', async () => {
+    // CONNECTOR_CUSTOMER_EMAIL_ENABLED / CUSTOMER_MAIL_* are unset in this test.
+    const { writer } = await replay(['36101'])
+    expect(writer.customerNotes).toHaveLength(1)
+    expect(writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')).toHaveLength(0)
   })
 })
 
@@ -493,7 +514,7 @@ describe('Kill switch SOC_AUTO_CUSTOMER_NOTIFY', () => {
   it('off → zero sends, and the capability report shows it off', async () => {
     process.env.SOC_AUTO_CUSTOMER_NOTIFY = 'off'
     const { writer, result } = await replay(['36101'])
-    expect(writer.sends).toHaveLength(0)
+    expect(writer.customerNotes).toHaveLength(0)
     expect(writer.calls.filter((c) => c.op === 'setTicketContact' || c.op === 'createCustomerNote')).toEqual([])
     expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Not sent automatically — SOC_AUTO_CUSTOMER_NOTIFY is off/)
     const report = buildCapabilityReport([])
