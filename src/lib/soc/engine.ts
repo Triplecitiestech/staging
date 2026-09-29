@@ -1179,7 +1179,11 @@ export async function runSocDryRunForTicket(ticketId: number): Promise<SocDryRun
   const store = readOnlyStore(pgStore({ readOnly: true }));
   const run = await runTriagePipeline([ticket], config, rules, { trigger: 'dry_run', writer, store, persist: false, llm: 'off' });
   const decision = Array.from(store.liveDecision.values())[0];
-  const liveRunWouldDo = decision === 'take' ? 'assess (no prior record, or a stale/failed one)'
+  // Mirror the automatic-trigger legacy guard in processIncidentGroup: a ticket
+  // assessed before soc_assessment_records existed has no record but IS skipped.
+  const legacy = decision === 'take' && await hasPriorAnalysis(String(ticketId));
+  const liveRunWouldDo = legacy ? 'skip — already assessed before idempotency records existed (automatic triggers never re-run it; a manual re-run would edit the note in place)'
+    : decision === 'take' ? 'assess (no prior record, or a stale/failed one)'
     : decision === 'already_assessed' ? 'skip — already assessed (an automatic trigger never re-runs; a manual re-run would edit the note in place)'
     : decision === 'in_progress' ? 'skip — an assessment is in progress'
     : decision === 'twin' ? 'skip — twin of another assessed ticket' : 'unknown';

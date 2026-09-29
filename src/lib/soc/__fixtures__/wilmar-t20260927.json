@@ -4,7 +4,8 @@
   "capturedAt": "2026-09-28",
   "capturedHow": "Read-only calls through the TCT MCP connector: autotask_get_ticket (36100, 36101), autotask_get_company (450), autotask_list_contracts (450), autotask_company_projects (450), autotask_company_tickets (450), autotask_company_contacts (450), datto_rmm_list_sites, datto_rmm_site_devices (Wilmar - Washington, Wilmar - Staging), datto_rmm_alerts (Wilmar - Washington, open + resolved). Nothing was written.",
   "sanitized": "End-user account names (Datto RMM lastLoggedInUser) removed. The IT lead contact keeps its real Autotask contact id (30683760) and first name but its email is replaced by a reserved .invalid address, so even a leaked send could not reach the real person. Other contacts omitted.",
-  "reconstructed": "The RocketCyber API was NOT reachable from the capture environment (no credential), so the RocketCyber incident records are RECONSTRUCTED from RocketCyber's own alert text in the ticket bodies (incident ids, signature, device, path, SHA1, detection epoch), and the four account events from the prior assessment notes on 36101 (WIL0225, MOBILE077, WIL0178, one with no device). Those events carry NO record id because none was available — which is why the replay lists them as data gaps. The device public IP on the incident record is placed there to reproduce the 4.39.23.157 geolocation row; its field name in the real payload is unverified. Datto EDR / DNSFilter org ids are placeholders (the notes show those lookups returned zero findings; the real ids were not captured)."
+  "reconstructed": "The RocketCyber API was NOT reachable from the capture environment (no credential), so the RocketCyber incident records are RECONSTRUCTED from RocketCyber's own alert text in the ticket bodies (incident ids, signature, device, path, SHA1, detection epoch), and the four account events from the prior assessment notes on 36101 (WIL0225, MOBILE077, WIL0178, one with no device). Those events carry NO record id because none was available — which is why the replay lists them as data gaps. The device public IP on the incident record is placed there to reproduce the 4.39.23.157 geolocation row; its field name in the real payload is unverified. Datto EDR / DNSFilter org ids are placeholders (the notes show those lookups returned zero findings; the real ids were not captured).",
+  "2026-09-29": "Adjusted to match the live dry run of 2026-09-28: two EZ Red sites mapped to Autotask 450 sort before Wilmar - Washington; the RocketCyber incident has no publicIp; the account feed includes other machines' detections (ER-014, LUKE-T-, an old WIL0178 event) that must never reach the note."
  },
  "now": "2026-09-28T04:52:00.000Z",
  "localTickets": [
@@ -160,8 +161,7 @@
     "path": "C:\\WINDOWS\\System32\\Tasks\\eefa0027-7972-49c2-a09b-c316a2665be2",
     "sha1": "fe8dfb62c0b782ee8f36934a810c676ed78958a6",
     "event_time": 1790503610,
-    "localIp": "192.168.0.136",
-    "publicIp": "4.39.23.157"
+    "localIp": "192.168.0.136"
    },
    "13135961": {
     "id": 13135961,
@@ -176,8 +176,7 @@
     "path": "C:\\WINDOWS\\System32\\Tasks\\eefa0027-7972-49c2-a09b-c316a2665be2",
     "sha1": "fe8dfb62c0b782ee8f36934a810c676ed78958a6",
     "event_time": 1790503610,
-    "localIp": "192.168.0.136",
-    "publicIp": "4.39.23.157"
+    "localIp": "192.168.0.136"
    }
   },
   "accountEvents": [
@@ -202,11 +201,49 @@
     "hostname": "WIL0178",
     "threatName": "VirTool:Win32/DefenderTamperingRestore",
     "event_time": "2026-09-27T09:38:00.000Z"
+   },
+   {
+    "id": "de4f48f0-36bb-487b-a951-28337d2af76f",
+    "hostname": "ER-014",
+    "threatName": "Attempted Credential Stealing From lsass.exe",
+    "event_time": "2026-09-02T18:03:36.000Z"
+   },
+   {
+    "id": "3d634480-8bee-441f-ab89-6e115163ea81",
+    "hostname": "LUKE-T-",
+    "threatName": "Attempted Credential Stealing From lsass.exe",
+    "event_time": "2026-09-27T18:05:07.000Z"
+   },
+   {
+    "id": "a1b2c3d4-0000-4000-8000-000000000170",
+    "hostname": "WIL0178",
+    "threatName": "Attempted Credential Stealing From lsass.exe",
+    "event_time": "2026-09-10T12:00:00.000Z"
    }
   ]
  },
  "dattoRmm": {
   "sites": [
+   {
+    "id": 443901,
+    "uid": "0e2e0000-0000-4000-8000-00000000e202",
+    "name": "EZ Red - New York",
+    "devicesStatus": {
+     "numberOfDevices": 0
+    },
+    "autotaskCompanyId": "450",
+    "autotaskCompanyName": "Wilmar, LLC"
+   },
+   {
+    "id": 443900,
+    "uid": "0e2e0000-0000-4000-8000-00000000e201",
+    "name": "EZ Red - New Jersey",
+    "devicesStatus": {
+     "numberOfDevices": 0
+    },
+    "autotaskCompanyId": "450",
+    "autotaskCompanyName": "Wilmar, LLC"
+   },
    {
     "id": 443154,
     "uid": "e673c128-f4fb-4eed-8d00-d3cc6b872b17",
@@ -1916,7 +1953,9 @@
     }
    ],
    "5240652d-cca8-480e-8a19-fc4962723cad": [],
-   "d754eedd-ccd3-4674-8872-1d2d3c6ab76f": []
+   "d754eedd-ccd3-4674-8872-1d2d3c6ab76f": [],
+   "0e2e0000-0000-4000-8000-00000000e201": [],
+   "0e2e0000-0000-4000-8000-00000000e202": []
   },
   "siteAlerts": {
    "e673c128-f4fb-4eed-8d00-d3cc6b872b17": {
@@ -5226,6 +5265,14 @@
     "resolved": []
    },
    "d754eedd-ccd3-4674-8872-1d2d3c6ab76f": {
+    "open": [],
+    "resolved": []
+   },
+   "0e2e0000-0000-4000-8000-00000000e201": {
+    "open": [],
+    "resolved": []
+   },
+   "0e2e0000-0000-4000-8000-00000000e202": {
     "open": [],
     "resolved": []
    }

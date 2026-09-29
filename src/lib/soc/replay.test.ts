@@ -232,6 +232,20 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     expect(alertEvents[0].deviceHostname).toBe('WIL0170')
   })
 
+  it('never puts other machines\' RocketCyber events in the note — only this device, or this client\'s devices inside the change window', async () => {
+    const { result } = await replay(['36101'])
+    const events = result!.enrichment!.events!
+    const hosts = new Set(events.map((e) => e.deviceHostname))
+    // Not one of this client's managed devices, whatever the time.
+    expect(hosts.has('ER-014')).toBe(false)
+    expect(hosts.has('LUKE-T-')).toBe(false)
+    // One of this client's devices, but weeks outside the change window.
+    expect(events.some((e) => e.sourceRecordId === 'a1b2c3d4-0000-4000-8000-000000000170')).toBe(false)
+    const note = result!.ticketNote
+    expect(note).not.toMatch(/ER-014|LUKE-T-/)
+    expect(note).not.toMatch(/a1b2c3d4-0000-4000-8000-000000000170/)
+  })
+
   it('labels 4.39.23.157 as the Wilmar - Washington office connection, and 192.168.0.136 as internal', async () => {
     const { result } = await replay(['36101'])
     const ips = result!.enrichment!.ipClassifications!

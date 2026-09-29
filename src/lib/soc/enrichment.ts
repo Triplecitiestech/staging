@@ -40,6 +40,8 @@ import {
   detectAutotaskChangeContext,
   detectFleetChangeWindows,
   extractIpv4s,
+  normHost,
+  normUser,
   resolveCompanyProfile,
   signalFromThreatName,
   toIsoUtc,
@@ -99,6 +101,8 @@ async function getPlatformMappings(companyId: string | null, platform: string): 
 
 /** How far back the planned-change check looks from the alert. */
 export const CHANGE_LOOKBACK_HOURS = 72;
+/** Runaway guard on Datto RMM sites read per company (every mapped site below this is read). */
+export const MAX_RMM_SITES = 25;
 
 /** Main entry: assemble the full cross-stack evidence bundle for a ticket. */
 export async function enrichTicket(
@@ -206,7 +210,10 @@ export async function enrichTicket(
   const egress = buildEgressIndex(device.devices.map(d => ({ hostname: d.hostname, extIpAddress: d.extIpAddress, siteName: d.siteName })));
   const ipText = [
     text,
-    rocketCyber ? JSON.stringify([rocketCyber.rawIncident, rocketCyber.rawEvents, rocketCyber.otherEvents]) : '',
+    // Only this incident's own records — never otherEvents (other devices on the
+    // account), whose addresses say nothing about this alert.
+    rocketCyber ? JSON.stringify([rocketCyber.rawIncident, rocketCyber.rawEvents]) : '',
+    ...(device.subjectIps ?? []),
     ...(saas.result?.events || []).map(e => e.ip || ''),
   ].join('\n');
   const ipClassifications = extractIpv4s(ipText).map(ip => classifyIp(ip, egress));
@@ -216,6 +223,8 @@ export async function enrichTicket(
   const eventInputs = buildEvidenceInputs({
     ticket, sourceSystem, primary, rocketCyber, edr: edr.result, dns: dns.result, saas: saas.result,
     deviceRecord: device.deviceRecord, rmmAlerts: device.rmmAlerts, alertDevice: effectiveHostname,
+    clientHostnames: device.devices.map(d => d.hostname).filter(Boolean),
+    window: { fromUtc: changeFrom, toUtc: changeTo },
   });
 
   // Assemble the independent signal axes (timing, geo, corroboration, identity-change).
@@ -398,6 +407,10 @@ export function buildEvidenceInputs(a: {
   deviceRecord: { uid: string | null; hostname: string; lastSeen: string | null; summary: string } | null;
   rmmAlerts: RmmAlertInput[];
   alertDevice: string | null;
+  /** Hostnames of THIS client's managed devices (Datto RMM) — scopes other-device events. */
+  clientHostnames?: string[];
+  /** The change-correlation window; other-device events outside it are not relevant. */
+  window?: { fromUtc: string; toUtc: string };
 }): EvidenceEventInput[] {
   const out: EvidenceEventInput[] = [];
   const src = alertSourceName(a.sourceSystem);
@@ -418,10 +431,34 @@ export function buildEvidenceInputs(a: {
     });
   }
 
-  // Other RocketCyber events on the account (other devices / times).
+  // Other RocketCyber events on the account — ONLY those about the same device,
+  // user or IOC as this alert. The account-wide events feed carries every
+  // device RocketCyber sees; before 2026-09-29 all of them (610 on T20260927.0006,
+  // other machines' detections) were written into the assessment note.
+  const subjDevice = normHost(p.deviceHostname ?? a.alertDevice);
+  const subjUser = normUser(p.user);
+  const subjIoc = (a.rocketCyber?.hash ?? '').toLowerCase() || null;
+  // A detection on ANOTHER of this client's own managed devices inside the change
+  // window is kept too — it is exactly what a fleet-wide TCT change produces, and
+  // must be shown (labelled) rather than silently read as spread. A device that is
+  // not one of this client's is never included, whatever its time.
+  const clientHosts = new Set((a.clientHostnames ?? []).map(h => normHost(h)).filter((h): h is string => !!h));
+  const MAX_OTHER_DEVICE_EVENTS = 50;
+  let otherDeviceKept = 0;
   for (const ev of a.rocketCyber?.otherEvents ?? []) {
     const f = extractDetectionFields(ev);
+    const evDevice = normHost((f.device || '').split('|')[0].trim() || null);
+    const evUser = normUser(f.userContext);
+    const evIoc = (f.hash ?? '').toLowerCase() || null;
     const ms = getEventMillis(ev);
+    const evIso = ms != null ? new Date(ms).toISOString() : toIsoUtc(f.eventTime);
+    const related = (subjDevice && evDevice === subjDevice) || (subjUser && evUser === subjUser) || (subjIoc && evIoc === subjIoc);
+    const inWindow = !!(a.window && evIso && evIso >= a.window.fromUtc && evIso <= a.window.toUtc);
+    const clientDeviceInWindow = inWindow && evDevice !== null && clientHosts.has(evDevice);
+    if (!related) {
+      if (!clientDeviceInWindow || otherDeviceKept >= MAX_OTHER_DEVICE_EVENTS) continue;
+      otherDeviceKept++;
+    }
     out.push({
       source: 'RocketCyber',
       sourceRecordId: rcEventId(ev),
@@ -800,7 +837,7 @@ async function fetchRocketCyber(
     const gotDetail = !!(detail.process || detail.path || detail.hash);
     return {
       detail,
-      visibility: { source: 'RocketCyber', state: 'connected', mappedTo: `account ${detail.accountId ?? accountId ?? 'unknown'}`, detail: `incident ${incidentId} retrieved${detail.otherEvents.length ? `; ${detail.otherEvents.length} other account event(s) kept separate` : ''}` },
+      visibility: { source: 'RocketCyber', state: 'connected', mappedTo: `account ${detail.accountId ?? accountId ?? 'unknown'}`, detail: `incident ${incidentId} retrieved${detail.otherEvents.length ? `; ${detail.otherEvents.length} other account event(s) not used unless about the same device, user or file` : ''}` },
       status: {
         source: 'RocketCyber',
         status: gotDetail ? 'used' : 'no_data',
@@ -830,6 +867,8 @@ interface RmmResult extends SourceResult<DeviceHealth> {
   rmmAlerts: RmmAlertInput[];
   changeGaps: string[];
   deviceRecord: { uid: string | null; hostname: string; lastSeen: string | null; summary: string } | null;
+  /** The alerting device's own addresses from its RMM record (so its office egress IP is classified). */
+  subjectIps?: string[];
 }
 
 /** Flatten an RMM alertContext into the text used only to categorise it. */
@@ -905,7 +944,7 @@ async function fetchDeviceHealth(
     const visibility: VisibilityEntry = {
       source: 'Datto RMM',
       state: verified ? 'connected' : 'unverified_mapping',
-      mappedTo: matchedSites.slice(0, 5).map(s => s.name).join(', '),
+      mappedTo: matchedSites.map(s => s.name).join(', '),
       detail: basis,
     };
 
@@ -915,7 +954,11 @@ async function fetchDeviceHealth(
     const siteDeviceCounts: Record<string, number> = {};
     const changeGaps: string[] = [];
     const rmmAlerts: RmmAlertInput[] = [];
-    for (const site of matchedSites.slice(0, 5)) {
+    // EVERY mapped site is read. Before 2026-09-29 only the first 5 (alphabetical)
+    // were, so Wilmar's two EZ Red sites pushed Wilmar - Washington — the site the
+    // alerting device lives on — out of the check: no device record, no egress IP,
+    // no change windows. A cap exists only as a runaway guard and is reported.
+    for (const site of matchedSites.slice(0, MAX_RMM_SITES)) {
       try {
         const devs = await client.getSiteDevices(site.uid);
         all.push(...devs);
@@ -940,7 +983,7 @@ async function fetchDeviceHealth(
         }
       }
     }
-    if (matchedSites.length > 5) changeGaps.push(`Only the first 5 of ${matchedSites.length} Datto RMM sites were checked.`);
+    if (matchedSites.length > MAX_RMM_SITES) changeGaps.push(`Only ${MAX_RMM_SITES} of ${matchedSites.length} Datto RMM sites were checked — devices, IPs and changes on the others are unknown.`);
     changeGaps.push('Datto RMM job history is not listable through its API (a job can only be read by its UID), so job-based change detection is unavailable — only fleet-wide alert patterns are checked.');
     const inWindow = rmmAlerts.filter(a => a.timestampUtc >= window.fromUtc && a.timestampUtc <= window.toUtc);
     const base = { devices: all, siteDeviceCounts, rmmAlerts: inWindow, visibility, changeGaps };
@@ -1032,6 +1075,7 @@ async function fetchDeviceHealth(
         lastSeen: device.lastSeen || null,
         summary: `Managed device record (${device.siteName || 'site unknown'}) — ${bits}. Proves the device exists and its state; not a security signal.`,
       },
+      subjectIps: [device.extIpAddress, device.intIpAddress].filter((x): x is string => !!x),
       status: { source: 'Datto RMM', status: 'used', detail: `Known company device "${device.hostname}" — ${bits}. Context only, not corroboration.` },
     };
   } catch (err) {
