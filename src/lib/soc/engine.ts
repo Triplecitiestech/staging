@@ -1146,6 +1146,11 @@ export interface SocDryRunReport {
   customerUpdate?: { plan: string; status: string; message: string | null };
   wouldWrite?: Array<{ op: string; ticketId: number | null }>;
   internalNotePreview?: string;
+  /** Full note length, and whether the preview above was cut. */
+  internalNoteLength?: number;
+  internalNotePreviewTruncated?: boolean;
+  /** Every distinct device hostname in the full evidence list, so a cut preview still proves which machines the note names. */
+  eventHostnames?: string[];
 }
 
 /**
@@ -1211,5 +1216,8 @@ export async function runSocDryRunForTicket(ticketId: number): Promise<SocDryRun
     customerUpdate: { plan: r.delivery?.notifyPlan ?? 'none', status: r.delivery?.notifyStatus ?? '', message: r.assessment?.customerMessageDraft ?? null },
     wouldWrite: writer.calls.map(c => ({ op: c.op, ticketId: 'ticketId' in c ? c.ticketId : null })),
     internalNotePreview: r.ticketNote.slice(0, 6000),
+    internalNoteLength: r.ticketNote.length,
+    internalNotePreviewTruncated: r.ticketNote.length > 6000,
+    eventHostnames: Array.from(new Set((e?.events ?? []).map(ev => ev.deviceHostname).filter((h): h is string => !!h))).sort(),
   };
 }
