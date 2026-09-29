@@ -632,7 +632,7 @@ async function assessGroup(
     customerNotifyReason: null, notifiedClassification: null, flaggedClassification: null,
   };
   let plan: NotifyPlan = rt.store || rt.writer.mode === 'recording'
-    ? await planCustomerNotify({ classification: cls.classification, record: planRecord, ticketId, profile, socDryRun: config.dry_run, ticketResolved }, rt.writer)
+    ? await planCustomerNotify({ classification: cls.classification, record: planRecord, ticketId, profile, socDryRun: config.dry_run, ticketResolved, deviceLastUser: enrichment.deviceHealth?.lastUser ?? null }, rt.writer)
     : { action: 'none', reason: 'no assessment record', statusLine: 'Not sent — this run keeps no assessment record (bootstrap), so it never emails anyone.' };
 
   const wantsMessage = NOTIFY_CLASSES.includes(cls.classification);
@@ -642,11 +642,13 @@ async function assessGroup(
   const customerMessage = wantsMessage ? buildCustomerMessage({
     classification: cls.classification,
     multiScopeCompromise: cls.multiScopeCompromise,
-    coManaged: profile.coManaged,
-    recipientFirstName: plan.action === 'send' ? plan.recipient.firstName : null,
+    // Case B writes to the end user; case A (and any preview) to an IT reader.
+    audience: plan.action === 'send' ? plan.recipient.audience : 'it_contact',
+    lastSignedInUser: plan.action === 'send' && plan.recipient.routeCase === 'B'
+      ? plan.recipient.name
+      : lastSignedInName(enrichment.deviceHealth?.lastUser ?? null),
     companyName: primary.companyName ?? null,
     ticketNumber: primary.ticketNumber,
-    ticketUrl: getAutotaskTicketUrl(primary.autotaskTicketId),
     primary: primaryDet,
     timezone: profile.timezone,
     containmentDone,
@@ -908,6 +910,13 @@ function classificationToAction(
   return 'investigate';
 }
 
+/** "AzureAD\\EmilyArmstrong" → "EmilyArmstrong": the RMM account, never presented as an owner. */
+function lastSignedInName(raw: string | null): string | null {
+  if (!raw) return null
+  const t = raw.split('\\').pop()?.trim() ?? ''
+  return t || null
+}
+
 /** Does this ticket already carry a (non-skip) SOC analysis row? */
 async function hasPriorAnalysis(autotaskTicketId: string): Promise<boolean> {
   try {
@@ -1142,7 +1151,7 @@ export interface SocDryRunReport {
   ipAddresses?: Array<{ ip: string; label: string }>;
   corroboratingSources?: string[];
   eventCounts?: Record<string, number>;
-  coManaged?: { coManaged: boolean; basis: string; itLeadContactId: number | null };
+  coManaged?: { coManaged: boolean; basis: string };
   customerUpdate?: { plan: string; status: string; message: string | null };
   wouldWrite?: Array<{ op: string; ticketId: number | null }>;
   internalNotePreview?: string;
@@ -1212,7 +1221,7 @@ export async function runSocDryRunForTicket(ticketId: number): Promise<SocDryRun
     ipAddresses: (e?.ipClassifications ?? []).map(i => ({ ip: i.ip, label: i.label })),
     corroboratingSources: e?.signals?.corroboration.sourcesUsed ?? [],
     eventCounts: counts,
-    coManaged: e?.profile ? { coManaged: e.profile.coManaged, basis: e.profile.coManagedBasis, itLeadContactId: e.profile.itLeadContactId } : undefined,
+    coManaged: e?.profile ? { coManaged: e.profile.coManaged, basis: e.profile.coManagedBasis } : undefined,
     customerUpdate: { plan: r.delivery?.notifyPlan ?? 'none', status: r.delivery?.notifyStatus ?? '', message: r.assessment?.customerMessageDraft ?? null },
     wouldWrite: writer.calls.map(c => ({ op: c.op, ticketId: 'ticketId' in c ? c.ticketId : null })),
     internalNotePreview: r.ticketNote.slice(0, 6000),

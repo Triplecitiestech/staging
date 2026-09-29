@@ -5,7 +5,8 @@
   "capturedHow": "Read-only calls through the TCT MCP connector: autotask_get_ticket (36100, 36101), autotask_get_company (450), autotask_list_contracts (450), autotask_company_projects (450), autotask_company_tickets (450), autotask_company_contacts (450), datto_rmm_list_sites, datto_rmm_site_devices (Wilmar - Washington, Wilmar - Staging), datto_rmm_alerts (Wilmar - Washington, open + resolved). Nothing was written.",
   "sanitized": "End-user account names (Datto RMM lastLoggedInUser) removed. The IT lead contact keeps its real Autotask contact id (30683760) and first name but its email is replaced by a reserved .invalid address, so even a leaked send could not reach the real person. Other contacts omitted.",
   "reconstructed": "The RocketCyber API was NOT reachable from the capture environment (no credential), so the RocketCyber incident records are RECONSTRUCTED from RocketCyber's own alert text in the ticket bodies (incident ids, signature, device, path, SHA1, detection epoch), and the four account events from the prior assessment notes on 36101 (WIL0225, MOBILE077, WIL0178, one with no device). Those events carry NO record id because none was available — which is why the replay lists them as data gaps. The device public IP on the incident record is placed there to reproduce the 4.39.23.157 geolocation row; its field name in the real payload is unverified. Datto EDR / DNSFilter org ids are placeholders (the notes show those lookups returned zero findings; the real ids were not captured).",
-  "2026-09-29": "Adjusted to match the live dry run of 2026-09-28: two EZ Red sites mapped to Autotask 450 sort before Wilmar - Washington; the RocketCyber incident has no publicIp; the account feed includes other machines' detections (ER-014, LUKE-T-, an old WIL0178 event) that must never reach the note."
+  "2026-09-29": "Adjusted to match the live dry run of 2026-09-28: two EZ Red sites mapped to Autotask 450 sort before Wilmar - Washington; the RocketCyber incident has no publicIp; the account feed includes other machines' detections (ER-014, LUKE-T-, an old WIL0178 event) that must never reach the note.",
+  "2026-09-29b": "Contact 30683760 carries the live 'Customer Contact' UDF value 'Yes' (= Technical; read 2026-09-29), so routing case A selects it."
  },
  "now": "2026-09-28T04:52:00.000Z",
  "localTickets": [
@@ -142,7 +143,9 @@
     "title": "IT Director",
     "isActive": true,
     "primaryContact": true,
-    "emailAddress": "it-lead@wilmar-replay.example.invalid"
+    "emailAddress": "it-lead@wilmar-replay.example.invalid",
+    "customerContactRole": "Yes",
+    "receivesEmailNotifications": true
    }
   ]
  },

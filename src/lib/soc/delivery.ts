@@ -35,7 +35,7 @@ import { getPool } from '@/lib/db-pool'
 import { isSendableEmailAddress } from '@/lib/customer-mail'
 import { observeNotificationAdvance } from '@/lib/autotask-activity'
 import { automationSwitchState, type AutomationSwitchState } from '@/lib/connector/kill-switches'
-import type { CompanySecurityProfile } from './evidence'
+import type { CompanySecurityProfile, CustomerAudience } from './evidence'
 import type { SocClassification } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +57,10 @@ export interface SocContactSnapshot {
   lastName: string | null
   isActive: unknown
   emailAddress: string | null
+  /** Contact UDF "Customer Contact" raw API value (null when unset). */
+  customerContactRole?: string | null
+  /** Autotask's own "Receives email notifications" flag — false means the workflow rule cannot email them. */
+  receivesEmailNotifications?: boolean | null
 }
 
 export interface SocNoteSnapshot {
@@ -69,6 +73,8 @@ export interface SocNoteSnapshot {
 export interface SocReads {
   getTicket(ticketId: number): Promise<SocTicketSnapshot | null>
   getContact(contactId: number): Promise<SocContactSnapshot | null>
+  /** ACTIVE contacts of one company, with the "Customer Contact" UDF. */
+  listCompanyContacts(companyId: number): Promise<SocContactSnapshot[]>
   /** Returns null ONLY when the note genuinely does not exist; throws on lookup failure. */
   getNote(noteId: number): Promise<SocNoteSnapshot | null>
   /** Most recent "SOC Analyst Assessment" note on a ticket (adopted by pre-idempotency tickets). */
@@ -113,6 +119,36 @@ function toNoteSnapshot(n: { id: number; ticketID: number; title?: string | null
   return n ? { id: n.id, ticketID: n.ticketID, title: n.title ?? null, description: n.description ?? null } : null
 }
 
+/**
+ * Contact UDF that marks WHO receives security updates (owner design 2026-09-29).
+ * Its "Technical" option comes back from the REST API as the value "Yes"
+ * (live-read 2026-09-29 on contacts 30683673 / 30683760 through
+ * autotask_entity_query; picklist option id 29682858). "Technical" is accepted
+ * too, so a later relabel of the option does not silently stop routing.
+ */
+export const CUSTOMER_CONTACT_UDF = 'Customer Contact'
+export const TECHNICAL_CONTACT_VALUES = ['yes', 'technical']
+
+export function isTechnicalContact(c: SocContactSnapshot): boolean {
+  return TECHNICAL_CONTACT_VALUES.includes((c.customerContactRole ?? '').trim().toLowerCase())
+}
+
+function toContactSnapshot(c: unknown): SocContactSnapshot {
+  const r = c as Record<string, unknown>
+  const udfs = Array.isArray(r.userDefinedFields) ? (r.userDefinedFields as Array<{ name?: string; value?: unknown }>) : []
+  const role = udfs.find((u) => u.name === CUSTOMER_CONTACT_UDF)?.value
+  return {
+    id: Number(r.id),
+    companyID: r.companyID == null ? null : Number(r.companyID),
+    firstName: (r.firstName as string) ?? null,
+    lastName: (r.lastName as string) ?? null,
+    isActive: r.isActive,
+    emailAddress: (r.emailAddress as string) ?? null,
+    customerContactRole: role == null || role === '' ? null : String(role),
+    receivesEmailNotifications: typeof r.receivesEmailNotifications === 'boolean' ? r.receivesEmailNotifications : null,
+  }
+}
+
 /** Live reads through the SOC's Autotask client. */
 export async function liveReads(): Promise<SocReads> {
   const { AutotaskClient } = await import('@/lib/autotask')
@@ -132,15 +168,10 @@ export async function liveReads(): Promise<SocReads> {
     },
     async getContact(contactId) {
       const c = await client.getContactById(contactId)
-      if (!c) return null
-      return {
-        id: c.id,
-        companyID: c.companyID ?? null,
-        firstName: c.firstName ?? null,
-        lastName: c.lastName ?? null,
-        isActive: c.isActive,
-        emailAddress: c.emailAddress ?? null,
-      }
+      return c ? toContactSnapshot(c) : null
+    },
+    async listCompanyContacts(companyId) {
+      return (await client.getContactsByCompany(companyId)).map(toContactSnapshot)
     },
     async getNote(noteId) {
       return toNoteSnapshot(await client.getTicketNoteByNoteId(noteId))
@@ -242,6 +273,11 @@ export function recordingWriter(opts: {
 
   const getTicket = async (id: number) => tickets.get(id) ?? (opts.reads ? await opts.reads.getTicket(id) : null)
   const getContact = async (id: number) => contacts.get(id) ?? (opts.reads ? await opts.reads.getContact(id) : null)
+  const listCompanyContacts = async (companyId: number) => {
+    const seeded = Array.from(contacts.values()).filter((c) => c.companyID === companyId && !!c.isActive)
+    if (seeded.length || !opts.reads) return seeded
+    return opts.reads.listCompanyContacts(companyId)
+  }
 
   return {
     mode: 'recording',
@@ -249,6 +285,7 @@ export function recordingWriter(opts: {
     customerNotes,
     getTicket,
     getContact,
+    listCompanyContacts,
     async getNote(noteId) {
       return notes.get(noteId) ?? (opts.reads ? await opts.reads.getNote(noteId) : null)
     },
@@ -658,19 +695,55 @@ export interface NotifyPlanInput {
   socDryRun: boolean
   ticketResolved: boolean
   switchState?: AutomationSwitchState
+  /** Datto RMM's last logged-in user on the alerting device (e.g. "AzureAD\\EmilyArmstrong"). Last signed in — NOT owner. */
+  deviceLastUser?: string | null
 }
 
 export type NotifyPlan =
-  | { action: 'send'; recipient: { contactId: number; firstName: string | null; name: string | null; setContactFirst: boolean; basis: string }; statusLine: string }
+  | { action: 'send'; recipient: NotifyRecipient; statusLine: string }
   | { action: 'explain'; reason: string; statusLine: string }
   | { action: 'none'; reason: string; statusLine: string }
   | { action: 'flag_reclassification'; reason: string; statusLine: string }
+
+export interface NotifyRecipient {
+  contactId: number
+  firstName: string | null
+  name: string | null
+  /** The ticket's contact must be changed to this person before the note (Autotask emails the Ticket Contact). */
+  setContactFirst: boolean
+  /** Routing case: A = the company's Technical contact, B = the device's last signed-in user. */
+  routeCase: 'A' | 'B'
+  audience: CustomerAudience
+  basis: string
+}
+
+/** Normalise an RMM user or a name to a comparable token: "AzureAD\\EmilyArmstrong" → "emilyarmstrong". */
+export function normalizeUserToken(v: string | null | undefined): string | null {
+  if (!v) return null
+  let t = v.trim()
+  t = t.split('\\').pop() ?? t
+  t = t.split('@')[0]
+  t = t.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return t || null
+}
+
+/** Contacts the RMM user could be: email local part, or first+last name, equal to the normalised user. */
+export function matchContactsToDeviceUser(user: string | null | undefined, contacts: SocContactSnapshot[]): SocContactSnapshot[] {
+  const u = normalizeUserToken(user)
+  if (!u) return []
+  return contacts.filter((c) => {
+    const email = normalizeUserToken(c.emailAddress)
+    const name = normalizeUserToken(`${c.firstName ?? ''}${c.lastName ?? ''}`)
+    return email === u || name === u
+  })
+}
 
 /** Is this contact usable as a security-update recipient for this ticket? */
 function contactProblem(c: SocContactSnapshot | null, ticketCompanyId: number | null): string | null {
   if (!c) return 'the contact record was not found'
   if (!c.isActive) return 'the contact is inactive'
   if (!isSendableEmailAddress(c.emailAddress)) return 'the contact has no usable email address'
+  if (c.receivesEmailNotifications === false) return 'the contact is set in Autotask not to receive email notifications'
   if (ticketCompanyId != null && c.companyID != null && c.companyID !== ticketCompanyId) return 'the contact belongs to a different company'
   return null
 }
@@ -706,49 +779,57 @@ export async function planCustomerNotify(input: NotifyPlanInput, reads: SocReads
   const ticket = await reads.getTicket(input.ticketId)
   if (!ticket) return { action: 'explain', reason: 'The ticket could not be read back from Autotask, so no recipient could be resolved.', statusLine: 'NOT SENT — the ticket could not be read back.' }
 
-  const p = input.profile
-  const configured = p.coManaged ? p.itLeadContactId : p.securityContactId
-  const configuredWhat = p.coManaged ? 'the co-managed IT lead' : 'the company\'s configured security contact'
+  if (!ticket.companyID) {
+    return { action: 'explain', reason: 'The ticket has no company, so no contact could be chosen.', statusLine: 'NOT SENT — the ticket has no company.' }
+  }
 
-  if (ticket.contactID) {
-    // A co-managed security handoff goes to the IT lead. If the ticket names
-    // somebody else, emailing them a remediation checklist meant for IT would
-    // be wrong, and silently replacing the contact is a decision for a person.
-    if (p.coManaged && p.itLeadContactId && ticket.contactID !== p.itLeadContactId) {
-      const reason = `The ticket's contact (${ticket.contactID}) is not the co-managed IT lead (${p.itLeadContactId}); the handoff is written for the IT lead, so it was not sent to someone else and the contact was not changed.`
-      return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
-    }
-    const c = await reads.getContact(ticket.contactID)
-    const problem = contactProblem(c, ticket.companyID)
-    if (problem) {
-      const reason = `The ticket's contact ${ticket.contactID} cannot receive it: ${problem}.`
-      return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
-    }
-    const name = [c!.firstName, c!.lastName].filter(Boolean).join(' ') || null
+  // Routing (owner design 2026-09-29). NOT isEnabledForComanaged and NOT the
+  // company Primary Contact — both were wrong for EZ Red.
+  //   A. exactly one active contact marked Customer Contact = Technical → that contact, IT voice.
+  //   B. no Technical contact, and Datto RMM's last signed-in user matches exactly one
+  //      active contact → that person, end-user voice.
+  //   C. otherwise → nothing to the customer; an internal note says a technician must choose.
+  let contacts: SocContactSnapshot[]
+  try {
+    contacts = await reads.listCompanyContacts(ticket.companyID)
+  } catch (e) {
+    const reason = `The company's contacts could not be read (${e instanceof Error ? e.message : String(e)}), so no recipient was chosen.`
+    return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
+  }
+  const send = (c: SocContactSnapshot, routeCase: 'A' | 'B', basis: string): NotifyPlan => {
+    const name = [c.firstName, c.lastName].filter(Boolean).join(' ') || null
+    const setContactFirst = ticket.contactID !== c.id
     return {
       action: 'send',
-      recipient: { contactId: c!.id, firstName: c!.firstName, name, setContactFirst: false, basis: 'the ticket\'s own contact' },
-      statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (the ticket contact) — posted as a customer-visible note; Autotask emails the ticket contact.`,
+      recipient: { contactId: c.id, firstName: c.firstName, name, setContactFirst, routeCase, audience: routeCase === 'A' ? 'it_contact' : 'end_user', basis },
+      statusLine: `Sent to ${name ?? `contact ${c.id}`} (${basis}${setContactFirst ? '; set as the ticket contact first' : ''}) — posted as a customer-visible note; Autotask emails the ticket contact.`,
     }
   }
+  const noOne = (why: string): NotifyPlan => {
+    const reason = `${why} A technician must choose who to notify. (Mark the company's IT contact as Customer Contact = Technical in Autotask so future alerts route automatically.)`
+    return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
+  }
 
-  if (!configured) {
-    const reason = `The ticket has no contact and no ${p.coManaged ? 'co-managed IT lead' : 'security contact'} is configured for this company (SOC_COMPANY_OVERRIDES in src/lib/soc/evidence.ts), so there is nobody to send it to.`
-    return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
+  const technical = contacts.filter(isTechnicalContact)
+  if (technical.length > 1) {
+    return noOne(`More than one active contact is marked Customer Contact = Technical (${technical.map((c) => c.id).join(', ')}), so the SOC will not pick one.`)
   }
-  const c = await reads.getContact(configured)
-  const problem = contactProblem(c, ticket.companyID)
-  if (problem) {
-    const reason = `The ticket has no contact and ${configuredWhat} (contact ${configured}) cannot receive it: ${problem}.`
-    return { action: 'explain', reason, statusLine: `NOT SENT — ${reason}` }
+  if (technical.length === 1) {
+    const problem = contactProblem(technical[0], ticket.companyID)
+    if (problem) return noOne(`The company's Technical contact (${technical[0].id}) cannot receive it: ${problem}.`)
+    return send(technical[0], 'A', 'case A — the company contact marked Customer Contact = Technical')
   }
-  const name = [c!.firstName, c!.lastName].filter(Boolean).join(' ') || null
-  return {
-    action: 'send',
-    recipient: { contactId: c!.id, firstName: c!.firstName, name, setContactFirst: true, basis: configuredWhat },
-    statusLine: `Sent automatically to ${name ?? `contact ${c!.id}`} (${configuredWhat}; set as the ticket contact first) — posted as a customer-visible note; Autotask emails the ticket contact.`,
-  }
+
+  const user = input.deviceLastUser ?? null
+  if (!user) return noOne('No contact at this company is marked Customer Contact = Technical, and the device has no last signed-in user recorded in RMM.')
+  const matches = matchContactsToDeviceUser(user, contacts)
+  if (matches.length === 0) return noOne(`No contact is marked Customer Contact = Technical, and the device's last signed-in user ("${user}") matches no active contact at this company.`)
+  if (matches.length > 1) return noOne(`No contact is marked Customer Contact = Technical, and the device's last signed-in user ("${user}") matches ${matches.length} contacts (${matches.map((c) => c.id).join(', ')}).`)
+  const problem = contactProblem(matches[0], ticket.companyID)
+  if (problem) return noOne(`The device's last signed-in user matched contact ${matches[0].id}, who cannot receive it: ${problem}.`)
+  return send(matches[0], 'B', `case B — the last user signed in to the device ("${user}"), no Technical contact on file`)
 }
+
 
 export interface NotifyExecution {
   state: NotifyState
@@ -762,31 +843,28 @@ export interface NotifyExecution {
 
 export const CUSTOMER_UPDATE_TITLE = 'Security Alert Update'
 
-/** The internal record of a customer update: recipient, note, what Autotask did, and the exact text. */
+/** The internal record of a customer update: who, why (routing case), the note id, and what Autotask did. */
 export function socAuditNoteBody(ctx: {
   contactName: string | null
   contactId: number
+  routeCase: 'A' | 'B'
+  basis: string
   noteId: number
   postedAt: string
   observation: CustomerNotificationObservation
-  message: string
 }): string {
   const o = ctx.observation
   return [
     o.notified === true
       ? 'SOC automatic customer update — posted, and Autotask emailed the ticket contact.'
       : 'SOC automatic customer update — posted. Autotask\'s email to the contact was NOT confirmed.',
-    `Ticket contact: ${ctx.contactName ?? 'contact'} (Autotask contact ${ctx.contactId})`,
-    `Customer-visible note: ${ctx.noteId}, posted ${ctx.postedAt}`,
+    `Recipient (ticket contact): ${ctx.contactName ?? 'contact'} (Autotask contact ${ctx.contactId})`,
+    `Why this person: ${ctx.basis}`,
+    `Customer-visible note: ${ctx.noteId} (the exact text sent), posted ${ctx.postedAt}`,
     `Autotask notification: ${o.detail}`,
     ...(o.notified === true ? [] : [
-      'Check the ticket\'s notification history. If nothing went out, confirm the Autotask workflow rule that emails the Ticket Contact on customer-visible notes is active, or send the note to the contact manually. The SOC will not post it again.',
+      'Check the ticket\'s notification history. If nothing went out, confirm Autotask workflow rule "SOC - Email Ticket Contact on Customer-Visible Note" is active, or send the note to the contact manually. The SOC will not post it again.',
     ]),
-    '',
-    'Exact text of the customer-visible note:',
-    '---',
-    ctx.message,
-    '---',
   ].join('\n')
 }
 
@@ -874,7 +952,7 @@ export async function executeCustomerNotify(args: {
   await writer.createInternalNote(
     ticketId,
     observation.notified === true ? 'SOC — Customer emailed by Autotask' : 'SOC — Customer update posted (email not confirmed)',
-    socAuditNoteBody({ contactName, contactId: plan.recipient.contactId, noteId, postedAt, observation, message }),
+    socAuditNoteBody({ contactName, contactId: plan.recipient.contactId, routeCase: plan.recipient.routeCase, basis: plan.recipient.basis, noteId, postedAt, observation }),
   )
   // 'sent' = the customer-visible note exists; that is what makes it once per
   // incident. Whether Autotask emailed it is carried in the observation.

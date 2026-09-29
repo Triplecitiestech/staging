@@ -212,21 +212,20 @@ describe('item 7 — co-managed profile', () => {
   it('the override table wins and records every basis it saw', () => {
     const p = resolveCompanyProfile({ autotaskCompanyId: '450', companyName: 'Wilmar, LLC', isEnabledForComanaged: true, activeContractNames: ['TCT Ally - 2026 - 2029'] })
     expect(p.coManaged).toBe(true)
-    expect(p.itLeadContactId).toBe(30683760)
     expect(p.coManagedBasis).toMatch(/SOC_COMPANY_OVERRIDES\[450\]; Autotask Companies\.isEnabledForComanaged = true; active contract "TCT Ally - 2026 - 2029"/)
     expect(p.timezone).toBe('America/Los_Angeles')
   })
   it('without an override, the Autotask flag decides and no IT lead is invented', () => {
     const p = resolveCompanyProfile({ autotaskCompanyId: '999', companyName: 'X', isEnabledForComanaged: true, activeContractNames: [] })
-    expect([p.coManaged, p.itLeadContactId]).toEqual([true, null])
+    expect(p.coManaged).toBe(true)
     expect(resolveCompanyProfile({ autotaskCompanyId: '999', companyName: 'X', isEnabledForComanaged: null, activeContractNames: [] }).coManaged).toBe(false)
   })
 })
 
 describe('item 8 — the customer message', () => {
   const msg = (over: Partial<Parameters<typeof buildCustomerMessage>[0]> = {}) => buildCustomerMessage({
-    classification: 'suspicious_review', multiScopeCompromise: false, coManaged: true, recipientFirstName: 'Pat', companyName: 'Wilmar',
-    ticketNumber: 'T1', ticketUrl: 'https://ww14.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?TicketId=1', primary: PRIMARY,
+    classification: 'suspicious_review', multiScopeCompromise: false, audience: 'it_contact', lastSignedInUser: 'EmilyArmstrong', companyName: 'Wilmar',
+    ticketNumber: 'T1', primary: PRIMARY,
     timezone: 'America/Los_Angeles', containmentDone: [], corroboratedDevices: [], corroboratedUsers: [], ...over,
   })
   it('passes its own lint: no tool names, no percentages, no "image", no lockdown', () => {
@@ -242,10 +241,31 @@ describe('item 8 — the customer message', () => {
     expect(lintCustomerMessage('RocketCyber saw it. Please image the machine.', { lockdownPermitted: false })).toHaveLength(2)
     expect(lintCustomerMessage('See ww14.autotask.net/ticket', { lockdownPermitted: false })).toContain('ticket link is not a full URL: ww14.autotask.net')
   })
-  it('a non-co-managed recipient gets no Autotask link and a "what we need from you" list', () => {
-    const m = msg({ coManaged: false })
-    expect(m).not.toMatch(/autotask\.net/)
-    expect(m).toMatch(/What we need from you, in this order:/)
+  it('is the BODY only — no greeting, no signature, no ticket link (the Autotask template adds those)', () => {
+    for (const m of [msg(), msg({ audience: 'end_user' })]) {
+      expect(m).not.toMatch(/^Hi |^Hello,/)
+      expect(m).not.toMatch(/Triple Cities Tech\s*$/)
+      expect(m).not.toMatch(/autotask\.net|Ticket: http/)
+      expect(m).not.toMatch(/execution status/i)
+    }
+  })
+  it('IT voice names the device and the last signed-in user — as last signed in, never as owner', () => {
+    const m = msg()
+    expect(m).toMatch(/EmilyArmstrong was the last user signed in to WIL0170, according to our device monitoring\./)
+    expect(m).toMatch(/What we recommend, in this order:\n1\. Check with EmilyArmstrong \(the last user signed in\)/)
+    expect(m).not.toMatch(/owner|owns|Find out who uses/)
+  })
+  it('end-user voice: "the computer you were signed in to", only end-user steps, no admin steps', () => {
+    const m = msg({ audience: 'end_user' })
+    expect(m).toMatch(/the computer you were signed in to on .* \(the computer labeled WIL0170\)/)
+    expect(m).toMatch(/What we need from you:\n1\. Do not open that file/)
+    expect(m).not.toMatch(/off the network|forward email|wiped|Find out who uses|sign-ins/)
+    expect(lintCustomerMessage(m, { lockdownPermitted: false })).toEqual([])
+  })
+  it('never prints the raw execution-status field', () => {
+    const m = msg({ primary: { ...PRIMARY, executionStatus: 'Unknown.' } })
+    expect(m).toMatch(/We have not yet confirmed whether the file was opened or ran before it was caught\./)
+    expect(m).not.toMatch(/"Unknown\."/)
   })
 })
 

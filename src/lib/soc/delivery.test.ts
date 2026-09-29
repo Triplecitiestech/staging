@@ -13,7 +13,11 @@ import {
   recordingWriter,
   twinKeyFromText,
   writeAssessmentNote,
+  isTechnicalContact,
+  matchContactsToDeviceUser,
+  normalizeUserToken,
   type AssessmentRecord,
+  type SocContactSnapshot,
   type SocReads,
 } from './delivery'
 import { resolveCompanyProfile } from './evidence'
@@ -65,46 +69,74 @@ describe('twin key', () => {
   })
 })
 
-const profile = resolveCompanyProfile({ autotaskCompanyId: '450', companyName: 'Wilmar, LLC', isEnabledForComanaged: true, activeContractNames: [] })
-function reads(over: Partial<{ contactID: number | null; contactCompany: number; active: boolean; email: string | null }> = {}): SocReads {
+const profile = resolveCompanyProfile({ autotaskCompanyId: '420', companyName: 'EZ Red', isEnabledForComanaged: false, activeContractNames: [] })
+type C = SocContactSnapshot
+const NEIL: C = { id: 30683673, companyID: 420, firstName: 'Neil', lastName: 'Cantral', isActive: 1, emailAddress: 'neil@ezred.example.invalid', customerContactRole: 'Yes', receivesEmailNotifications: true }
+const EMILY: C = { id: 30683593, companyID: 420, firstName: 'Emily', lastName: 'Armstrong', isActive: 1, emailAddress: 'EmilyArmstrong@ezred.example.invalid', customerContactRole: null, receivesEmailNotifications: true }
+const KASIE: C = { id: 30683523, companyID: 420, firstName: 'Kasie', lastName: 'Schmitz', isActive: 1, emailAddress: 'KasieSchmitz@ezred.example.invalid', customerContactRole: null, receivesEmailNotifications: true }
+function reads(contacts: C[], ticketContact: number | null = null): SocReads {
   return {
-    getTicket: async () => ({ id: 1, ticketNumber: 'T1', title: 't', companyID: 450, contactID: over.contactID === undefined ? null : over.contactID }),
-    getContact: async (id) => ({ id, companyID: over.contactCompany ?? 450, firstName: 'Pat', lastName: null, isActive: over.active ?? true, emailAddress: over.email === undefined ? 'x@example.invalid' : over.email }),
+    getTicket: async () => ({ id: 36075, ticketNumber: 'T20260925.0023', title: 't', companyID: 420, contactID: ticketContact }),
+    getContact: async (id) => contacts.find((c) => c.id === id) ?? null,
+    listCompanyContacts: async () => contacts,
     getNote: async () => null,
     findLatestAssessmentNote: async () => null,
   }
 }
 const plan = (r: SocReads, o: Partial<Parameters<typeof planCustomerNotify>[0]> = {}) => planCustomerNotify({
-  classification: 'suspicious_review', record: rec({ status: 'claimed' }), ticketId: 1, profile, socDryRun: false, ticketResolved: false,
-  switchState: { key: 'soc_auto_customer_notify', envVar: 'SOC_AUTO_CUSTOMER_NOTIFY', enabled: true, source: 'default' }, ...o,
+  classification: 'suspicious_review', record: rec({ status: 'claimed' }), ticketId: 36075, profile, socDryRun: false, ticketResolved: false,
+  switchState: { key: 'soc_auto_customer_notify', envVar: 'SOC_AUTO_CUSTOMER_NOTIFY', enabled: true, source: 'default' },
+  deviceLastUser: 'AzureAD\\EmilyArmstrong', ...o,
 }, r)
 
-describe('item 8 — who receives it, and when nothing is sent', () => {
-  it('no ticket contact → the co-managed IT lead, set as the contact first', async () => {
-    const p = await plan(reads())
+describe('item 8 — who receives it: case A / B / C', () => {
+  it('the live T20260925.0023 case: ticket contact Emily, Neil marked Technical → Neil, contact changed first, IT voice', async () => {
+    const p = await plan(reads([NEIL, EMILY, KASIE], EMILY.id))
     expect(p.action).toBe('send')
-    if (p.action === 'send') expect(p.recipient).toMatchObject({ contactId: 30683760, setContactFirst: true })
+    if (p.action === 'send') expect(p.recipient).toMatchObject({ contactId: NEIL.id, routeCase: 'A', audience: 'it_contact', setContactFirst: true })
   })
-  it('a ticket contact that is NOT the IT lead on a co-managed company is not emailed and not replaced', async () => {
-    expect((await plan(reads({ contactID: 111 }))).action).toBe('explain')
+  it('the Technical marker is read from the API value "Yes" (and "Technical"), not from Primary Contact or the co-managed flag', async () => {
+    expect(isTechnicalContact(NEIL)).toBe(true)
+    expect(isTechnicalContact({ ...NEIL, customerContactRole: 'Technical' })).toBe(true)
+    expect(isTechnicalContact({ ...NEIL, customerContactRole: 'Primary' })).toBe(false)
+    expect(isTechnicalContact({ ...NEIL, customerContactRole: 'No' })).toBe(false) // "No" is the Purchasing option
   })
-  it('a contact from another company, inactive, or without email cannot receive it', async () => {
-    expect((await plan(reads({ contactCompany: 999 }))).action).toBe('explain')
-    expect((await plan(reads({ active: false }))).action).toBe('explain')
-    expect((await plan(reads({ email: null }))).action).toBe('explain')
+  it('two Technical contacts → case C, nothing to the customer', async () => {
+    expect((await plan(reads([NEIL, { ...KASIE, customerContactRole: 'Yes' }, EMILY]))).action).toBe('explain')
+  })
+  it('no Technical contact → case B: the last signed-in user when they match exactly one contact, end-user voice', async () => {
+    const p = await plan(reads([EMILY, KASIE], null))
+    expect(p.action).toBe('send')
+    if (p.action === 'send') expect(p.recipient).toMatchObject({ contactId: EMILY.id, routeCase: 'B', audience: 'end_user', setContactFirst: true })
+  })
+  it('the RMM user matches on email local part or first+last name, never partially', () => {
+    expect(normalizeUserToken('AzureAD\\EmilyArmstrong')).toBe('emilyarmstrong')
+    expect(matchContactsToDeviceUser('AzureAD\\EmilyArmstrong', [EMILY, KASIE]).map((c) => c.id)).toEqual([EMILY.id])
+    expect(matchContactsToDeviceUser('EZRED\\Emily', [EMILY])).toEqual([])
+  })
+  it('case C: no Technical contact and no / no-match / ambiguous last user → explain, never a guess', async () => {
+    expect((await plan(reads([EMILY, KASIE]), { deviceLastUser: null })).action).toBe('explain')
+    expect((await plan(reads([EMILY, KASIE]), { deviceLastUser: 'AzureAD\\SomeoneElse' })).action).toBe('explain')
+    const twin = { ...KASIE, id: 1, firstName: 'Emily', lastName: 'Armstrong', emailAddress: 'e2@ezred.example.invalid' }
+    expect((await plan(reads([EMILY, twin]))).action).toBe('explain')
+  })
+  it('a Technical contact who cannot receive email (inactive, no address, notifications off) → case C', async () => {
+    for (const bad of [{ isActive: 0 }, { emailAddress: null }, { receivesEmailNotifications: false }]) {
+      expect((await plan(reads([{ ...NEIL, ...bad }, EMILY]))).action).toBe('explain')
+    }
   })
   it('benign / insufficient, kill switch off, SOC dry run, resolved ticket → nothing sent', async () => {
     for (const c of ['likely_false_positive', 'confirmed_false_positive', 'insufficient_data'] as const) {
-      expect((await plan(reads(), { classification: c })).action).toBe('none')
+      expect((await plan(reads([NEIL]), { classification: c })).action).toBe('none')
     }
-    expect((await plan(reads(), { switchState: { key: 'soc_auto_customer_notify', envVar: 'SOC_AUTO_CUSTOMER_NOTIFY', enabled: false, source: 'env' } })).action).toBe('none')
-    expect((await plan(reads(), { socDryRun: true })).action).toBe('none')
-    expect((await plan(reads(), { ticketResolved: true })).action).toBe('none')
+    expect((await plan(reads([NEIL]), { switchState: { key: 'soc_auto_customer_notify', envVar: 'SOC_AUTO_CUSTOMER_NOTIFY', enabled: false, source: 'env' } })).action).toBe('none')
+    expect((await plan(reads([NEIL]), { socDryRun: true })).action).toBe('none')
+    expect((await plan(reads([NEIL]), { ticketResolved: true })).action).toBe('none')
   })
   it('already sent → never again; a changed classification is flagged once', async () => {
-    expect((await plan(reads(), { record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', customerNotifiedAt: 'x' }) })).action).toBe('none')
-    expect((await plan(reads(), { classification: 'confirmed_malicious', record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', customerNotifiedAt: 'x' }) })).action).toBe('flag_reclassification')
-    expect((await plan(reads(), { classification: 'confirmed_malicious', record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', flaggedClassification: 'confirmed_malicious', customerNotifiedAt: 'x' }) })).action).toBe('none')
+    expect((await plan(reads([NEIL]), { record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', customerNotifiedAt: 'x' }) })).action).toBe('none')
+    expect((await plan(reads([NEIL]), { classification: 'confirmed_malicious', record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', customerNotifiedAt: 'x' }) })).action).toBe('flag_reclassification')
+    expect((await plan(reads([NEIL]), { classification: 'confirmed_malicious', record: rec({ customerNotifyState: 'sent', notifiedClassification: 'suspicious_review', flaggedClassification: 'confirmed_malicious', customerNotifiedAt: 'x' }) })).action).toBe('none')
   })
 })
 
