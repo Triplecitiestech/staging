@@ -133,7 +133,7 @@ export interface EnrichmentBundle {
   changeWindows?: Array<{ id: string; label: string; what: string; startUtc: string; endUtc: string; deviceCount: number; alertCount: number; verification: string }>
   changeContext?: Array<{ label: string }>
   ipClassifications?: Array<{ ip: string; class: string; label: string }>
-  profile?: { coManaged: boolean; coManagedBasis: string; itLeadContactId: number | null; securityContactId: number | null; timezone: string; timezoneBasis: string }
+  profile?: { coManaged: boolean; coManagedBasis: string; timezone: string; timezoneBasis: string }
   contextSummaries?: string[]
 }
 
@@ -749,7 +749,7 @@ function VisibilityMap({ entries, profile }: { entries: VisibilityEntry[]; profi
         {profile && (
           <p className="text-xs text-slate-400 break-words">
             Co-managed: <span className="text-slate-200">{profile.coManaged ? 'yes' : 'no'}</span> ({profile.coManagedBasis})
-            {profile.coManaged ? ` · customer updates go to the IT lead${profile.itLeadContactId ? ` (contact ${profile.itLeadContactId})` : ' — not configured'}` : ''}
+            {' · customer updates go to the contact marked Customer Contact = Technical, else the last signed-in user'}
             {` · time zone ${profile.timezone}`}
           </p>
         )}

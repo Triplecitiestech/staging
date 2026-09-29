@@ -654,10 +654,6 @@ export interface SocCompanyOverride {
   label: string
   /** Explicit co-managed flag. Wins over the Autotask field when set. */
   coManaged?: boolean
-  /** Autotask CONTACT id of the client's IT lead (co-managed companies). */
-  itLeadContactId?: number
-  /** Autotask CONTACT id to receive security updates when there is no IT lead. */
-  securityContactId?: number
   /** IANA timezone for local-time rendering. */
   timezone?: string
 }
@@ -665,18 +661,15 @@ export interface SocCompanyOverride {
 /**
  * Explicit per-company SOC settings, keyed by AUTOTASK company id.
  *
- * Why this exists: Autotask carries a native co-managed flag
- * (Companies.isEnabledForComanaged — live entityInformation, boolean, true for
- * Wilmar on 2026-09-28) but NO field that says who the client's IT lead is, and
- * no "security contact" field either. Guessing the recipient of a security
- * handoff from primaryContact or a job title would be a guess, so the recipient
- * comes from here and nowhere else. Review additions in the diff.
+ * Display and timezone only. WHO receives a customer update is NOT decided here:
+ * since 2026-09-29 it comes from each contact's "Customer Contact" UDF in
+ * Autotask (Technical) or the device's last signed-in user — see
+ * planCustomerNotify in delivery.ts. Review additions in the diff.
  */
 export const SOC_COMPANY_OVERRIDES: Record<string, SocCompanyOverride> = {
   '450': {
-    label: 'Wilmar, LLC — TCT Ally (Co-Managed); IT lead is the IT Director (Autotask contact 30683760). Site Wilmar - Washington is in Kent, WA.',
+    label: 'Wilmar, LLC — TCT Ally (Co-Managed). Site Wilmar - Washington is in Kent, WA.',
     coManaged: true,
-    itLeadContactId: 30683760,
     timezone: 'America/Los_Angeles',
   },
 }
@@ -686,8 +679,6 @@ export interface CompanySecurityProfile {
   companyName: string | null
   coManaged: boolean
   coManagedBasis: string
-  itLeadContactId: number | null
-  securityContactId: number | null
   timezone: string
   timezoneBasis: string
 }
@@ -725,8 +716,6 @@ export function resolveCompanyProfile(input: {
     companyName: input.companyName,
     coManaged,
     coManagedBasis,
-    itLeadContactId: ov?.itLeadContactId ?? null,
-    securityContactId: ov?.securityContactId ?? null,
     timezone: ov?.timezone ?? DEFAULT_SITE_TIMEZONE,
     timezoneBasis: ov?.timezone ? 'SOC_COMPANY_OVERRIDES' : 'TCT default (no site timezone configured)',
   }
@@ -883,15 +872,22 @@ export function guardNarrative(text: string, opts: { multiScopeCompromise: boole
 // Item 8 — Customer message (deterministic template)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Who the customer update is written for (owner design, 2026-09-29):
+ *   it_contact — the company contact marked Customer Contact = Technical; an IT reader.
+ *   end_user   — the device's last signed-in user, matched to exactly one contact; plain language,
+ *                only things an end user can do.
+ */
+export type CustomerAudience = 'it_contact' | 'end_user'
+
 export interface CustomerMessageInput {
   classification: SocClassification
   multiScopeCompromise: boolean
-  coManaged: boolean
-  recipientFirstName: string | null
+  audience: CustomerAudience
+  /** The device's last signed-in user, as a person's name when it matched a contact (else the raw RMM value). */
+  lastSignedInUser: string | null
   companyName: string | null
   ticketNumber: string
-  /** Full URL — included only for co-managed recipients, who can open it. */
-  ticketUrl: string | null
   primary: PrimaryDetection
   /** Site time zone, so the customer reads their own local time. */
   timezone: string
@@ -913,39 +909,66 @@ export const LOCKDOWN_PATTERNS: RegExp[] = [
   /stop using/i, /stop signing in/i, /do not use/i, /don't use/i, /all staff/i, /everyone/i, /company-wide/i, /disconnect (all|every)/i,
 ]
 
-function greeting(name: string | null): string {
-  return name && name.trim() ? `Hi ${name.trim()},` : 'Hello,'
-}
-
 function executionSentence(p: PrimaryDetection): string {
-  const exec = (p.executionStatus || '').toLowerCase()
-  if (!exec || exec === 'unknown') return 'The report does not say whether the file ran before it was caught, so we are treating the computer as possibly affected.'
-  return `Defender reported the execution status as "${p.executionStatus}".`
+  // Plain language only. The raw value ("Unknown.", "Blocked", …) is a vendor field, not a sentence.
+  const exec = (p.executionStatus || '').toLowerCase().replace(/[^a-z]/g, '')
+  if (/^(blocked|prevented|notexecuted)$/.test(exec)) return 'It was stopped before it could run.'
+  return 'We have not yet confirmed whether the file was opened or ran before it was caught.'
 }
 
 /**
- * Build the customer update. Plain American English, evidence-scaled, no
- * internal tool names, no percentages. For a co-managed company it is written to
- * the client's IT lead: what TCT has done, then an ordered handoff. It never
- * directs end users company-wide unless compromise across several devices or
- * accounts is corroborated.
+ * Build the customer update — the BODY only. Autotask's notification template
+ * (80076 "SOC - Security Alert Update (Ticket Contact)") adds the greeting, the
+ * ticket summary and the signature, so none of those appear here, and the
+ * subject already carries the ticket number. Plain American English,
+ * evidence-scaled, no internal tool names, no percentages, and two voices:
+ *   - it_contact: names the device and the last signed-in user, gives an ordered
+ *     remediation handoff with admin steps.
+ *   - end_user: "the computer you were signed in to", asks only for what an end
+ *     user can do.
+ * It never directs end users company-wide unless compromise across several
+ * devices or accounts is corroborated.
  */
 export function buildCustomerMessage(m: CustomerMessageInput): string {
   const p = m.primary
   const device = p.deviceHostname
-  const lines: string[] = [greeting(m.recipientFirstName), '']
+  const local = formatLocalTime(p.timestampUtc, m.timezone)
+  const action = /quarantin/i.test(p.actionReported || '') ? ' and reported it as quarantined' : ''
+  const lines: string[] = []
 
-  // What happened — only what the record supports.
+  if (m.audience === 'end_user') {
+    if (device) {
+      lines.push(`Our security monitoring flagged a file on the computer you were signed in to${local ? ` on ${local}` : ''} (the computer labeled ${device}). Microsoft Defender identified it as malicious${action}. ${executionSentence(p)}`)
+    } else {
+      lines.push(`Our security monitoring flagged activity on your account${local ? ` on ${local}` : ''} that we could not confirm as expected.`)
+    }
+    lines.push('We have no signs that this has spread, and we are looking into it now.')
+    lines.push('')
+    lines.push('What we need from you:')
+    const steps = device
+      ? [
+          'Do not open that file or attachment again, and do not click any links in the message it came with.',
+          'Reply to this email and tell us whether you opened an attachment or clicked a link, and whether you typed your password into any page afterward.',
+          'If you did enter your password anywhere, reply right away so we can help you secure your account.',
+        ]
+      : [
+          'Reply to this email and tell us whether you did this yourself.',
+          'If you did not, reply right away so we can help you secure your account.',
+        ]
+    steps.forEach((s2, i2) => lines.push(`${i2 + 1}. ${s2}`))
+    lines.push('')
+    lines.push('You do not need to do anything else. We will follow up if we need anything more.')
+    return lines.join('\n')
+  }
+
+  // IT contact.
   if (device) {
     const detected = p.threatName
       ? `Microsoft Defender flagged a file on the computer ${device} as malicious (Defender's name for it is ${p.threatName})`
       : `A security alert was raised for the computer ${device}`
-    const local = formatLocalTime(p.timestampUtc, m.timezone)
-    const when = local ? ` on ${local}` : ''
-    const action = /quarantin/i.test(p.actionReported || '') ? ' and reported it as quarantined' : ''
-    lines.push(`${detected}${when}${action}. ${executionSentence(p)}`)
+    lines.push(`${detected}${local ? ` on ${local}` : ''}${action}. ${executionSentence(p)}`)
+    if (m.lastSignedInUser) lines.push(`${m.lastSignedInUser} was the last user signed in to ${device}, according to our device monitoring.`)
   } else if (p.user) {
-    const local = formatLocalTime(p.timestampUtc, m.timezone)
     lines.push(`We received a security alert about the account ${p.user}${local ? ` on ${local}` : ''} that we could not confirm as expected activity.`)
   } else {
     lines.push('We received a security alert for your environment that we could not confirm as expected activity.')
@@ -961,13 +984,8 @@ export function buildCustomerMessage(m: CustomerMessageInput): string {
   }
   lines.push('')
 
-  // What TCT has done.
   lines.push('What we have done so far:')
-  const done = [
-    ...m.containmentDone,
-    `Reviewed the alert and the ${device ? 'computer\'s' : 'account\'s'} recent activity in our monitoring.`,
-    `Opened ticket ${m.ticketNumber} to track this.`,
-  ]
+  const done = [...m.containmentDone, `Reviewed the alert and the ${device ? 'computer\'s' : 'account\'s'} recent activity in our monitoring.`]
   for (const d of done) lines.push(`- ${d}`)
   if (m.containmentDone.length === 0) {
     lines.push(device
@@ -976,36 +994,28 @@ export function buildCustomerMessage(m: CustomerMessageInput): string {
   }
   lines.push('')
 
-  // Next steps.
   const steps: string[] = []
-  const who = device ? device : 'the affected account'
+  const user = m.lastSignedInUser ? `${m.lastSignedInUser} (the last user signed in)` : null
   if (m.classification === 'confirmed_malicious' && m.multiScopeCompromise) {
-    steps.push(`Keep the affected computers (${m.corroboratedDevices.map((d) => d.toUpperCase()).join(', ') || who}) off the network until they have been checked. Reply here and we can help disconnect them.`)
+    steps.push(`Keep the affected computers (${m.corroboratedDevices.map((d) => d.toUpperCase()).join(', ') || device || 'listed above'}) off the network until they have been checked. Reply here and we can help disconnect them.`)
     steps.push('Have the people who use those computers, and the owners of the affected accounts, stop signing in to company systems from them until we confirm they are safe.')
     steps.push('Have those users change their passwords from a different computer that is working normally.')
   } else if (device) {
-    steps.push(`Find out who uses ${device} and whether they noticed anything unusual, such as unexpected pop-ups, password prompts, or account alerts.`)
+    steps.push(user
+      ? `Check with ${user} whether they noticed anything unusual, such as unexpected pop-ups, password prompts, or account alerts.`
+      : `Find out who uses ${device} and whether they noticed anything unusual, such as unexpected pop-ups, password prompts, or account alerts.`)
     steps.push(`Keep ${device} off the network until it has been checked. Reply here if you would like us to help disconnect it.`)
-    steps.push(`Have the person who uses ${device} change their passwords from a different computer that is working normally, starting with email and any banking or payment sites.`)
-    steps.push('Check that person\'s email account for sign-ins or rules that forward email elsewhere that they do not recognize.')
+    steps.push(`Have ${user ? 'that user' : `the person who uses ${device}`} change their passwords from a different computer that is working normally, starting with email and any banking or payment sites.`)
+    steps.push(`Check ${user ? 'that user\'s' : 'that person\'s'} email account for sign-ins or rules that forward email elsewhere that they do not recognize.`)
     steps.push(`Before ${device} goes back into normal use, have it wiped and set up again, or reply here and we will secure it for you.`)
   } else {
     steps.push(`Confirm with ${p.user ?? 'the user'} whether they did this.`)
     steps.push('If they did not, have them change their password from a computer that is working normally and tell us right away.')
   }
-  steps.push(`Reply to this email, or update ticket ${m.ticketNumber}, with what you find so we can close this out together.`)
-
-  if (m.coManaged) {
-    lines.push('Because your team handles day-to-day IT, here is what we recommend you do next, in this order:')
-  } else {
-    lines.push('What we need from you, in this order:')
-  }
-  steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`))
+  lines.push('What we recommend, in this order:')
+  steps.forEach((s2, i2) => lines.push(`${i2 + 1}. ${s2}`))
   lines.push('')
-  if (m.coManaged && m.ticketUrl) lines.push(`Ticket: ${m.ticketUrl}`)
-  lines.push('If you would like us to take any of these steps for you, just reply and let us know.')
-  lines.push('')
-  lines.push('Triple Cities Tech')
+  lines.push('Please reply with what you find, or tell us which of these steps you would like us to take for you.')
   return lines.join('\n')
 }
 
@@ -1079,7 +1089,7 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   L.push('')
   L.push('CLIENT PROFILE')
   L.push(`- Co-managed: ${n.profile.coManaged ? 'yes' : 'no'} (${n.profile.coManagedBasis})`)
-  L.push(`- Customer updates go to: ${n.profile.coManaged ? (n.profile.itLeadContactId ? `the client IT lead (Autotask contact ${n.profile.itLeadContactId})` : 'the client IT lead — NOT CONFIGURED') : (n.profile.securityContactId ? `security contact (Autotask contact ${n.profile.securityContactId})` : 'the ticket contact')}`)
+  L.push('- Customer updates go to: the contact marked Customer Contact = Technical; otherwise the device\'s last signed-in user if they match exactly one contact; otherwise nobody (a technician decides).')
   L.push(`- Site time zone: ${n.profile.timezone} (${n.profile.timezoneBasis})`)
   L.push('')
   L.push('SUMMARY (AI-written from the evidence below; not itself evidence)')

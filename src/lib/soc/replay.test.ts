@@ -326,22 +326,24 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     expect(result!.assessment!.riskLevel).toBe('high')
   })
 
-  it('addresses the co-managed IT lead with a containment summary and an ordered handoff — no lockdown language', async () => {
+  it('routes to the Technical contact (case A) with a containment summary and an ordered handoff — no lockdown language', async () => {
     const { result, writer } = await replay(['36101'])
     const msg = result!.assessment!.customerMessageDraft!
-    expect(msg.startsWith('Hi Pat,')).toBe(true)
+    // Body only: Autotask's template adds the greeting and signature.
+    expect(msg.startsWith('Microsoft Defender flagged')).toBe(true)
+    expect(msg).not.toMatch(/Triple Cities Tech\s*$/)
     // What happened states Defender's own action; "what we have done" is TCT's only.
     expect(msg).toMatch(/Microsoft Defender flagged a file on the computer WIL0170 as malicious \(Defender's name for it is Trojan:Win32\/NSteal\.SA\) on Sun, Sep 27, 2026, 3:06 AM PDT and reported it as quarantined\./)
-    expect(msg).toMatch(/What we have done so far:\n- Reviewed the alert and the computer's recent activity in our monitoring\.\n- Opened ticket T20260927\.0006 to track this\.\n- We have not disconnected WIL0170 or changed any accounts; those steps are below\./)
-    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Posted as a customer-visible note at 2026-09-28T04:52:00\.000Z for Pat \(the co-managed IT lead; set as the ticket contact first\)\. Autotask emailed the ticket contact\./)
+    expect(msg).toMatch(/What we have done so far:\n- Reviewed the alert and the computer's recent activity in our monitoring\.\n- We have not disconnected WIL0170 or changed any accounts; those steps are below\./)
+    expect(result!.ticketNote).toMatch(/CUSTOMER UPDATE: Posted as a customer-visible note at 2026-09-28T04:52:00\.000Z for Pat \(case A — the company contact marked Customer Contact = Technical; set as the ticket contact first\)\. Autotask emailed the ticket contact\./)
     // A malware detection is not an identity change (RocketCyber's remediation boilerplate says "password reset").
     expect(result!.enrichment!.signals!.identityChange).toBe(false)
     expect(result!.ticketNote).not.toMatch(/Identity\/MFA change/)
     expect(result!.ticketNote).not.toMatch(/GFI Archiver/)
-    expect(msg).toMatch(/Because your team handles day-to-day IT, here is what we recommend you do next, in this order:\n1\. /)
+    expect(msg).toMatch(/What we recommend, in this order:\n1\. /)
     expect(msg).toMatch(/\n2\. Keep WIL0170 off the network/)
     expect(msg).toMatch(/set up again, or reply here and we will secure it for you/)
-    expect(msg).toMatch(/Ticket: https:\/\/ww14\.autotask\.net\/Mvc\/ServiceDesk\/TicketDetail\.mvc\?TicketId=36101/)
+    expect(msg).not.toMatch(/autotask\.net/)
     expect(lintCustomerMessage(msg, { lockdownPermitted: false })).toEqual([])
     expect(msg).not.toMatch(/do not use any company accounts/i)
     // It went to the IT lead: contact set first (the ticket had none), then ONE
@@ -366,9 +368,12 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     const audit = writer.calls.find((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer emailed by Autotask')
     expect(audit).toBeDefined()
     const body = (audit as { body: string }).body
-    expect(body).toMatch(/Ticket contact: Pat \(Autotask contact 30683760\)/)
+    expect(body).toMatch(/Recipient \(ticket contact\): Pat \(Autotask contact 30683760\)/)
+    expect(body).toMatch(/Why this person: case A — the company contact marked Customer Contact = Technical/)
+    expect(body).toMatch(/Customer-visible note: \d+ \(the exact text sent\)/)
     expect(body).toMatch(/Autotask notification: Autotask recorded a customer notification at 2026-09-28T04:52:30\.000Z/)
-    expect(body).toContain(result!.assessment!.customerMessageDraft!)
+    // The note is referenced by id, not repeated.
+    expect(body).not.toContain(result!.assessment!.customerMessageDraft!)
   })
 
   it('when Autotask records no notification, the note says so — it never claims the contact was emailed', async () => {
@@ -487,7 +492,7 @@ describe('Deploy safety — tickets analysed before idempotency records existed'
 })
 
 describe('No recipient, no send', () => {
-  it('a co-managed company with no configured IT lead and a ticket with no contact: zero sends, ONE explanation note', async () => {
+  it('case C — no Technical contact and no last signed-in user: zero sends, ONE explanation note', async () => {
     const writer = recordingWriter({
       seed: { tickets: [{ id: 36101, ticketNumber: 'T20260927.0006', title: 'x', companyID: 451, contactID: null }], contacts: [] },
     })
@@ -499,7 +504,7 @@ describe('No recipient, no send', () => {
     expect(writer.calls.filter((c) => c.op === 'setTicketContact')).toHaveLength(0)
     const explanations = writer.calls.filter((c) => c.op === 'createInternalNote' && c.title === 'SOC — Customer update NOT sent')
     expect(explanations).toHaveLength(1)
-    expect((explanations[0] as { body: string }).body).toMatch(/The ticket has no contact and no co-managed IT lead is configured for this company/)
+    expect((explanations[0] as { body: string }).body).toMatch(/No contact at this company is marked Customer Contact = Technical, and the device has no last signed-in user/)
   })
 
   it('does not depend on the Microsoft 365 mail setup — CUSTOMER_MAIL_* unset still posts the Autotask note', async () => {
