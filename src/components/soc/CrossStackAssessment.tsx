@@ -135,6 +135,8 @@ export interface EnrichmentBundle {
   ipClassifications?: Array<{ ip: string; class: string; label: string }>
   profile?: { coManaged: boolean; coManagedBasis: string; timezone: string; timezoneBasis: string }
   contextSummaries?: string[]
+  alertFacts?: Array<{ label: string; value: string; meaning?: string }>
+  alertTriage?: string | null
 }
 
 export interface VisibilityEntry {
@@ -204,7 +206,30 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
 
   return (
     <div className="space-y-6">
-      {/* Visibility map — what each source could actually see for THIS client. Shown first. */}
+      {/* What the alert itself says — the source's own fields. First, because it is what a technician acts on. */}
+      {enrichment?.alertFacts && enrichment.alertFacts.length > 0 && (
+        <Section title="What the Alert Says" subtitle="The source's own fields, verbatim. Lines marked → are our reading of them.">
+          <div className="p-4 space-y-2">
+            {enrichment.alertFacts.map((f, i) => (
+              <div key={i} className="bg-black/30 rounded p-2 text-sm">
+                <p className="text-xs text-slate-500">{f.label}</p>
+                {/^https:\/\//.test(f.value)
+                  ? <a href={f.value} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline break-all">{f.value}</a>
+                  : <p className="text-slate-200 break-words">{f.value}</p>}
+                {f.meaning && <p className="text-xs text-cyan-300 mt-0.5 break-words">→ {f.meaning}</p>}
+              </div>
+            ))}
+            {enrichment.alertTriage && (
+              <div className="bg-black/30 rounded p-2 text-sm">
+                <p className="text-xs text-slate-500">The alert rule&apos;s own triage steps</p>
+                <p className="text-slate-200 whitespace-pre-wrap break-words">{enrichment.alertTriage}</p>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* Visibility map — what each source could actually see for THIS client. */}
       {enrichment?.visibility && enrichment.visibility.length > 0 && <VisibilityMap entries={enrichment.visibility} profile={enrichment.profile} />}
 
       {/* Executive Summary */}

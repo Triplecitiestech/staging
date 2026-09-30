@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join as joinPath } from 'path'
 import {
   attributeEvents,
   buildCustomerMessage,
@@ -12,6 +14,8 @@ import {
   NOTE_END,
   NOTE_MAX_CHARS,
   normUser,
+  parseSaasAlertsBody,
+  saasAlertFacts,
   guardNarrative,
   isVerifiedVisibility,
   lintCustomerMessage,
@@ -347,5 +351,50 @@ describe('normUser — built-in accounts never identify a person', () => {
   it('real people still match across domain and UPN forms', () => {
     expect(normUser('AzureAD\\EmilyArmstrong')).toBe('emilyarmstrong')
     expect(normUser('emilyarmstrong@ezred.com')).toBe('emilyarmstrong')
+  })
+})
+
+
+describe('SaaS Alerts ticket body (T20260930.0005: the SOC kept only the email and said "suspicious event")', () => {
+  // Sanitised copy of the real body: account, name and user id replaced.
+  const body = readFileSync(joinPath(__dirname, '__fixtures__/saas-alerts-stage3c-body.txt'), 'utf8')
+
+  it('parses what happened, when, from where, with what client, and the rule', () => {
+    const b = parseSaasAlertsBody(body)!
+    expect(b.activityType).toBe('Admin privilege or app grant - user@example.com')
+    expect(b.eventDescription).toMatch(/^Stage 3 IOC\. Privilege assignment, service principal creation or OAuth grant/)
+    expect(b.eventDescription).not.toMatch(/Triage:/)
+    expect(b.triage).toMatch(/^identify the application or role/)
+    expect(b.triage).toMatch(/A password reset alone does not remove an OAuth grant\.$/)
+    expect(b.iocTriggeredAtUtc).toBe('2026-09-30T12:35:03Z')
+    expect(b.eventTimeUtc).toBe('2026-09-30T12:36:52Z')
+    expect(b.ip).toBe('2001:4453:658:2800:cda5:3382:16bb:7e91')
+    expect([b.city, b.country, b.ipOwner, b.ipType]).toEqual(['Sariaya', 'Philippines', 'Philippine Long Distance Telephone Company', 'isp'])
+    expect(b.ipFlagsTrue).toEqual(['known anonymous'])
+    expect(b.userAgent).toBe('google-api-nodejs-client/10.6.2')
+    expect(b.deviceStatus).toBe('Incomplete Event Data')
+    expect(b.eventId).toBe('20306215703773021')
+    expect(b.iocName).toBe('Stage 3c — Privilege and application persistence')
+    expect(b.status).toBe('critical')
+    expect(b.links.map((l) => l.label)).toEqual(['SaaS Alerts Analysis', 'SaaS Alerts View IOC Trigger Details'])
+  })
+
+  it('facts lead with what happened; the non-browser client and incomplete data are called out', () => {
+    const f = saasAlertFacts(parseSaasAlertsBody(body)!)
+    expect(f[0]).toEqual({ label: 'What happened', value: 'Admin privilege or app grant - user@example.com' })
+    const from = f.find((x) => x.label === 'From')!
+    expect(from.value).toBe('2001:4453:658:2800:cda5:3382:16bb:7e91 — Sariaya, Philippines (Philippine Long Distance Telephone Company, isp)')
+    expect(from.meaning).toMatch(/known anonymous/)
+    expect(f.find((x) => x.label === 'Client')!.meaning).toMatch(/Not a web browser/)
+    expect(f.find((x) => x.label === 'SaaS Alerts data quality')!.meaning).toMatch(/tenant audit log/)
+  })
+
+  it('a browser user agent is not called a script', () => {
+    const b = parseSaasAlertsBody(body.replace('google-api-nodejs-client/10.6.2', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0'))!
+    expect(saasAlertFacts(b).find((x) => x.label === 'Client')!.meaning).toBeUndefined()
+  })
+
+  it('a RocketCyber body is not mistaken for a SaaS Alerts one', () => {
+    expect(parseSaasAlertsBody('Defender Detected Trojan on X\nDevice: DOG-006 | 192.168.1.153\nPlatform Time: 2026-09-24T20:57:25.000Z')).toBeNull()
   })
 })

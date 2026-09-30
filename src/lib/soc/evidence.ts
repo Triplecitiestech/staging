@@ -1079,6 +1079,143 @@ export function lintCustomerMessage(text: string, opts: { lockdownPermitted: boo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// What the alert itself says — the source's own fields, never inferred
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One line of "what the alert says". `value` is the source's own text; `meaning` is ours and labelled as such. */
+export interface AlertFact {
+  label: string
+  value: string
+  meaning?: string
+}
+
+export interface SaasAlertBody {
+  product: string | null
+  activityType: string | null
+  eventDescription: string | null
+  /** The alert rule's own triage guidance (the "Triage:" paragraph onward). */
+  triage: string | null
+  eventTimeUtc: string | null
+  iocTriggeredAtUtc: string | null
+  status: string | null
+  ip: string | null
+  city: string | null
+  region: string | null
+  country: string | null
+  ipOwner: string | null
+  ipType: string | null
+  ipFlagsTrue: string[]
+  userName: string | null
+  fullName: string | null
+  userAgent: string | null
+  deviceStatus: string | null
+  eventId: string | null
+  iocName: string | null
+  iocTriggerId: string | null
+  links: Array<{ label: string; url: string }>
+}
+
+function gmtToIso(v: string | null): string | null {
+  if (!v) return null
+  const m = v.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*(?:GMT|UTC|Z)?$/i)
+  return m ? `${m[1]}T${m[2]}Z` : null
+}
+
+/**
+ * Parse the SaaS Alerts ticket body ("Key: Value" lines). Until 2026-09-30 the
+ * SOC kept only the email address from these tickets and threw away the
+ * activity, time, IP, location, ISP, user agent and event id — so the
+ * assessment could say nothing but "suspicious event" (T20260930.0005).
+ * Returns null when the text is not a SaaS Alerts body.
+ */
+export function parseSaasAlertsBody(text: string): SaasAlertBody | null {
+  if (!/Activity type:/i.test(text) || !/(IOC Name|Event ID|Partner Name):/i.test(text)) return null
+  const line = (key: string): string | null => {
+    const m = text.match(new RegExp(`^\\s*${key}:[ \\t]*(.*)$`, 'im'))
+    const v = m?.[1]?.trim()
+    return v && !/^(not available|n\/a|undefined|null)$/i.test(v) ? v : null
+  }
+  const descBlock = text.match(/Event Description:\s*([\s\S]*?)(?:\n\s*Date\/Time:|$)/i)?.[1]?.trim() ?? null
+  let eventDescription = descBlock
+  let triage: string | null = null
+  if (descBlock) {
+    const i = descBlock.search(/\n\s*Triage:/i)
+    if (i >= 0) { eventDescription = descBlock.slice(0, i).trim(); triage = descBlock.slice(i).replace(/^\s*Triage:\s*/i, '').trim() }
+  }
+  const flags: string[] = []
+  for (const m of text.matchAll(/^\s*(known abuser|known attacker|known anonymous|known threat|known bogon|tor network|known proxy):\s*(true|false)/gim)) {
+    if (m[2].toLowerCase() === 'true') flags.push(m[1].toLowerCase())
+  }
+  const links = [...text.matchAll(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g)].map((m) => ({ label: m[1], url: m[2] }))
+  return {
+    product: line('Product'),
+    activityType: line('Activity type'),
+    eventDescription,
+    triage,
+    eventTimeUtc: gmtToIso(line('Date\\/Time')),
+    iocTriggeredAtUtc: gmtToIso(line('IOC TriggeredAt')),
+    status: line('Status'),
+    ip: line('Ip Address'),
+    city: line('City'),
+    region: line('Region'),
+    country: line('Country'),
+    ipOwner: line('IP Address Owner'),
+    ipType: line('Type'),
+    ipFlagsTrue: flags,
+    userName: line('User Name'),
+    fullName: line('Full Name'),
+    userAgent: line('Device User Agent'),
+    deviceStatus: line('Device Status Type'),
+    eventId: line('Event ID'),
+    iocName: line('IOC Name'),
+    iocTriggerId: line('IOC Trigger Id'),
+    links,
+  }
+}
+
+const BROWSER_UA = /mozilla\/|edg\/|chrome\/|safari\/|firefox\/|outlook|teams|onedrive|microsoft office/i
+
+export function locationText(b: Pick<SaasAlertBody, 'city' | 'region' | 'country'>): string | null {
+  const parts = [b.city, b.region && !/^\d+$/.test(b.region) ? b.region : null, b.country].filter((x): x is string => !!x)
+  return parts.length ? parts.join(', ') : null
+}
+
+/** The SaaS Alerts fields a technician needs first, in the order they need them. */
+export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
+  const f: AlertFact[] = []
+  if (b.activityType) f.push({ label: 'What happened', value: b.activityType })
+  if (b.eventDescription) f.push({ label: 'Detail', value: b.eventDescription.replace(/\s*\n\s*/g, ' ') })
+  const who = [b.fullName, b.userName].filter(Boolean).join(' — ')
+  if (who) f.push({ label: 'Account', value: who })
+  if (b.iocTriggeredAtUtc || b.eventTimeUtc) {
+    f.push({ label: 'When (UTC)', value: [b.iocTriggeredAtUtc && `rule fired ${b.iocTriggeredAtUtc}`, b.eventTimeUtc && `event ${b.eventTimeUtc}`].filter(Boolean).join('; ') })
+  }
+  if (b.ip) {
+    const loc = locationText(b)
+    const owner = [b.ipOwner, b.ipType].filter(Boolean).join(', ')
+    f.push({
+      label: 'From',
+      value: `${b.ip}${loc ? ` — ${loc}` : ''}${owner ? ` (${owner})` : ''}`,
+      meaning: b.ipFlagsTrue.length ? `SaaS Alerts flags this address: ${b.ipFlagsTrue.join(', ')}.` : 'SaaS Alerts flags none of abuser / attacker / threat / proxy / Tor on this address.',
+    })
+  }
+  if (b.userAgent) {
+    f.push({
+      label: 'Client',
+      value: b.userAgent,
+      meaning: BROWSER_UA.test(b.userAgent)
+        ? undefined
+        : 'Not a web browser or Office app — this action was made by a script, app or API library. Identify which app/integration uses it.',
+    })
+  }
+  if (b.deviceStatus) f.push({ label: 'SaaS Alerts data quality', value: b.deviceStatus, meaning: /incomplete/i.test(b.deviceStatus) ? 'SaaS Alerts did not receive the full event — the app or role name is not in the alert and must be read from the tenant audit log.' : undefined })
+  if (b.iocName) f.push({ label: 'Rule', value: `${b.iocName}${b.status ? ` (${b.status})` : ''}` })
+  if (b.eventId) f.push({ label: 'SaaS Alerts event id', value: b.eventId })
+  for (const l of b.links) f.push({ label: l.label, value: l.url })
+  return f
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The internal assessment note (deterministic structure; the narrative is the
 // only AI-written part and is labelled as such)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1123,6 +1260,10 @@ export interface AssessmentNoteInput {
   technicianActions: string[]
   customerUpdate: { status: string; message: string | null }
   generatedAtUtc: string
+  /** The source's own fields (SaaS Alerts body etc.). Rendered first — it is what the technician acts on. */
+  alertFacts?: AlertFact[]
+  /** The alert rule's own triage guidance, verbatim. */
+  alertTriage?: string | null
 }
 
 export function buildAssessmentNote(n: AssessmentNoteInput): string {
@@ -1134,6 +1275,18 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   L.push(`Classification and confidence are computed in code from the evidence below; the AI wrote only the narrative. Last assessed ${n.generatedAtUtc.replace(/\.\d{3}Z$/, 'Z')}.`)
   if (n.twinTickets.length) {
     L.push(`Twin tickets (same device, file and detection time — covered by this one assessment): ${n.twinTickets.map((t) => `${t.ticketNumber}${t.incidentId ? ` (incident ${t.incidentId}${t.threatName ? `, ${t.threatName}` : ''})` : ''}`).join('; ')}`)
+  }
+  if (n.alertFacts && n.alertFacts.length) {
+    L.push('')
+    L.push('WHAT THE ALERT SAYS (the source\'s own fields; "→" lines are our reading of them)')
+    for (const f of n.alertFacts) {
+      L.push(`- ${f.label}: ${f.value}`)
+      if (f.meaning) L.push(`  → ${f.meaning}`)
+    }
+    if (n.alertTriage) {
+      L.push('- The alert rule\'s own triage steps:')
+      for (const t of n.alertTriage.split(/\n\s*\n|\n/).map((x) => x.trim()).filter(Boolean)) L.push(`  ${t}`)
+    }
   }
   L.push('')
   L.push('VISIBILITY FOR THIS CLIENT (anything not "connected" is unknown — never clean)')
@@ -1223,8 +1376,14 @@ export function fitNoteToLimit(lines: string[], ctxStart: number, ctxEnd: number
 }
 
 /** Deterministic technician steps, scoped by the evidence. */
-export function technicianActions(r: ClassificationResult, p: PrimaryDetection, ctx: { coManaged: boolean; hasTctChange: boolean; notConnected: string[] }): string[] {
+export function technicianActions(r: ClassificationResult, p: PrimaryDetection, ctx: { coManaged: boolean; hasTctChange: boolean; notConnected: string[]; hasRuleTriage?: boolean; auditLogNeeded?: { user: string | null; atUtc: string | null; tenantReadable: boolean } | null }): string[] {
   const a: string[] = []
+  if (ctx.auditLogNeeded) {
+    const who = ctx.auditLogNeeded.user ?? 'the account'
+    const when = ctx.auditLogNeeded.atUtc ? ` around ${ctx.auditLogNeeded.atUtc.replace(/\.\d{3}Z$/, 'Z')} (UTC)` : ''
+    a.push(`Read the Microsoft Entra audit log for ${who}${when} to name the application, consent or role involved — the alert does not contain it.${ctx.auditLogNeeded.tenantReadable ? '' : ' The SOC could not read that log itself (Graph permission missing on this tenant — see Data Gaps).'}`)
+  }
+  if (ctx.hasRuleTriage) a.push('Follow the alert rule\'s own triage steps listed under WHAT THE ALERT SAYS.')
   if (r.classification === 'likely_false_positive' || r.classification === 'confirmed_false_positive') {
     a.push('Confirm the benign explanation above still holds, document it, and close the ticket.')
     return a

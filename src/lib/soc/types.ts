@@ -677,6 +677,10 @@ export interface EnrichmentBundle {
   primary?: import('./evidence').PrimaryDetection;
   /** One-line context statements about sources (e.g. "DNSFilter: 0 blocked queries, org-level"). */
   contextSummaries?: string[];
+  /** What the alert itself says — the source's own fields (SaaS Alerts body etc.). */
+  alertFacts?: import('./evidence').AlertFact[];
+  /** The alert rule's own triage guidance, verbatim. */
+  alertTriage?: string | null;
 }
 
 // ── Known Benign Security Events ──
