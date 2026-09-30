@@ -245,7 +245,10 @@ export async function enrichTicket(
     alertTime,
     saasEvents: saas.result?.events || [],
     ticketText: text,
-    ipv4: allIps,
+    // The ticket text of an endpoint alert carries only the LAN address; the
+    // device's public egress comes from Datto RMM (ipClassifications). Both are
+    // offered, and buildSignals takes the first PUBLIC one.
+    ipv4: [...allIps, ...ipClassifications.filter(c => c.class !== 'internal').map(c => c.ip)],
     onKnownNetwork: !!device.networkMatch || deviceVerification?.verified === true
       || alertIpClass?.class === 'client_office' || alertIpClass?.class === 'client_device_egress',
     dataSources,
@@ -1664,5 +1667,5 @@ export function summarizeOtherDeviceDetections(a: {
   const devices = new Set([...byThreat.values()].flatMap(s => [...s]));
   const top = [...byThreat.entries()].sort((x, y) => y[1].size - x[1].size).slice(0, 3)
     .map(([t, d]) => `${t} on ${d.size} device${d.size === 1 ? '' : 's'} (${[...d].slice(0, 5).join(', ')}${d.size > 5 ? ', …' : ''})`);
-  return `RocketCyber also reported ${count} detection${count === 1 ? '' : 's'} on ${devices.size} other device${devices.size === 1 ? '' : 's'} at this client between 72 hours before the alert and now — not about this device, user or file, so not itemised and not counted: ${top.join('; ')}${byThreat.size > 3 ? `; and ${byThreat.size - 3} other detection type(s)` : ''}. Many devices with the same detection at once can mean a shared cause (a tool or policy change) or spread — check it separately.`;
+  return `RocketCyber also reported ${count} detection${count === 1 ? '' : 's'} on ${devices.size} other device${devices.size === 1 ? '' : 's'} at this client, across all RocketCyber events retrieved for the account (no time window applied) — not about this device, user or file, so not itemised and not counted: ${top.join('; ')}${byThreat.size > 3 ? `; and ${byThreat.size - 3} other detection type(s)` : ''}. Many devices with the same detection at once can mean a shared cause (a tool or policy change) or spread — check it separately.`;
 }
