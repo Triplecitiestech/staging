@@ -45,6 +45,7 @@ import {
   parseSaasAlertsBody,
   privateRange,
   saasAlertFacts,
+  buildAccountChecks,
   locationText,
   resolveCompanyProfile,
   signalFromThreatName,
@@ -199,10 +200,15 @@ export async function enrichTicket(
   //    the customer's own tenant (getTenantCredentials), so it is authoritative
   //    for what actually happened and can never reach another customer.
   let m365Identity: M365IdentityCorrelation | null = null;
-  if (isIdentityChangeAlert(ticket)) {
-    const upn = resolveUserPrincipalName(ticket, saas.result?.events || []);
-    const m365 = await fetchM365Identity({ companyId, userPrincipalName: upn, alertTime });
+  // A SaaS Alerts account alert (privilege grant, sign-in, mailbox rule…) is an
+  // identity question too, and its body names the account and its Entra id.
+  const saasBodyForFacts = sourceSystem === 'saas_alerts' ? parseSaasAlertsBody(ticket.description || '') : null;
+  let m365Gap: string | null = null;
+  if (isIdentityChangeAlert(ticket) || saasBodyForFacts?.userName) {
+    const upn = saasBodyForFacts?.userName ?? resolveUserPrincipalName(ticket, saas.result?.events || []);
+    const m365 = await fetchM365Identity({ companyId, userPrincipalName: upn, userObjectId: saasBodyForFacts?.userId ?? null, alertTime });
     m365Identity = m365.result;
+    m365Gap = m365.gap ?? null;
     dataSources.push(m365.status);
     if (m365.gap) dataGaps.push(m365.gap);
     visibility.push(m365VisibilityFromStatus(m365.status, m365.result));
@@ -224,7 +230,6 @@ export async function enrichTicket(
 
   // 10. The detection this assessment is anchored to, and every correlated event.
   const primary = primaryDetection(ticket, rocketCyber, body, sourceSystem, hostname);
-  const saasBodyForFacts = sourceSystem === 'saas_alerts' ? parseSaasAlertsBody(ticket.description || '') : null;
   const changeWindows = detectFleetChangeWindows(device.rmmAlerts, {
     siteDeviceCounts: device.siteDeviceCounts, fromUtc: changeFrom, toUtc: changeTo,
   });
@@ -301,6 +306,18 @@ export async function enrichTicket(
     primary,
     contextSummaries,
     alertFacts: saasBodyForFacts ? saasAlertFacts(saasBodyForFacts) : [],
+    accountChecks: saasBodyForFacts?.userName
+      ? buildAccountChecks({
+          alertIp: saasBodyForFacts.ip,
+          userName: saasBodyForFacts.userName,
+          fullName: saasBodyForFacts.fullName,
+          alertTimeUtc: saasBodyForFacts.iocTriggeredAtUtc ?? saasBodyForFacts.eventTimeUtc,
+          devices: device.devices.map(d => ({ hostname: d.hostname, extIpAddress: d.extIpAddress || null, lastUser: d.lastUser || null, lastSeen: d.lastSeen || null, online: typeof d.online === 'boolean' ? d.online : null })),
+          privilegeEvents: m365Identity ? (m365Identity.privilegeEvents ?? []) : null,
+          signIns: m365Identity ? m365Identity.signIns : null,
+          m365Gap,
+        })
+      : [],
     alertTriage: saasBodyForFacts?.triage ?? null,
   };
 }

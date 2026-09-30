@@ -682,8 +682,11 @@ async function assessGroup(
   const actions = technicianActions(cls, primaryDet, {
     coManaged: profile.coManaged, hasTctChange: windows.length > 0, notConnected,
     hasRuleTriage: !!enrichment.alertTriage,
-    auditLogNeeded: primaryDet.recordSource.startsWith('SaaS Alerts') && needsAuditLog
+    auditLogNeeded: primaryDet.recordSource.startsWith('SaaS Alerts') && needsAuditLog && !(enrichment.m365Identity?.privilegeEvents?.length)
       ? { user: primaryDet.user, atUtc: primaryDet.timestampUtc, tenantReadable: m365Readable }
+      : null,
+    privilegeFound: enrichment.m365Identity?.privilegeEvents?.length
+      ? { user: primaryDet.user, events: enrichment.m365Identity.privilegeEvents }
       : null,
   });
   const tenantRootCause = signals?.recurrence?.recurringPattern ? defaultTenantRootCause(signals) : null;
@@ -710,6 +713,7 @@ async function assessGroup(
     generatedAtUtc: now.toISOString(),
     alertFacts: enrichment.alertFacts ?? [],
     alertTriage: enrichment.alertTriage ?? null,
+    accountChecks: enrichment.accountChecks ?? [],
   });
 
   const finalVerdict = classificationToVerdict(cls.classification);

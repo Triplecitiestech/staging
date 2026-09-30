@@ -137,6 +137,7 @@ export interface EnrichmentBundle {
   contextSummaries?: string[]
   alertFacts?: Array<{ label: string; value: string; meaning?: string }>
   alertTriage?: string | null
+  accountChecks?: Array<{ label: string; value: string; meaning?: string }>
 }
 
 export interface VisibilityEntry {
@@ -225,6 +226,20 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
                 <p className="text-slate-200 whitespace-pre-wrap break-words">{enrichment.alertTriage}</p>
               </div>
             )}
+          </div>
+        </Section>
+      )}
+
+      {enrichment?.accountChecks && enrichment.accountChecks.length > 0 && (
+        <Section title="What We Checked" subtitle="Microsoft 365 tenant records and Datto RMM devices for this account. Lines marked → state the source's limit.">
+          <div className="p-4 space-y-2">
+            {enrichment.accountChecks.map((f, i) => (
+              <div key={i} className="bg-black/30 rounded p-2 text-sm">
+                <p className="text-xs text-slate-500">{f.label}</p>
+                <p className="text-slate-200 break-words">{f.value}</p>
+                {f.meaning && <p className="text-xs text-cyan-300 mt-0.5 break-words">→ {f.meaning}</p>}
+              </div>
+            ))}
           </div>
         </Section>
       )}

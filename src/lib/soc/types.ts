@@ -517,6 +517,19 @@ export interface M365SignIn {
   conditionalAccess: string | null;
 }
 
+export interface M365PrivilegeEvent {
+  time: string;
+  activity: string;
+  category: string | null;
+  result: string;
+  /** The IP Entra recorded for the initiating user, when present. */
+  ip: string | null;
+  /** What was acted on: "ServicePrincipal: Contoso App", "Role: Global Administrator". */
+  targets: string[];
+  /** The permission / role / consent details Entra recorded (modifiedProperties new values). */
+  details: string[];
+}
+
 export interface M365IdentityCorrelation {
   /** UPN/email the correlation was scoped to. */
   userPrincipalName: string | null;
@@ -532,6 +545,12 @@ export interface M365IdentityCorrelation {
   hasStrongMethodRemaining: boolean;
   /** Graph permission/scope or license gaps encountered (e.g. AuditLog.Read.All not consented, no Entra ID P1). */
   permissionGaps: string[];
+  /**
+   * Directory-audit records the ACCOUNT ITSELF initiated in the window that
+   * grant access: app consent, role assignment, service principal / app
+   * credential changes. The answer to "what did this privilege alert do".
+   */
+  privilegeEvents?: M365PrivilegeEvent[];
 }
 
 /** Match against the Known Benign Security Events table (informational only). */
@@ -681,6 +700,8 @@ export interface EnrichmentBundle {
   alertFacts?: import('./evidence').AlertFact[];
   /** The alert rule's own triage guidance, verbatim. */
   alertTriage?: string | null;
+  /** What the SOC itself checked about the account and its devices (M365 audit/sign-ins, Datto RMM IP match). */
+  accountChecks?: import('./evidence').AlertFact[];
 }
 
 // ── Known Benign Security Events ──

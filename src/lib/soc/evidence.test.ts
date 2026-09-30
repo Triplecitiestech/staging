@@ -14,6 +14,8 @@ import {
   NOTE_END,
   NOTE_MAX_CHARS,
   normUser,
+  buildAccountChecks,
+  deviceUserMatches,
   parseSaasAlertsBody,
   saasAlertFacts,
   guardNarrative,
@@ -396,5 +398,56 @@ describe('SaaS Alerts ticket body (T20260930.0005: the SOC kept only the email a
 
   it('a RocketCyber body is not mistaken for a SaaS Alerts one', () => {
     expect(parseSaasAlertsBody('Defender Detected Trojan on X\nDevice: DOG-006 | 192.168.1.153\nPlatform Time: 2026-09-24T20:57:25.000Z')).toBeNull()
+  })
+})
+
+
+describe('account checks — IP vs the account\'s own computer and sign-ins (T20260930.0005)', () => {
+  const base = { alertIp: '2001:4453:658:2800:cda5:3382:16bb:7e91', userName: 'user@example.com', fullName: 'Example User', alertTimeUtc: '2026-09-30T12:35:03Z', m365Gap: null }
+  const dev = (o: Partial<{ hostname: string; extIpAddress: string | null; lastUser: string | null; lastSeen: string | null; online: boolean | null }>) => ({ hostname: 'TCT-LAP-01', extIpAddress: '112.200.1.2', lastUser: 'AzureAD\\ExampleUser', lastSeen: '2026-09-30T12:40:00Z', online: true, ...o })
+
+  it('matches the account\'s device by UPN local part or compacted full name — never fuzzily', () => {
+    expect(deviceUserMatches('AzureAD\\ExampleUser', 'user@example.com', 'Example User')).toBe(true)
+    expect(deviceUserMatches('CORP\\user', 'user@example.com', null)).toBe(true)
+    expect(deviceUserMatches('AzureAD\\ExampleUserTwo', 'user@example.com', 'Example User')).toBe(false)
+    expect(deviceUserMatches('NT AUTHORITY\\SYSTEM', 'system@example.com', null)).toBe(false)
+  })
+
+  it('same public IP is stated as a match, with the "current, not historical" limit', () => {
+    const f = buildAccountChecks({ ...base, alertIp: '112.200.1.2', devices: [dev({})], privilegeEvents: [], signIns: [] })
+    const d = f.find((x) => x.label.startsWith("Account's computer"))!
+    expect(d.meaning).toMatch(/^SAME public IP as the alert\. Datto RMM reports the device's CURRENT public IP, not its IP at the time/)
+  })
+
+  it('an IPv6 alert against an IPv4 device is "cannot compare", never "different"', () => {
+    const f = buildAccountChecks({ ...base, devices: [dev({})], privilegeEvents: [], signIns: [] })
+    const d = f.find((x) => x.label.startsWith("Account's computer"))!
+    expect(d.meaning).toMatch(/cannot compare — the alert IP is IPv6 and Datto RMM reports IPv4/)
+    expect(d.meaning).not.toMatch(/DIFFERENT/)
+  })
+
+  it('no managed device for the account is said plainly', () => {
+    const f = buildAccountChecks({ ...base, devices: [dev({ lastUser: 'AzureAD\\Someone' })], privilegeEvents: [], signIns: [] })
+    expect(f.find((x) => x.label === "Account's computer (Datto RMM)")!.value).toMatch(/No managed device/)
+  })
+
+  it('sign-ins: exact IP match, then same /64 network', () => {
+    const exact = buildAccountChecks({ ...base, devices: [], privilegeEvents: [], signIns: [{ time: '2026-09-30T12:30:00Z', ip: base.alertIp, location: 'Sariaya, PH', device: 'Windows', status: 'success' }] })
+    expect(exact.find((x) => x.label === 'Sign-ins from the alert IP')!.value).toBe(`1 of 1 sign-in(s) in the window came from ${base.alertIp}`)
+    const prefix = buildAccountChecks({ ...base, devices: [], privilegeEvents: [], signIns: [{ time: '2026-09-30T12:30:00Z', ip: '2001:4453:658:2800::99', location: null, device: null, status: 'success' }] })
+    expect(prefix.find((x) => x.label === 'Sign-ins from the alert IP')!.value).toMatch(/same \/64 network \(2001:4453:658:2800::\/64\)/)
+  })
+
+  it('the tenant\'s own grant record is listed with what was granted', () => {
+    const f = buildAccountChecks({ ...base, devices: [], signIns: null, privilegeEvents: [{ time: '2026-09-30T12:35:01.123Z', activity: 'Consent to application', result: 'success', ip: base.alertIp, targets: ['ServicePrincipal: Example Sync App'], details: ['ConsentAction.Permissions: Scope: Mail.Read'] }] })
+    const e = f.find((x) => x.label.startsWith('Microsoft 365 audit log —'))!
+    expect(e.label).toBe('Microsoft 365 audit log — 2026-09-30T12:35:01Z')
+    expect(e.value).toMatch(/^Consent to application \(success\) → ServicePrincipal: Example Sync App from 2001:/)
+    expect(e.meaning).toBe('ConsentAction.Permissions: Scope: Mail.Read')
+  })
+
+  it('when the tenant was not read, it says so and why', () => {
+    const f = buildAccountChecks({ ...base, devices: [], signIns: null, privilegeEvents: null, m365Gap: 'M365 tenant not connected' })
+    expect(f[0]).toEqual({ label: 'Microsoft 365 audit log', value: 'Not read', meaning: 'M365 tenant not connected' })
   })
 })
