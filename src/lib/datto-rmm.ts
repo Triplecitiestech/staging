@@ -13,6 +13,8 @@ export interface DattoDevice {
   extIpAddress: string;
   lastSeen: string;
   lastUser: string;
+  /** The device's Description field in Datto RMM (free text, e.g. "Ghenels Personal Computer"). */
+  description?: string;
   siteId: string;
   siteName: string;
   operatingSystem: string;
@@ -349,6 +351,7 @@ interface RawDevice {
   extIpAddress?: string;
   lastSeen?: string | number;
   lastLoggedInUser?: string;
+  description?: string;
   siteId?: number;
   siteUid?: string;
   siteName?: string;
@@ -421,6 +424,7 @@ function mapDevice(d: RawDevice): DattoDevice {
     extIpAddress: d.extIpAddress || '',
     lastSeen: typeof d.lastSeen === 'number' ? new Date(d.lastSeen).toISOString() : (d.lastSeen || ''),
     lastUser: d.lastLoggedInUser || '',
+    description: d.description || '',
     siteId: String(d.siteUid || d.siteId || ''),
     siteName: d.siteName || '',
     operatingSystem: d.operatingSystem || '',

@@ -513,8 +513,19 @@ export interface M365SignIn {
   ip: string | null;
   location: string | null;
   device: string | null;
+  /** deviceDetail.displayName — the device's own name, present when it is Entra-registered/joined. */
+  deviceName?: string | null;
   status: string;
   conditionalAccess: string | null;
+}
+
+/** An Intune managed device whose user is the account (Graph managedDevice). */
+export interface M365ManagedDevice {
+  deviceName: string;
+  userPrincipalName: string | null;
+  operatingSystem: string | null;
+  lastSyncDateTime: string | null;
+  complianceState: string | null;
 }
 
 export interface M365PrivilegeEvent {
@@ -551,6 +562,8 @@ export interface M365IdentityCorrelation {
    * credential changes. The answer to "what did this privilege alert do".
    */
   privilegeEvents?: M365PrivilegeEvent[];
+  /** Intune devices whose user is this account. null = not read. */
+  managedDevices?: M365ManagedDevice[] | null;
 }
 
 /** Match against the Known Benign Security Events table (informational only). */

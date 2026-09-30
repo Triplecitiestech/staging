@@ -22,7 +22,7 @@
  */
 
 import { getTenantCredentials, getAccessToken, graphRequest, tokenRoles } from '@/lib/graph';
-import type { DataSourceStatus, M365IdentityCorrelation, M365AuthMethod, M365AuditEvent, M365PrivilegeEvent, M365SignIn } from './types';
+import type { DataSourceStatus, M365IdentityCorrelation, M365AuthMethod, M365AuditEvent, M365ManagedDevice, M365PrivilegeEvent, M365SignIn } from './types';
 
 const WINDOW_MS = 6 * 60 * 60 * 1000; // ±6h, consistent with the rest of SOC enrichment
 
@@ -209,6 +209,20 @@ export async function fetchM365Identity(params: {
         .filter(isPrivilegeActivity)
         .map(toPrivilegeEvent)
         .sort((x, y) => x.time.localeCompare(y.time));
+      // The SaaS Alerts "User Id" is assumed to be the Entra object id; if the
+      // id-filtered read finds nothing, re-read the window and match the
+      // initiating UPN so a wrong id can never read as "no record".
+      if (privilegeEvents.length === 0 && idFilter && upn) {
+        const all = await graphRequest<{ value: RawDirectoryAudit[] }>(
+          token,
+          `/auditLogs/directoryAudits?$filter=${encodeURIComponent(`activityDateTime ge ${since} and activityDateTime le ${until}`)}&$top=500`,
+        );
+        privilegeEvents = (all.value || [])
+          .filter(a => (a.initiatedBy?.user?.userPrincipalName || '').toLowerCase() === upn)
+          .filter(isPrivilegeActivity)
+          .map(toPrivilegeEvent)
+          .sort((x, y) => x.time.localeCompare(y.time));
+      }
     } catch (err) {
       recordGraphGap('AuditLog.Read.All (privilege / app-grant audit records)', err, permissionGaps, roles, 'AuditLog.Read.All');
     }
@@ -231,11 +245,38 @@ export async function fetchM365Identity(params: {
         ip: s.ipAddress || null,
         location: [s.location?.city, s.location?.state, s.location?.countryOrRegion].filter(Boolean).join(', ') || null,
         device: [s.deviceDetail?.displayName, s.deviceDetail?.operatingSystem, s.deviceDetail?.browser].filter(Boolean).join(' / ') || null,
+        deviceName: s.deviceDetail?.displayName || null,
         status: s.status?.errorCode === 0 ? 'success' : `failure${s.status?.failureReason ? `: ${s.status.failureReason}` : ''}`,
         conditionalAccess: s.conditionalAccessStatus || null,
       }));
     } catch (err) {
       recordGraphGap('AuditLog.Read.All / Entra ID P1 (sign-in logs)', err, permissionGaps, roles, 'AuditLog.Read.All');
+    }
+  }
+
+  // 2b. Intune: devices whose user is this account. The list endpoint's
+  // filter support is not documented, so the tenant's devices are read (capped)
+  // and matched on userPrincipalName / emailAddress in memory.
+  let managedDevices: M365ManagedDevice[] | null = null;
+  if (userPrincipalName) {
+    try {
+      const upn = userPrincipalName.toLowerCase();
+      const out: M365ManagedDevice[] = [];
+      let path: string | null = '/deviceManagement/managedDevices?$select=deviceName,userPrincipalName,emailAddress,operatingSystem,lastSyncDateTime,complianceState&$top=200';
+      for (let page = 0; path && page < 5; page++) {
+        const data: { value?: Array<{ deviceName?: string; userPrincipalName?: string; emailAddress?: string; operatingSystem?: string; lastSyncDateTime?: string; complianceState?: string }>; '@odata.nextLink'?: string } =
+          await graphRequest(token, path);
+        for (const d of data.value || []) {
+          if ((d.userPrincipalName || '').toLowerCase() === upn || (d.emailAddress || '').toLowerCase() === upn) {
+            out.push({ deviceName: d.deviceName || '(no name)', userPrincipalName: d.userPrincipalName || null, operatingSystem: d.operatingSystem || null, lastSyncDateTime: d.lastSyncDateTime || null, complianceState: d.complianceState || null });
+          }
+        }
+        const next: string | undefined = data['@odata.nextLink'];
+        path = next ? next.replace(/^https:\/\/graph\.microsoft\.com\/v1\.0/, '') : null;
+      }
+      managedDevices = out;
+    } catch (err) {
+      recordGraphGap('DeviceManagementManagedDevices.Read.All (Intune devices)', err, permissionGaps, roles, 'DeviceManagementManagedDevices.Read.All');
     }
   }
 
@@ -271,6 +312,7 @@ export async function fetchM365Identity(params: {
     hasStrongMethodRemaining,
     permissionGaps,
     privilegeEvents,
+    managedDevices,
   };
 
   // Build the status/gap summary.

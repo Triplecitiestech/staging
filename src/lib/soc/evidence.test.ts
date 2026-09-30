@@ -16,6 +16,7 @@ import {
   normUser,
   buildAccountChecks,
   deviceUserMatches,
+  resolveUserDevices,
   parseSaasAlertsBody,
   saasAlertFacts,
   guardNarrative,
@@ -416,7 +417,8 @@ describe('account checks — IP vs the account\'s own computer and sign-ins (T20
   it('same public IP is stated as a match, with the "current, not historical" limit', () => {
     const f = buildAccountChecks({ ...base, alertIp: '112.200.1.2', devices: [dev({})], privilegeEvents: [], signIns: [] })
     const d = f.find((x) => x.label.startsWith("Account's computer"))!
-    expect(d.meaning).toMatch(/^SAME public IP as the alert\. Datto RMM reports the device's CURRENT public IP, not its IP at the time/)
+    expect(d.label).toBe("Account's computer (strong link) — TCT-LAP-01")
+    expect(d.meaning).toMatch(/IP check: SAME public IP as the alert\. Datto RMM reports the device's CURRENT public IP, not its IP at the time/)
   })
 
   it('an IPv6 alert against an IPv4 device is "cannot compare", never "different"', () => {
@@ -428,7 +430,7 @@ describe('account checks — IP vs the account\'s own computer and sign-ins (T20
 
   it('no managed device for the account is said plainly', () => {
     const f = buildAccountChecks({ ...base, devices: [dev({ lastUser: 'AzureAD\\Someone' })], privilegeEvents: [], signIns: [] })
-    expect(f.find((x) => x.label === "Account's computer (Datto RMM)")!.value).toMatch(/No managed device/)
+    expect(f.find((x) => x.label === "Account's computer")!.value).toBe('No device could be tied to this account')
   })
 
   it('sign-ins: exact IP match, then same /64 network', () => {
@@ -449,5 +451,39 @@ describe('account checks — IP vs the account\'s own computer and sign-ins (T20
   it('when the tenant was not read, it says so and why', () => {
     const f = buildAccountChecks({ ...base, devices: [], signIns: null, privilegeEvents: null, m365Gap: 'M365 tenant not connected' })
     expect(f[0]).toEqual({ label: 'Microsoft 365 audit log', value: 'Not read', meaning: 'M365 tenant not connected' })
+  })
+})
+
+
+describe('resolveUserDevices — every source that ties a device to the account (ELLYSEA, 2026-09-30)', () => {
+  const ellysea = { hostname: 'ELLYSEA', extIpAddress: '112.200.1.2', lastUser: 'ELLYSEA\\GhenelU', description: 'Ghenels Personal Computer', lastSeen: null, online: true }
+  const other = { hostname: 'TCT-DC01', extIpAddress: '1.2.3.4', lastUser: 'TCT\\admin', description: 'Domain controller', lastSeen: null, online: true }
+
+  it('finds a personal, non-joined computer from its last user AND description — "likely", both bases shown', () => {
+    const r = resolveUserDevices({ userName: 'ghenel@example.com', fullName: 'Ghenel Bacalla', rmmDevices: [ellysea, other] })
+    expect(r).toHaveLength(1)
+    expect(r[0].hostname).toBe('ELLYSEA')
+    expect(r[0].strength).toBe('likely')
+    expect(r[0].basis).toEqual([
+      'Datto RMM last user "ELLYSEA\\GhenelU" begins with "ghenel"',
+      'Datto RMM description "Ghenels Personal Computer" names the user',
+    ])
+  })
+
+  it('an Intune record or a sign-in naming the device is a strong link and is joined to the Datto RMM record by hostname', () => {
+    const r = resolveUserDevices({ userName: 'ghenel@example.com', fullName: 'Ghenel Bacalla', rmmDevices: [ellysea],
+      managedDevices: [{ deviceName: 'ellysea', operatingSystem: 'Windows', lastSyncDateTime: '2026-09-30T10:00:00.000Z', complianceState: 'compliant' }],
+      signInDeviceNames: ['LAPTOP-XYZ'] })
+    const e = r.find((x) => x.hostname.toLowerCase() === 'ellysea')!
+    expect(e.strength).toBe('strong')
+    expect(e.rmm?.extIpAddress).toBe('112.200.1.2')
+    const l = r.find((x) => x.hostname === 'LAPTOP-XYZ')!
+    expect(l.strength).toBe('strong')
+    expect(l.rmm).toBeNull()
+  })
+
+  it('short names never match by prefix — "al" does not claim "ALBERTPC\\alex"', () => {
+    const r = resolveUserDevices({ userName: 'al@example.com', fullName: 'Al Bo', rmmDevices: [{ ...other, hostname: 'ALBERTPC', lastUser: 'ALBERTPC\\alex', description: 'Albert desk' }] })
+    expect(r).toHaveLength(0)
   })
 })
