@@ -56,7 +56,18 @@ export interface RocketCyberDetail {
 
   // Raw passthrough — given to the AI verbatim so nothing is lost
   rawIncident: unknown;
+  /** Events tied to THIS incident (by incident id, or same device within ±1h). */
   rawEvents: unknown[];
+  /**
+   * Account events that are NOT tied to this incident (other devices, other
+   * times). Kept apart on purpose: on Wilmar T20260927.0006 the account-wide
+   * /events fallback pulled WIL0178 / MOBILE077 / WIL0225 detections from a
+   * different day into "this incident", and the analysis called that lateral
+   * movement. They are environment context, never this incident's detail.
+   */
+  otherEvents: unknown[];
+  /** The id on the incident record the API returned — must equal incidentId. */
+  incidentRecordId: string | null;
 }
 
 interface RawIncidentEnvelope {
@@ -83,7 +94,7 @@ const DETECTION_FIELD_ALIASES: Record<keyof DetectionFields, string[]> = {
   detectionMessage: ['detectionMessage', 'message', 'detection', 'summary', 'eventSummary', 'description'],
 };
 
-type DetectionFields = {
+export type DetectionFields = {
   actionTaken: string | null;
   eventTime: string | null;
   path: string | null;
@@ -170,10 +181,13 @@ export class RocketCyberClient {
     return [];
   }
 
+  /**
+   * EXACT id match only. This used to fall back to "the only row returned",
+   * so an API that ignored the id filter handed back some other incident and
+   * the assessment reported the wrong incident number (13135961 vs 13135962).
+   */
   private matchById(list: unknown[], incidentId: string): unknown | undefined {
-    const byId = list.find(it => it && typeof it === 'object' && String((it as Record<string, unknown>).id ?? '') === String(incidentId));
-    if (byId) return byId;
-    return list.length === 1 ? list[0] : undefined;
+    return list.find(it => it && typeof it === 'object' && String((it as Record<string, unknown>).id ?? '') === String(incidentId));
   }
 
   /** Fetch a single incident by its RocketCyber incident ID (tries several strategies). */
@@ -185,12 +199,11 @@ export class RocketCyberClient {
       if (found) return found;
     } catch { /* try next */ }
 
-    // 2. Path-style lookup.
+    // 2. Path-style lookup — still required to carry the requested id.
     try {
       const single = await this.request<unknown>(`/incidents/${encodeURIComponent(incidentId)}`);
-      const unwrapped = this.unwrap(single);
-      if (unwrapped.length) return unwrapped[0];
-      if (single && typeof single === 'object' && 'id' in single) return single;
+      const found = this.matchById(this.unwrap(single), incidentId);
+      if (found) return found;
     } catch { /* try next */ }
 
     // 3. List the account's incidents and find by id.
@@ -248,6 +261,7 @@ export class RocketCyberClient {
     // If the high-value fields are still missing, pull events around the
     // incident time and merge the best match.
     const rawEvents: unknown[] = [];
+    const otherEvents: unknown[] = [];
     const needsEvents = !fields.process || !fields.path || !fields.hash;
     if (needsEvents && resolvedAccountId) {
       const incidentMs = toMillis(inc.eventTime ?? inc.event_time ?? inc.createdAt ?? inc.created_at);
@@ -276,10 +290,16 @@ export class RocketCyberClient {
           // Try the next shape.
         }
       }
-      rawEvents.push(...candidates);
+      // Only events that BELONG to this incident are its detail: tagged with
+      // its id, or on its device within ±1h. Everything else the account-wide
+      // endpoints returned is kept apart as otherEvents.
+      const incidentDevice = normDevice(fields.device);
+      const { mine, others } = partitionIncidentEvents(candidates, incidentId, incidentDevice, incidentMs);
+      rawEvents.push(...mine);
+      otherEvents.push(...others);
 
-      // Select the single event that belongs to this incident.
-      const best = selectClosestEvent(candidates, incidentMs);
+      // Select the single event that belongs to this incident (deterministic).
+      const best = selectClosestEvent(mine, incidentMs);
       if (best) fields = mergeFields(fields, extractDetectionFields(best));
     }
 
@@ -312,6 +332,8 @@ export class RocketCyberClient {
       ...fields,
       rawIncident: incident,
       rawEvents,
+      otherEvents,
+      incidentRecordId: asString(inc.id),
     };
   }
 }
@@ -335,7 +357,7 @@ function toMillis(v: unknown): number | null {
 }
 
 /** Get an event's timestamp in epoch ms (handles JSON:API `attributes` nesting). */
-function getEventMillis(ev: unknown): number | null {
+export function getEventMillis(ev: unknown): number | null {
   if (!ev || typeof ev !== 'object') return null;
   const o = ev as Record<string, unknown>;
   const attrs = (o.attributes && typeof o.attributes === 'object' ? o.attributes : {}) as Record<string, unknown>;
@@ -356,13 +378,61 @@ function selectClosestEvent(events: unknown[], incidentMs: number | null): unkno
   if (incidentMs === null) return null;
   let best: unknown = null;
   let bestDelta = Infinity;
+  let bestId = '';
   for (const ev of events) {
     const ms = getEventMillis(ev);
     if (ms === null) continue;
     const delta = Math.abs(ms - incidentMs);
-    if (delta < bestDelta) { bestDelta = delta; best = ev; }
+    const id = eventId(ev) ?? '';
+    // Equal distance → lowest id, so the same inputs always pick the same event.
+    if (delta < bestDelta || (delta === bestDelta && id < bestId)) { bestDelta = delta; best = ev; bestId = id; }
   }
   return best;
+}
+
+/** An event's own id (handles JSON:API nesting). */
+export function eventId(ev: unknown): string | null {
+  if (!ev || typeof ev !== 'object') return null;
+  const o = ev as Record<string, unknown>;
+  const attrs = (o.attributes && typeof o.attributes === 'object' ? o.attributes : {}) as Record<string, unknown>;
+  return asString(o.id ?? o.eventId ?? o.event_id ?? attrs.id ?? attrs.eventId);
+}
+
+/** The incident id an event says it belongs to, if it says. */
+function eventIncidentId(ev: unknown): string | null {
+  if (!ev || typeof ev !== 'object') return null;
+  const o = ev as Record<string, unknown>;
+  const attrs = (o.attributes && typeof o.attributes === 'object' ? o.attributes : {}) as Record<string, unknown>;
+  return asString(o.incidentId ?? o.incident_id ?? attrs.incidentId ?? attrs.incident_id);
+}
+
+function normDevice(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const first = d.split('|')[0].trim().split('.')[0].trim().toLowerCase();
+  return first || null;
+}
+
+/** Split account events into those belonging to this incident and the rest. */
+export function partitionIncidentEvents(
+  events: unknown[],
+  incidentId: string,
+  incidentDevice: string | null,
+  incidentMs: number | null,
+): { mine: unknown[]; others: unknown[] } {
+  const mine: unknown[] = [];
+  const others: unknown[] = [];
+  for (const ev of events) {
+    const tagged = eventIncidentId(ev);
+    if (tagged) {
+      (tagged === String(incidentId) ? mine : others).push(ev);
+      continue;
+    }
+    const dev = normDevice(extractDetectionFields(ev).device);
+    const ms = getEventMillis(ev);
+    const near = incidentMs !== null && ms !== null && Math.abs(ms - incidentMs) <= 60 * 60 * 1000;
+    (incidentDevice && dev === incidentDevice && near ? mine : others).push(ev);
+  }
+  return { mine, others };
 }
 
 function asString(v: unknown): string | null {
@@ -377,7 +447,7 @@ function asString(v: unknown): string | null {
 }
 
 /** Recursively collect the first non-empty value for each alias key. */
-function extractDetectionFields(obj: unknown): DetectionFields {
+export function extractDetectionFields(obj: unknown): DetectionFields {
   const found: Partial<Record<keyof DetectionFields, string>> = {};
   const aliasLookup = new Map<string, keyof DetectionFields>();
   for (const [field, aliases] of Object.entries(DETECTION_FIELD_ALIASES) as [keyof DetectionFields, string[]][]) {

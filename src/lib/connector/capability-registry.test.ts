@@ -59,6 +59,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
     import('@/lib/mcp-kaseya-quote-manager-tools'),
     import('@/lib/mcp-ringcentral-tools'),
   ])
+  const soc = await import('@/lib/mcp-soc-tools')
   configRead.registerConfigReadTools(server)
   configWrite.registerConfigWriteTools(server)
   write.registerWriteTools(server)
@@ -72,6 +73,7 @@ async function recordRealModules(): Promise<RecordedTool[]> {
   salesPricing.registerSalesPricingTools(server)
   kqm.registerKaseyaQuoteManagerTools(server)
   ringcentral.registerRingCentralTools(server)
+  soc.registerSocTools(server)
   return recorded
 }
 

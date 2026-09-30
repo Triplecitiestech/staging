@@ -13,14 +13,14 @@ interface ConfigEntry {
 
 const CONFIG_SCHEMA: Omit<ConfigEntry, 'value'>[] = [
   { key: 'agent_enabled', label: 'Agent Enabled', type: 'boolean', description: 'Enable or disable the SOC agent' },
-  { key: 'dry_run', label: 'Dry Run Mode', type: 'boolean', description: 'When enabled, agent analyzes but does not add Autotask notes' },
+  { key: 'dry_run', label: 'Dry Run Mode', type: 'boolean', description: 'When enabled, agent analyzes but does not add Autotask notes or send the automatic customer update. Takes effect immediately (the SOC_AUTO_CUSTOMER_NOTIFY env var needs a redeploy).' },
   { key: 'auto_post_internal_note', label: 'Auto-Post Internal Note', type: 'boolean', description: 'Auto-post the self-contained SOC assessment to Autotask as an Internal Only note. Closing tickets and customer replies still require technician approval.' },
   { key: 'screening_model', label: 'Screening Model', type: 'select', options: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6'], description: 'AI model for initial ticket screening' },
   { key: 'deep_analysis_model', label: 'Deep Analysis Model', type: 'select', options: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'], description: 'AI model for complex incident analysis' },
   { key: 'confidence_auto_close', label: 'Auto-Close Threshold', type: 'number', description: 'Minimum confidence to recommend automatic closure (0-1)' },
   { key: 'confidence_flag_review', label: 'Flag Review Threshold', type: 'number', description: 'Minimum confidence to flag for quick human review (0-1)' },
   { key: 'confidence_floor', label: 'Confidence Floor', type: 'number', description: 'Below this, only informational notes (0-1)' },
-  { key: 'confidence_uncorroborated_cap', label: 'Uncorroborated Confidence Cap', type: 'number', description: 'Confidence ceiling when no independent telemetry (EDR/RMM/RocketCyber/known-network) corroborated the alert (0-1)' },
+  { key: 'confidence_uncorroborated_cap', label: 'Uncorroborated Confidence Cap', type: 'number', description: 'Confidence ceiling when no independent source reported its own malicious or suspicious signal about the same device, user or IOC (device existence, patch status and "0 blocked" are context, not corroboration) (0-1)' },
   { key: 'recurring_pattern_threshold', label: 'Recurring Pattern Threshold', type: 'number', description: 'Number of similar alerts (same company + source, 30 days) that flags a recurring pattern for root-cause review' },
   { key: 'correlation_window_minutes', label: 'Correlation Window (min)', type: 'number', description: 'Time window for grouping related alerts' },
   { key: 'max_ai_calls_per_run', label: 'Max AI Calls per Run', type: 'number', description: 'Maximum AI API calls per cron cycle' },

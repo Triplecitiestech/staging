@@ -1,0 +1,45 @@
+Organization: Triple Cities Tech
+Product: Microsoft
+Activity type: Admin privilege or app grant - user@example.com
+Event Description: Stage 3 IOC. Privilege assignment, service principal creation or OAuth grant performed by privileged account user@example.com at Not Available from 2001:4453:658:2800:cda5:3382:16bb:7e91. 
+
+Illicit OAuth consent is a standard route to persistent Graph access that survives a password reset.
+
+Triage: identify the application or role and confirm it was intentional. Check Entra Enterprise applications for recent consents, including tenant-wide admin consents in the last 30 days. Confirm with the account holder and with Kurtis for any role change.
+
+If unrecognised: remove the consent or role, revoke sessions, and escalate. A password reset alone does not remove an OAuth grant.
+Date/Time: 2026-09-30 12:36:52 GMT
+Status: critical
+Pull Time: 2026-09-30 12:36:52 GMT
+Ip Address: 2001:4453:658:2800:cda5:3382:16bb:7e91
+Country: Philippines
+Region: 40
+City: Sariaya
+IP Address Owner: Philippine Long Distance Telephone Company
+Type: isp
+Route: 2001:4453::/32
+IP Threat Information: 
+known abuser: false, 
+known attacker: false, 
+known anonymous: true, 
+known threat: false, 
+known bogon: false, 
+tor network: false, 
+known proxy: false
+User Name: user@example.com
+Full Name: Example User
+User Id: 00000000-0000-0000-0000-000000000000
+Partner Name: Triple Cities Tech
+Partner Domain: triplecitiestech.com
+Customer Name: Triple Cities Tech
+Device User Agent: google-api-nodejs-client/10.6.2
+Device Status Type: Incomplete Event Data
+Event ID: 20306215703773021
+
+[SaaS Alerts Analysis](https://manage.saasalerts.com/reports?x=1)
+[SaaS Alerts View IOC Trigger Details](https://manage.saasalerts.com/ioc/ioc-triggers/H4zkNqHP9jPdilL76kiU)
+IOC Trigger Id: H4zkNqHP9jPdilL76kiU
+IOC TriggeredAt: 2026-09-30 12:35:03 GMT
+IOC Id: 0ae502f4-9a5c-46aa-b659-848f9454e5e0
+IOC Name: Stage 3c — Privilege and application persistence
+IOC Status: ACTIVE

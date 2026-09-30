@@ -21,7 +21,7 @@
  * Sign-in log history additionally requires an Entra ID P1 license on the tenant.
  */
 
-import { getTenantCredentials, getAccessToken, graphRequest } from '@/lib/graph';
+import { getTenantCredentials, getAccessToken, graphRequest, tokenRoles } from '@/lib/graph';
 import type { DataSourceStatus, M365IdentityCorrelation, M365AuthMethod, M365AuditEvent, M365SignIn } from './types';
 
 const WINDOW_MS = 6 * 60 * 60 * 1000; // ±6h, consistent with the rest of SOC enrichment
@@ -103,8 +103,16 @@ export async function fetchM365Identity(params: {
   }
 
   let token: string;
+  let roles: string[] | null;
   try {
     token = await getAccessToken(creds.tenantId, creds.clientId, creds.clientSecret);
+    roles = tokenRoles(token);
+    // A cached token predates any re-consent; if it lacks a role this lookup
+    // needs, mint a fresh one before concluding the permission is missing.
+    if (roles && SOC_REQUIRED_ROLES.some(r => !roles!.includes(r))) {
+      token = await getAccessToken(creds.tenantId, creds.clientId, creds.clientSecret, { fresh: true });
+      roles = tokenRoles(token);
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return {
@@ -143,7 +151,7 @@ export async function fetchM365Identity(params: {
         targetUser: (a.targetResources || []).map(t => t.userPrincipalName).filter(Boolean)[0] || null,
       }));
   } catch (err) {
-    recordGraphGap('AuditLog.Read.All (directory audits)', err, permissionGaps);
+    recordGraphGap('AuditLog.Read.All (directory audits)', err, permissionGaps, roles, 'AuditLog.Read.All');
   }
 
   const removeThenReregister =
@@ -167,7 +175,7 @@ export async function fetchM365Identity(params: {
         conditionalAccess: s.conditionalAccessStatus || null,
       }));
     } catch (err) {
-      recordGraphGap('AuditLog.Read.All / Entra ID P1 (sign-in logs)', err, permissionGaps);
+      recordGraphGap('AuditLog.Read.All / Entra ID P1 (sign-in logs)', err, permissionGaps, roles, 'AuditLog.Read.All');
     }
   }
 
@@ -185,7 +193,7 @@ export async function fetchM365Identity(params: {
         return { type: label, detail: m.phoneNumber || m.displayName || null };
       });
     } catch (err) {
-      recordGraphGap('UserAuthenticationMethod.Read.All (registered methods)', err, permissionGaps);
+      recordGraphGap('UserAuthenticationMethod.Read.All (registered methods)', err, permissionGaps, roles, 'UserAuthenticationMethod.Read.All');
     }
   }
 
@@ -215,7 +223,7 @@ export async function fetchM365Identity(params: {
     return {
       result,
       status: { source: 'M365 Tenant', status: 'error', detail: `Tenant reachable but Graph permissions/licensing blocked the lookup: ${permissionGaps.join('; ')}.` },
-      gap: `M365 tenant connected but the following could not be read: ${permissionGaps.join('; ')}. Grant the listed permissions (and ensure Entra ID P1 for sign-in logs) in the customer's app registration, then re-run.`,
+      gap: `M365 tenant connected but the following could not be read: ${permissionGaps.join('; ')}. Each item states why, read from the access token itself; fix that cause, then re-run.`,
     };
   }
 
@@ -239,10 +247,23 @@ export async function fetchM365Identity(params: {
 }
 
 /** Classify a Graph error as a permission/license gap (recorded) vs a generic failure. */
-function recordGraphGap(scope: string, err: unknown, gaps: string[]): void {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (/\(403\)|Authorization_RequestDenied|Forbidden|insufficient privileges|tenant.*license|premium/i.test(msg)) {
-    gaps.push(scope);
+const SOC_REQUIRED_ROLES = ['AuditLog.Read.All', 'UserAuthenticationMethod.Read.All'];
+
+/**
+ * Explain WHY a Graph read was refused, from the token itself. "Grant the
+ * permission" was printed for every 403, including right after the owner had
+ * re-consented (T20260930.0005) — it could not tell a permission the app does
+ * not hold from one it holds but Microsoft still refused (e.g. sign-in logs
+ * need an Entra ID P1 licence). The token's `roles` claim settles which.
+ */
+export function recordGraphGap(scope: string, err: unknown, gaps: string[], roles: string[] | null = null, role: string | null = null): void {
+  const msg = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 200);
+  if (roles && role && !roles.includes(role)) {
+    gaps.push(`${scope} — ${role} is NOT in the access token Entra issued for this tenant (token carries: ${roles.length ? roles.join(', ') : 'no application permissions'}). Admin consent only grants what the app registration declares, and a new grant can take a few minutes to appear.`);
+  } else if (roles && role) {
+    gaps.push(`${scope} — ${role} IS granted, but Microsoft still refused: ${msg}`);
+  } else if (/\(403\)|Authorization_RequestDenied|Forbidden|insufficient privileges|tenant.*license|premium/i.test(msg)) {
+    gaps.push(`${scope} — refused by Microsoft: ${msg}`);
   } else {
     gaps.push(`${scope} — ${msg.slice(0, 120)}`);
   }

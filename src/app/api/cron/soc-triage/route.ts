@@ -12,7 +12,8 @@ import {
 } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 300, not 60: a customer update waits up to ~35 s to confirm Autotask sent the email.
+export const maxDuration = 300;
 
 /**
  * GET /api/cron/soc-triage
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
         t."ticketNumber",
         t."companyId",
         c."displayName" as "companyName",
+        c."autotaskCompanyId" as "autotaskCompanyId",
         t.title,
         t.description,
         t.status,
@@ -90,7 +92,7 @@ export async function GET(request: NextRequest) {
 
     // Run triage pipeline with circuit breaker on Anthropic API
     const result = await withCircuitBreaker(
-      () => runTriagePipeline(tickets, config, rules),
+      () => runTriagePipeline(tickets, config, rules, { trigger: 'cron' }),
       { name: 'anthropic-api', failureThreshold: 3, resetTimeoutMs: 120_000 },
     );
 

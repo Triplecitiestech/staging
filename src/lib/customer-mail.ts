@@ -251,3 +251,153 @@ export async function sendCustomerUpdateEmail(input: {
     subject: input.email.subject,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared delivery core: customer-visible note + email to the ticket's contact
+// ---------------------------------------------------------------------------
+//
+// Extracted from autotask_add_customer_note (notifyContact: true) so the SOC
+// analyzer's automatic customer update runs the SAME ordering and refusals as
+// the connector tool instead of a second implementation. The ORDER is the
+// design, unchanged:
+//
+//   1. Everything that could refuse is checked BEFORE any write — kill switch,
+//      credential, ticket, contact, address.
+//   2. The note is posted and must return an id; without one nothing is sent.
+//   3. The email is sent ONCE (Graph sendMail is not idempotent).
+//   4. An internal note records who was emailed, from where, and when. Best
+//      effort: the customer has already been emailed.
+//
+// Every side effect is a dependency, so each caller supplies its own Autotask
+// identity (the connector impersonates the signed-in technician; the SOC writes
+// as its own API user) and tests run it with nothing reaching the network.
+
+export interface CustomerNoteTicket {
+  contactID?: number | null
+  ticketNumber?: string | null
+  title?: string | null
+}
+
+export interface CustomerNoteContact {
+  id: number
+  firstName?: string | null
+  lastName?: string | null
+  isActive?: unknown
+  emailAddress?: string | null
+}
+
+export interface CustomerNoteAuditContext {
+  noteId: number
+  contactName: string | null
+  to: string
+  sent: CustomerMailSendResult
+  message: string
+}
+
+export interface CustomerNoteDeps {
+  readiness: () => ReturnType<typeof customerMailReadiness>
+  getTicket: (ticketId: number) => Promise<CustomerNoteTicket | null>
+  getContact: (contactId: number) => Promise<CustomerNoteContact | null>
+  createNote: (ticketId: number, note: { title: string; description: string; publish: number }) => Promise<unknown>
+  /** Optional read-back of the customer note; its result is passed through untouched. */
+  readBackNote?: (ticketId: number, noteId: number) => Promise<unknown>
+  sendEmail: typeof sendCustomerUpdateEmail
+  /** Body of the internal audit note. Defaults to the connector's wording. */
+  auditNoteBody?: (ctx: CustomerNoteAuditContext) => string
+}
+
+export type CustomerNotePrecheckReason =
+  | 'ticket_not_found'
+  | 'no_contact'
+  | 'contact_not_found'
+  | 'contact_inactive'
+  | 'no_email'
+
+export type CustomerNoteOutcome =
+  | { ok: false; stage: 'readiness'; failure: FailureInput }
+  | {
+      ok: false
+      stage: 'precheck'
+      reason: CustomerNotePrecheckReason
+      ticketNumber: string | null
+      contactID: number | null
+      contactName: string | null
+    }
+  | { ok: false; stage: 'note'; ticketNumber: string; noteResult: unknown }
+  | {
+      ok: false
+      stage: 'send'
+      ticketNumber: string
+      noteId: number
+      noteResult: unknown
+      readBack: unknown
+      contactName: string | null
+      to: string
+      error: unknown
+      sender: string
+    }
+  | {
+      ok: true
+      ticketNumber: string
+      noteId: number
+      noteResult: unknown
+      readBack: unknown
+      contact: { id: number; name: string | null }
+      to: string
+      sent: CustomerMailSendResult
+      auditNoteId: number | null
+      auditNoteError: string | null
+    }
+
+export function defaultAuditNoteBody(ctx: CustomerNoteAuditContext): string {
+  return `Customer update (note ${ctx.noteId}) emailed to ${ctx.contactName ?? 'the ticket contact'} <${ctx.to}> from ${ctx.sent.sender} at ${ctx.sent.acceptedAt}. Sent through the TCT connector; Microsoft 365 accepted it for delivery (HTTP ${ctx.sent.httpStatus}). Subject: ${ctx.sent.subject}`
+}
+
+export async function deliverCustomerNoteWithEmail(
+  deps: CustomerNoteDeps,
+  input: { ticketId: number; message: string; title?: string },
+): Promise<CustomerNoteOutcome> {
+  const { ticketId, message, title } = input
+
+  const readiness = deps.readiness()
+  if (!readiness.ready) return { ok: false, stage: 'readiness', failure: readiness.failure }
+
+  // The recipient comes from the ticket and nowhere else.
+  const ticket = await deps.getTicket(ticketId)
+  if (!ticket) return { ok: false, stage: 'precheck', reason: 'ticket_not_found', ticketNumber: null, contactID: null, contactName: null }
+  const ticketNumber = ticket.ticketNumber ?? String(ticketId)
+  if (!ticket.contactID) return { ok: false, stage: 'precheck', reason: 'no_contact', ticketNumber, contactID: null, contactName: null }
+  const contact = await deps.getContact(ticket.contactID)
+  if (!contact) return { ok: false, stage: 'precheck', reason: 'contact_not_found', ticketNumber, contactID: ticket.contactID, contactName: null }
+  const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || null
+  if (!contact.isActive) return { ok: false, stage: 'precheck', reason: 'contact_inactive', ticketNumber, contactID: contact.id, contactName }
+  if (!isSendableEmailAddress(contact.emailAddress)) return { ok: false, stage: 'precheck', reason: 'no_email', ticketNumber, contactID: contact.id, contactName }
+  const to = contact.emailAddress.trim()
+
+  // Note first: it is the record the email refers to.
+  const noteResult = await deps.createNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 })
+  const noteId = (noteResult as { itemId?: number } | null)?.itemId
+  if (!noteId) return { ok: false, stage: 'note', ticketNumber, noteResult }
+  const readBack = deps.readBackNote ? await deps.readBackNote(ticketId, noteId).catch(() => null) : null
+
+  const email = buildCustomerUpdateEmail({ ticketNumber, ticketTitle: ticket.title ?? null, contactFirstName: contact.firstName ?? null, message })
+  let sent: CustomerMailSendResult
+  try {
+    sent = await deps.sendEmail({ to, toName: contactName, email })
+  } catch (error) {
+    return { ok: false, stage: 'send', ticketNumber, noteId, noteResult, readBack, contactName, to, error, sender: readiness.sender }
+  }
+
+  // Audit trail inside Autotask. Best effort — the email is already gone.
+  let auditNoteId: number | null = null
+  let auditNoteError: string | null = null
+  try {
+    const body = (deps.auditNoteBody ?? defaultAuditNoteBody)({ noteId, contactName, to, sent, message })
+    const audit = await deps.createNote(ticketId, { title: 'Customer emailed', description: body, publish: 2 })
+    auditNoteId = (audit as { itemId?: number } | null)?.itemId ?? null
+  } catch (e) {
+    auditNoteError = e instanceof Error ? e.message : String(e)
+  }
+
+  return { ok: true, ticketNumber, noteId, noteResult, readBack, contact: { id: contact.id, name: contactName }, to, sent, auditNoteId, auditNoteError }
+}
