@@ -1223,6 +1223,7 @@ export interface AccountDeviceInput {
   hostname: string
   extIpAddress: string | null
   lastUser: string | null
+  description?: string | null
   lastSeen: string | null
   online: boolean | null
 }
@@ -1234,7 +1235,9 @@ export interface AccountCheckInput {
   alertTimeUtc: string | null
   devices: AccountDeviceInput[]
   privilegeEvents: Array<{ time: string; activity: string; result: string; ip: string | null; targets: string[]; details: string[] }> | null
-  signIns: Array<{ time: string; ip: string | null; location: string | null; device: string | null; status: string }> | null
+  signIns: Array<{ time: string; ip: string | null; location: string | null; device: string | null; deviceName?: string | null; status: string }> | null
+  /** Intune devices whose user is the account; null = not read. */
+  managedDevices?: Array<{ deviceName: string; operatingSystem: string | null; lastSyncDateTime: string | null; complianceState: string | null }> | null
   /** Why the M365 lookup could not run or was partial — shown, never hidden. */
   m365Gap: string | null
 }
@@ -1249,6 +1252,72 @@ export function deviceUserMatches(lastUser: string | null, userName: string | nu
   const local = userName ? userName.toLowerCase().split('@')[0] : null
   const compact = fullName ? fullName.toLowerCase().replace(/[^a-z0-9]/g, '') : null
   return (!!local && u === local) || (!!compact && u.replace(/[^a-z0-9]/g, '') === compact)
+}
+
+export interface ResolvedUserDevice {
+  hostname: string
+  /** How the device was tied to the account — every basis, each naming its source. */
+  basis: string[]
+  /** strong = an authoritative record ties them; likely = two or more name signals; possible = one name signal. */
+  strength: 'strong' | 'likely' | 'possible'
+  rmm: AccountDeviceInput | null
+}
+
+const lc = (x: string | null | undefined) => (x ?? '').trim().toLowerCase()
+
+/**
+ * Map an account to the devices it uses, from every source that can say so.
+ * One exact-name rule missed ELLYSEA (last user "ELLYSEA\\GhenelU", described
+ * "Ghenels Personal Computer") for ghenel@ — a personal, non-Entra-joined
+ * computer, the normal case for a contractor. Name signals are graded weaker
+ * than records (Intune primary user, an Entra sign-in naming the device) and
+ * each basis is shown, so a technician can judge the link rather than trust it.
+ */
+export function resolveUserDevices(a: {
+  userName: string | null
+  fullName: string | null
+  rmmDevices: AccountDeviceInput[]
+  managedDevices?: Array<{ deviceName: string; operatingSystem: string | null; lastSyncDateTime: string | null; complianceState: string | null }> | null
+  signInDeviceNames?: string[]
+}): ResolvedUserDevice[] {
+  const local = a.userName ? lc(a.userName).split('@')[0].replace(/[^a-z0-9]/g, '') : ''
+  const first = a.fullName ? lc(a.fullName).split(/\s+/)[0].replace(/[^a-z0-9]/g, '') : ''
+  const compactFull = a.fullName ? lc(a.fullName).replace(/[^a-z0-9]/g, '') : ''
+  const byHost = new Map<string, ResolvedUserDevice>()
+  const get = (hostname: string) => {
+    const k = lc(hostname)
+    let r = byHost.get(k)
+    if (!r) {
+      r = { hostname, basis: [], strength: 'possible', rmm: a.rmmDevices.find((d) => lc(d.hostname) === k) ?? null }
+      byHost.set(k, r)
+    }
+    return r
+  }
+  const strongHosts = new Set<string>()
+  for (const d of a.rmmDevices) {
+    const u = (normUser(d.lastUser) ?? '').replace(/[^a-z0-9]/g, '')
+    if (u && ((local && u === local) || (compactFull && u === compactFull))) {
+      get(d.hostname).basis.push(`Datto RMM last user "${d.lastUser}" is this account`); strongHosts.add(lc(d.hostname))
+    } else if (u && ((local.length >= 4 && u.startsWith(local)) || (first.length >= 4 && u.startsWith(first)))) {
+      get(d.hostname).basis.push(`Datto RMM last user "${d.lastUser}" begins with "${local.length >= 4 && u.startsWith(local) ? local : first}"`)
+    }
+    const desc = lc(d.description)
+    const nameRe = (n: string) => new RegExp(`(^|[^a-z])${n}`)
+    if (desc && ((first.length >= 4 && nameRe(first).test(desc)) || (compactFull && desc.replace(/[^a-z0-9]/g, '').includes(compactFull)))) {
+      get(d.hostname).basis.push(`Datto RMM description "${d.description}" names the user`)
+    }
+  }
+  for (const m of a.managedDevices ?? []) {
+    get(m.deviceName).basis.push(`Intune: this account is the device's user${m.lastSyncDateTime ? ` (last sync ${m.lastSyncDateTime.replace(/\.\d+Z$/, 'Z')})` : ''}`)
+    strongHosts.add(lc(m.deviceName))
+  }
+  for (const n of new Set((a.signInDeviceNames ?? []).filter(Boolean))) {
+    get(n).basis.push('Microsoft 365: a sign-in by this account came from this device')
+    strongHosts.add(lc(n))
+  }
+  for (const [k, r] of byHost) r.strength = strongHosts.has(k) ? 'strong' : r.basis.length >= 2 ? 'likely' : 'possible'
+  const rank = { strong: 0, likely: 1, possible: 2 }
+  return [...byHost.values()].sort((x, y) => rank[x.strength] - rank[y.strength])
 }
 
 /**
@@ -1288,21 +1357,34 @@ export function buildAccountChecks(a: AccountCheckInput): AlertFact[] {
       meaning: first ? `e.g. ${first.time.replace(/\.\d+Z$/, 'Z')} · ${first.status}${first.device ? ` · ${first.device}` : ''}${first.location ? ` · ${first.location}` : ''}` : undefined,
     })
   }
-  // 3. Datto RMM: the account's own computer(s) and their public IP.
-  const mine = a.devices.filter((d) => deviceUserMatches(d.lastUser, a.userName, a.fullName))
-  if (mine.length === 0) {
-    f.push({ label: "Account's computer (Datto RMM)", value: 'No managed device has this account as its last signed-in user', meaning: 'Cannot compare the alert IP with a device — the action may have come from an unmanaged computer or a server-side app.' })
+  // 3. The account's computer(s), from every source that ties one to it, and
+  //    each one's public IP from Datto RMM.
+  const resolved = resolveUserDevices({
+    userName: a.userName, fullName: a.fullName, rmmDevices: a.devices,
+    managedDevices: a.managedDevices ?? null,
+    signInDeviceNames: (a.signIns ?? []).map((s) => s.deviceName ?? '').filter(Boolean),
+  })
+  if (resolved.length === 0) {
+    f.push({
+      label: "Account's computer",
+      value: 'No device could be tied to this account',
+      meaning: `Checked Datto RMM last user and description${a.managedDevices ? ', Intune devices' : ' (Intune not read)'}${a.signIns ? ' and Microsoft 365 sign-in device names' : ''}. The action may have come from an unmanaged computer or a server-side app.`,
+    })
   }
-  for (const d of mine) {
+  for (const r of resolved) {
+    const d = r.rmm
     let verdict: string
-    if (!a.alertIp || !d.extIpAddress) verdict = 'cannot compare — one of the two addresses is missing'
+    if (!d) verdict = 'not in Datto RMM, so no public IP to compare'
+    else if (!a.alertIp || !d.extIpAddress) verdict = 'cannot compare — one of the two addresses is missing'
     else if (d.extIpAddress.toLowerCase() === a.alertIp.toLowerCase()) verdict = 'SAME public IP as the alert'
     else if (isV6(a.alertIp) !== isV6(d.extIpAddress)) verdict = `cannot compare — the alert IP is IPv${isV6(a.alertIp) ? '6' : '4'} and Datto RMM reports IPv${isV6(d.extIpAddress) ? '6' : '4'} for the device; a home connection commonly has both`
     else verdict = 'DIFFERENT public IP from the alert'
     f.push({
-      label: `Account's computer (Datto RMM) — ${d.hostname}`,
-      value: `public IP ${d.extIpAddress ?? 'unknown'} · last user ${d.lastUser ?? 'unknown'} · ${d.online ? 'online' : 'offline'}${d.lastSeen ? ` · last seen ${d.lastSeen}` : ''}`,
-      meaning: `${verdict}. Datto RMM reports the device's CURRENT public IP, not its IP at the time of the alert.`,
+      label: `Account's computer (${r.strength} link) — ${r.hostname}`,
+      value: d
+        ? `public IP ${d.extIpAddress ?? 'unknown'} · last user ${d.lastUser ?? 'unknown'} · ${d.online ? 'online' : 'offline'}${d.lastSeen ? ` · last seen ${d.lastSeen}` : ''}`
+        : 'not a Datto RMM-managed device',
+      meaning: `Linked by: ${r.basis.join('; ')}. IP check: ${verdict}.${d ? " Datto RMM reports the device's CURRENT public IP, not its IP at the time of the alert." : ''}`,
     })
   }
   return f
