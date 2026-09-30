@@ -42,7 +42,10 @@ import {
   extractIpv4s,
   normHost,
   normUser,
+  parseSaasAlertsBody,
   privateRange,
+  saasAlertFacts,
+  locationText,
   resolveCompanyProfile,
   signalFromThreatName,
   toIsoUtc,
@@ -221,6 +224,7 @@ export async function enrichTicket(
 
   // 10. The detection this assessment is anchored to, and every correlated event.
   const primary = primaryDetection(ticket, rocketCyber, body, sourceSystem, hostname);
+  const saasBodyForFacts = sourceSystem === 'saas_alerts' ? parseSaasAlertsBody(ticket.description || '') : null;
   const changeWindows = detectFleetChangeWindows(device.rmmAlerts, {
     siteDeviceCounts: device.siteDeviceCounts, fromUtc: changeFrom, toUtc: changeTo,
   });
@@ -260,6 +264,16 @@ export async function enrichTicket(
     m365: m365Identity,
     timezone: company.profile.timezone,
   });
+  // The SaaS Alerts body carries the vendor's own geolocation of the address;
+  // use it when no SaaS event was correlated (the common case — name-matched ids).
+  if (saasBodyForFacts) {
+    if (!signals.geo.alertLocation) {
+      const loc = locationText(saasBodyForFacts);
+      const owner = [saasBodyForFacts.ipOwner, saasBodyForFacts.ipType].filter(Boolean).join(', ');
+      if (loc) signals.geo.alertLocation = `${loc}${owner ? ` (${owner})` : ''}${saasBodyForFacts.ip ? ` — ${saasBodyForFacts.ip}` : ''}`;
+    }
+    if (!signals.geo.alertIp && saasBodyForFacts.ip && privateRange(saasBodyForFacts.ip) === null) signals.geo.alertIp = saasBodyForFacts.ip;
+  }
 
   const changeContext = detectAutotaskChangeContext(company.work, { fromUtc: changeFrom, toUtc: changeTo, excludeTicketIds: [Number(ticket.autotaskTicketId)] });
 
@@ -286,6 +300,8 @@ export async function enrichTicket(
     profile: company.profile,
     primary,
     contextSummaries,
+    alertFacts: saasBodyForFacts ? saasAlertFacts(saasBodyForFacts) : [],
+    alertTriage: saasBodyForFacts?.triage ?? null,
   };
 }
 
@@ -367,6 +383,21 @@ export function primaryDetection(
       timestampUtc: body.detectionUtc ?? body.platformTimeUtc,
       actionReported: body.threatSource ? `threat source: ${body.threatSource}` : null,
       executionStatus: body.executionStatus,
+    };
+  }
+  const saasBody = sourceSystem === 'saas_alerts' ? parseSaasAlertsBody(bodyText) : null;
+  if (saasBody) {
+    return {
+      retrieved: true,
+      recordSource: 'SaaS Alerts alert (ticket body)',
+      incidentId: saasBody.eventId,
+      threatName: saasBody.iocName ?? saasBody.activityType,
+      signal: 'suspicious',
+      deviceHostname: hostname,
+      user: saasBody.userName ?? `${ticket.title}\n${bodyText}`.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0] ?? null,
+      timestampUtc: saasBody.iocTriggeredAtUtc ?? saasBody.eventTimeUtc ?? toIsoUtc(ticket.createDate),
+      actionReported: saasBody.activityType,
+      executionStatus: null,
     };
   }
   if (sourceSystem === 'saas_alerts' || sourceSystem === 'datto_edr') {

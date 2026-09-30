@@ -675,7 +675,17 @@ async function assessGroup(
         ? `FAILED — ${notify.reason} See the "SOC — Customer update FAILED" note.`
         : `NOT SENT — ${notify.reason} See the "SOC — Customer update NOT sent" note.`;
 
-  const actions = technicianActions(cls, primaryDet, { coManaged: profile.coManaged, hasTctChange: windows.length > 0, notConnected });
+  const facts = enrichment.alertFacts ?? [];
+  const needsAuditLog = facts.some(f => f.label === 'SaaS Alerts data quality' && /incomplete/i.test(f.value))
+    || /privilege|app grant|oauth|consent|service principal|role/i.test(primaryDet.actionReported ?? '');
+  const m365Readable = visibility.some(v => v.source === 'M365' && v.state === 'connected');
+  const actions = technicianActions(cls, primaryDet, {
+    coManaged: profile.coManaged, hasTctChange: windows.length > 0, notConnected,
+    hasRuleTriage: !!enrichment.alertTriage,
+    auditLogNeeded: primaryDet.recordSource.startsWith('SaaS Alerts') && needsAuditLog
+      ? { user: primaryDet.user, atUtc: primaryDet.timestampUtc, tenantReadable: m365Readable }
+      : null,
+  });
   const tenantRootCause = signals?.recurrence?.recurringPattern ? defaultTenantRootCause(signals) : null;
   const internalNote = buildAssessmentNote({
     ticketNumber: primary.ticketNumber,
@@ -698,6 +708,8 @@ async function assessGroup(
     technicianActions: actions,
     customerUpdate: { status: customerStatus, message: customerMessage },
     generatedAtUtc: now.toISOString(),
+    alertFacts: enrichment.alertFacts ?? [],
+    alertTriage: enrichment.alertTriage ?? null,
   });
 
   const finalVerdict = classificationToVerdict(cls.classification);

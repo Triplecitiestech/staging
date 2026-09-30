@@ -17,6 +17,8 @@
  *   - the IT lead's address in the fixture is an .invalid placeholder.
  */
 
+import { readFileSync } from 'fs'
+import { join as joinPath } from 'path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fixtureJson from './__fixtures__/wilmar-t20260927.json'
 
@@ -614,5 +616,42 @@ describe('Other-device detections and built-in accounts (T20260924.0023: 805 att
     expect(out.map((e) => e.deviceHostname)).toContain('DOG-002')
     const line = summarizeOtherDeviceDetections({ primary, rocketCyber: rc as never, alertDevice: 'DOG-006', clientHostnames: ['DOG-006', 'DOG-002', 'DOGB-001'], changeWindows })!
     expect(line).toMatch(/2 detections on 1 other device\b/)
+  })
+})
+
+describe('SaaS Alerts alert → primary detection and note (T20260930.0005)', () => {
+  const body = readFileSync(joinPath(__dirname, '__fixtures__/saas-alerts-stage3c-body.txt'), 'utf8')
+
+  it('the primary detection carries the rule, the activity, the account and the rule-fired time', async () => {
+    const { primaryDetection, parseRocketCyberBody } = await import('./enrichment')
+    const p = primaryDetection({ title: 'user@example.com/IOC: Stage 3c', description: body, createDate: '2026-09-30T12:36:55.193Z' } as never, null, parseRocketCyberBody(body), 'saas_alerts', null)
+    expect(p.threatName).toBe('Stage 3c — Privilege and application persistence')
+    expect(p.actionReported).toBe('Admin privilege or app grant - user@example.com')
+    expect(p.user).toBe('user@example.com')
+    expect(p.timestampUtc).toBe('2026-09-30T12:35:03Z')
+    expect(p.incidentId).toBe('20306215703773021')
+  })
+
+  it('the note opens with WHAT THE ALERT SAYS and tells the technician to read the audit log for the app/role', async () => {
+    const { buildAssessmentNote, parseSaasAlertsBody, saasAlertFacts, technicianActions } = await import('./evidence')
+    const b = parseSaasAlertsBody(body)!
+    const primary = { retrieved: true, recordSource: 'SaaS Alerts alert (ticket body)', incidentId: b.eventId, threatName: b.iocName, signal: 'suspicious' as const, deviceHostname: null, user: b.userName, timestampUtc: b.iocTriggeredAtUtc, actionReported: b.activityType, executionStatus: null }
+    const result = { classification: 'suspicious_review', confidence: 0.5, riskLevel: 'medium', rationale: ['x'] } as never
+    const actions = technicianActions(result, primary, { coManaged: false, hasTctChange: false, notConnected: [], hasRuleTriage: true, auditLogNeeded: { user: b.userName, atUtc: b.iocTriggeredAtUtc, tenantReadable: false } })
+    expect(actions[0]).toMatch(/^Read the Microsoft Entra audit log for user@example\.com around 2026-09-30T12:35:03Z \(UTC\) to name the application, consent or role/)
+    expect(actions[0]).toMatch(/could not read that log itself/)
+    expect(actions[1]).toMatch(/alert rule's own triage steps/)
+    const note = buildAssessmentNote({
+      ticketNumber: 'T1', autotaskTicketId: '1', twinTickets: [], result, primary, visibility: [], events: [], changeWindows: [], changeContext: [], ips: [], dataGaps: [],
+      profile: { coManaged: false, coManagedBasis: 'x', timezone: 'America/New_York', timezoneBasis: 'x' } as never,
+      narrative: null, narrativeRemoved: [], technicianActions: actions, customerUpdate: { status: 'x', message: null }, generatedAtUtc: '2026-09-30T14:00:00.000Z',
+      alertFacts: saasAlertFacts(b), alertTriage: b.triage,
+    })
+    const i = note.indexOf('WHAT THE ALERT SAYS')
+    expect(i).toBeGreaterThan(0)
+    expect(i).toBeLessThan(note.indexOf('VISIBILITY FOR THIS CLIENT'))
+    expect(note).toMatch(/- What happened: Admin privilege or app grant - user@example\.com/)
+    expect(note).toMatch(/- Client: google-api-nodejs-client\/10\.6\.2\n  → Not a web browser/)
+    expect(note).toMatch(/Check Entra Enterprise applications for recent consents/)
   })
 })
