@@ -58,9 +58,13 @@ const tokenCache = new Map<string, TokenEntry>()
 export async function getAccessToken(
   tenantId: string,
   clientId: string,
-  clientSecret: string
+  clientSecret: string,
+  opts?: { fresh?: boolean }
 ): Promise<string> {
-  const cached = tokenCache.get(tenantId)
+  // fresh: bypass the cache. A token's application permissions are fixed when
+  // it is issued, so a token cached before an admin re-consent does not carry
+  // the newly granted roles for up to ~55 minutes.
+  const cached = opts?.fresh ? undefined : tokenCache.get(tenantId)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.accessToken
   }
@@ -812,5 +816,22 @@ export function createGraphClient(creds: TenantCredentials) {
         prepaidUnits: match.prepaidUnits,
       }
     },
+  }
+}
+
+
+/**
+ * The application permissions (`roles` claim) inside an app-only Graph access
+ * token. Read, not verified — the token came straight from Entra and this is
+ * used only to explain a refusal. null when the token cannot be decoded.
+ */
+export function tokenRoles(accessToken: string): string[] | null {
+  try {
+    const part = accessToken.split('.')[1]
+    if (!part) return null
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as { roles?: unknown }
+    return Array.isArray(json.roles) ? json.roles.filter((r): r is string => typeof r === 'string') : []
+  } catch {
+    return null
   }
 }
