@@ -712,7 +712,7 @@ export async function syncTicketNotes(timeBudgetMs: number = 45000): Promise<Not
               noteType: note.noteType ?? null,
               publish: note.publish ?? null,
               creatorResourceId: note.creatorResourceID ?? null,
-              creatorContactId: note.creatorContactID ?? null,
+              creatorContactId: note.createdByContactID ?? null,
               createDateTime: new Date(note.createDateTime || note.lastActivityDate || new Date()),
             };
 

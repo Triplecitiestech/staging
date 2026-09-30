@@ -28,16 +28,29 @@
  * (pending-actions.test.ts) without a pg pool.
  *
  * READ-ONLY BY CONSTRUCTION: nothing here writes, cancels, or reschedules
- * anything. It describes state. Acting on a finding is a human task.
+ * anything. It describes state. Acting on a finding is a human task; the one
+ * verb that exists — marking a stuck request resolved manually — is gated by
+ * resolveManuallyEligibility() and performed by
+ * /api/admin/hr/pending-actions/resolve, never from here.
  */
 
+/**
+ * A stuck request that a technician closed out by hand in the tenant, recorded
+ * through /admin/hr/pending. Terminal: the platform never re-runs it, and it is
+ * deliberately NOT 'completed' — the deletion cron selects status = 'completed',
+ * and a manual close-out must never be able to arm an automated deletion.
+ */
+export const RESOLVED_MANUALLY_STATUS = 'resolved_manually'
+
 /** Statuses that mean the request is finished and needs no attention. */
-export const TERMINAL_STATUSES: readonly string[] = ['completed', 'failed']
+export const TERMINAL_STATUSES: readonly string[] = ['completed', 'failed', RESOLVED_MANUALLY_STATUS]
 
 /**
  * The statuses the application code actually writes to hr_requests.status.
  * Kept here so a value the code can emit but the database rejects is
- * reportable rather than mysterious.
+ * reportable rather than mysterious. The hr_requests_status_check constraint
+ * in /api/migrations/run is built from THIS list — add a status here and the
+ * next migration run permits it.
  */
 export const KNOWN_STATUSES: readonly string[] = [
   'pending',
@@ -45,6 +58,7 @@ export const KNOWN_STATUSES: readonly string[] = [
   'scheduled',
   'completed',
   'failed',
+  RESOLVED_MANUALLY_STATUS,
 ]
 
 export type PendingSeverity = 'critical' | 'warning' | 'info'
@@ -114,6 +128,13 @@ export interface PendingAction {
   finding: string
   /** What a human should check, in plain language. No UI click paths. */
   consequence: string
+  /**
+   * Whether a technician may mark this request resolved manually. Present only
+   * when the report was built with a clock (see buildPendingActionsReport).
+   */
+  resolvable?: boolean
+  /** Why it may not be marked resolved, when resolvable is false. */
+  resolveBlockedReason?: string | null
 }
 
 const SEVERITY_ORDER: Record<PendingSeverity, number> = {
@@ -331,6 +352,64 @@ export function classifyRequest(row: HrRequestRow, today: string): PendingAction
   }
 }
 
+/**
+ * How long a stuck row must sit untouched before it may be marked resolved
+ * manually. /api/hr/process has a 300 s maxDuration, so a row updated within
+ * the last hour may be mid-flight — and closing out a request the pipeline is
+ * still working would record a manual resolution over automated work.
+ */
+export const RESOLVE_MANUALLY_MIN_AGE_MS = 60 * 60 * 1000
+
+export type ResolveManuallyEligibility =
+  | { eligible: true }
+  | { eligible: false; reason: string }
+
+/**
+ * May this row be marked resolved manually?
+ *
+ * Bookkeeping only — marking a row resolved changes nothing in Microsoft 365
+ * or Autotask. So the guard exists to stop the record from lying, not to stop
+ * an action: only rows that are genuinely stuck (pending or running), old
+ * enough not to be in flight, and carrying no armed deletion qualify. An armed
+ * deletion is refused because resolving the row would not disarm it, and a
+ * resolved-looking row with a live deletion is exactly the state that deleted
+ * a reinstated user on 2026-09-03.
+ */
+export function resolveManuallyEligibility(
+  row: Pick<HrRequestRow, 'status' | 'scheduled_deletion_date' | 'updated_at' | 'started_at' | 'created_at'>,
+  now: Date
+): ResolveManuallyEligibility {
+  if (row.scheduled_deletion_date) {
+    return {
+      eligible: false,
+      reason:
+        'An account deletion is armed on this request. Marking it resolved would not ' +
+        'disarm the deletion, so it is refused — the deletion needs its own decision.',
+    }
+  }
+  const status = (row.status ?? '').trim()
+  if (status !== 'pending' && status !== 'running') {
+    return {
+      eligible: false,
+      reason: `Status "${status || '(empty)'}" is not stuck. Only pending or running requests can be marked resolved manually.`,
+    }
+  }
+  const lastTouched = Date.parse(row.updated_at ?? row.started_at ?? row.created_at)
+  if (!Number.isFinite(lastTouched)) {
+    return {
+      eligible: false,
+      reason: 'The request has no readable timestamp, so it cannot be ruled out as still processing.',
+    }
+  }
+  if (now.getTime() - lastTouched < RESOLVE_MANUALLY_MIN_AGE_MS) {
+    return {
+      eligible: false,
+      reason: 'Updated less than an hour ago — it may still be processing. Try again later.',
+    }
+  }
+  return { eligible: true }
+}
+
 export interface PendingActionsSummary {
   pendingDeletions: number
   /** Pending deletions due within 7 days. */
@@ -360,12 +439,20 @@ export interface PendingActionsReport {
  */
 export function buildPendingActionsReport(
   rows: HrRequestRow[],
-  today: string
+  today: string,
+  /** When given, each action carries resolvable / resolveBlockedReason. */
+  now?: Date
 ): PendingActionsReport {
   const actions: PendingAction[] = []
   for (const row of rows) {
     const action = classifyRequest(row, today)
-    if (action) actions.push(action)
+    if (!action) continue
+    if (now) {
+      const eligibility = resolveManuallyEligibility(row, now)
+      action.resolvable = eligibility.eligible
+      action.resolveBlockedReason = eligibility.eligible ? null : eligibility.reason
+    }
+    actions.push(action)
   }
 
   actions.sort((a, b) => {

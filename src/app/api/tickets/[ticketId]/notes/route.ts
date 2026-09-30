@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getPortalSession } from '@/lib/portal-session';
-import { prisma } from '@/lib/prisma';
-import { getStaffTicketNotes, getCustomerTicketNotes } from '@/lib/tickets/adapters';
+import { getStaffTicketNotes, getCustomerTicketNotes, PortalTicketAccessError } from '@/lib/tickets/adapters';
 import { DEFAULT_STAFF_VISIBILITY } from '@/types/tickets';
 import type { TicketPerspective, NoteVisibilityFilters } from '@/types/tickets';
 
@@ -73,16 +72,17 @@ async function handleCustomerNotes(request: NextRequest, ticketId: string) {
     return NextResponse.json({ notes: demoTimeline, ticketId });
   }
 
-  // Verify ticket belongs to this company (security check)
-  const company = await prisma.company.findUnique({
-    where: { slug: companySlug.toLowerCase().trim() },
-    select: { autotaskCompanyId: true },
-  });
-
-  if (!company?.autotaskCompanyId) {
-    return NextResponse.json({ notes: [], ticketId });
+  // Ownership is enforced inside getCustomerTicketNotes: the ticket must belong
+  // to this company, and a non-manager must be its contact. Before that check
+  // this route read any ticket id it was handed.
+  try {
+    const result = await getCustomerTicketNotes(ticketId, session);
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof PortalTicketAccessError) {
+      if (err.reason === 'not_linked') return NextResponse.json({ notes: [], ticketId });
+      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+    }
+    throw err;
   }
-
-  const result = await getCustomerTicketNotes(ticketId);
-  return NextResponse.json(result);
 }

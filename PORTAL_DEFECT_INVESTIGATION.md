@@ -1,5 +1,7 @@
 # Portal Defect Investigation — read-only root-cause pass
 
+> **Status (2026-09-27): fixes shipped** on branch `claude/brave-ride-eqhjhl` — see the `2026-09-27` entry in `CLAUDE.md` §D and `docs/gotchas.md` → Customer Portal Architecture / HR Onboarding/Offboarding. Two findings beyond this document were fixed alongside: (a) the customer notes, timeline and reply routes accepted any ticket id, including other companies' tickets; (b) Autotask's own workflow-rule notes also carry `publish` 1, so the visibility fix had to filter by note type as well. The blast-radius counts this document could not determine were settled on 2026-09-13 from `/admin/hr/pending`: 15 rows examined — 11 stuck at `running`, 3 never started, 1 armed deletion. The body below is the original point-in-time investigation and is left as written.
+
 **Investigated:** 2026-09-13 · **Repo state:** `claude/brave-ride-eqhjhl` @ `439baf5` (identical to `main` + 2 unrelated commits) · **Scope:** read-only. No application code, schema, data or Autotask record was modified. The only file added is this one.
 
 **Both defects have a root cause backed by file and line.** They share nothing: defect 1 is a wrong constant in the ticket read path, defect 2 is a production CHECK constraint that omits a value the application writes.

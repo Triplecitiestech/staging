@@ -16,7 +16,19 @@ import type {
   NotePublishType,
 } from '@/types/tickets';
 import { NOTE_PUBLISH } from '@/types/tickets';
-import { isResolvedStatus, PRIORITY_LABELS, getAutotaskWebUrl, isWaitingCustomerStatus, getTicketStatusPicklist, resolveCustomerStatusLabel } from './utils';
+import { classifyPublishVisibility } from '@/lib/autotask-activity';
+import {
+  isResolvedStatus,
+  PRIORITY_LABELS,
+  getAutotaskWebUrl,
+  isWaitingCustomerStatus,
+  getTicketStatusPicklist,
+  resolveCustomerStatusLabel,
+  CUSTOMER_CORRESPONDENCE_NOTE_TYPES,
+  isCustomerVisibleTicketNote,
+  resolveCustomerNoteAuthor,
+  portalMayAccessTicket,
+} from './utils';
 
 // ============================================
 // STAFF ADAPTER (Local DB → Unified Types)
@@ -243,14 +255,18 @@ export async function getStaffTicketNotes(
   // Build where clause based on visibility
   const vis = visibility || { showExternal: true, showInternal: true, showSystem: false };
 
-  // Build publish filter. Notes with null publish are treated as internal.
+  // Build publish filter. External = the customer-visible value (publish 1).
+  // Internal = EVERYTHING else — 2, 4, null and any id nobody recognises — so
+  // no note is unreachable in every toggle state. The old filter listed 1 and 2
+  // as internal and 3 as external, which left publish 4 ("Internal &
+  // Co-Managed") matched by neither branch and invisible to staff.
   const publishConditions: Array<Record<string, unknown>> = [];
   if (vis.showExternal) {
-    publishConditions.push({ publish: NOTE_PUBLISH.CUSTOMER_PORTAL });
+    publishConditions.push({ publish: NOTE_PUBLISH.CUSTOMER_VISIBLE });
   }
   if (vis.showInternal) {
-    publishConditions.push({ publish: { in: [NOTE_PUBLISH.ALL_AUTOTASK_USERS, NOTE_PUBLISH.INTERNAL_ONLY] } });
-    // Include notes with null publish (system-generated, default to internal)
+    publishConditions.push({ publish: { not: NOTE_PUBLISH.CUSTOMER_VISIBLE } });
+    // SQL `<> 1` never matches NULL, so null publish needs its own branch.
     publishConditions.push({ publish: null });
   }
   if (vis.showSystem) {
@@ -317,7 +333,7 @@ export async function getStaffTicketNotes(
     // If system notes are toggled off, skip
     if (isSystem && !vis.showSystem) continue;
 
-    const isExternal = n.publish === NOTE_PUBLISH.CUSTOMER_PORTAL;
+    const isExternal = classifyPublishVisibility(n.publish, null).scope === 'customer_visible';
 
     unified.push({
       id: `note-${n.autotaskNoteId}`,
@@ -478,24 +494,131 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
 }
 
 /**
- * Fetch notes + time entries from Autotask API live for customer view.
- * Only returns external notes (publish=3), no system notes.
+ * Why a portal ticket request was refused. `not_linked` = the company has no
+ * Autotask id (nothing to show, not an attack); `denied` = the ticket does not
+ * exist or is not this user's to see. The two denial causes are deliberately
+ * one value so a response cannot confirm that another company's ticket exists.
  */
-export async function getCustomerTicketNotes(ticketId: string): Promise<TicketNotesResponse> {
+export class PortalTicketAccessError extends Error {
+  constructor(public readonly reason: 'not_linked' | 'denied') {
+    super(reason === 'not_linked' ? 'Company not linked to Autotask' : 'Ticket not found');
+    this.name = 'PortalTicketAccessError';
+  }
+}
+
+interface PortalSessionIdentity {
+  companySlug: string;
+  email: string;
+  isManager: boolean;
+}
+
+/**
+ * Resolve the signed-in portal user to Autotask ids and confirm they may open
+ * `atTicketId` (portalMayAccessTicket). Throws PortalTicketAccessError on
+ * refusal. Returns the user's Autotask contact id so a reply can be
+ * attributed to them — resolved with the same query the ticket list uses
+ * (case-insensitive email, active contacts only).
+ */
+export async function resolvePortalTicketAccess(
+  atTicketId: number,
+  session: PortalSessionIdentity,
+): Promise<{ autotaskContactId: number | null }> {
+  const slug = session.companySlug.toLowerCase().trim();
+  const company = await prisma.company.findUnique({
+    where: { slug },
+    select: { id: true, autotaskCompanyId: true },
+  });
+  const atCompanyId = company?.autotaskCompanyId ? parseInt(company.autotaskCompanyId, 10) : NaN;
+  if (!company || isNaN(atCompanyId)) throw new PortalTicketAccessError('not_linked');
+
+  let autotaskContactId: number | null = null;
+  if (session.email) {
+    const contact = await prisma.companyContact.findFirst({
+      where: {
+        companyId: company.id,
+        email: { equals: session.email, mode: 'insensitive' },
+        isActive: true,
+      },
+      select: { autotaskContactId: true },
+    });
+    const parsed = contact?.autotaskContactId ? parseInt(contact.autotaskContactId, 10) : NaN;
+    autotaskContactId = isNaN(parsed) ? null : parsed;
+  }
+
+  const { AutotaskClient } = await import('@/lib/autotask');
+  const ticket = await new AutotaskClient().getTicket(atTicketId);
+  if (!ticket || !portalMayAccessTicket(ticket, {
+    autotaskCompanyId: atCompanyId,
+    isManager: session.isManager,
+    autotaskContactId,
+  })) {
+    throw new PortalTicketAccessError('denied');
+  }
+
+  return { autotaskContactId };
+}
+
+/**
+ * The live ids of the correspondence note types (CUSTOMER_CORRESPONDENCE_NOTE_TYPES),
+ * resolved by LABEL against this instance's TicketNotes.noteType picklist.
+ *
+ * Sequential on purpose: the first lookup fills the shared picklist cache and
+ * the rest are cache hits, where Promise.all would fire one network read per
+ * label on a cold instance. A lookup that fails falls back to the verified id
+ * and says so — the portal must still render, and a silent fallback is how a
+ * wrong picklist id stays wrong.
+ */
+async function getCorrespondenceNoteTypeIds(): Promise<Set<number>> {
+  const { resolvePicklistId } = await import('@/lib/connector/autotask-picklists');
+  const ids = new Set<number>();
+  const warnings: string[] = [];
+  for (const [i, t] of CUSTOMER_CORRESPONDENCE_NOTE_TYPES.entries()) {
+    const r = await resolvePicklistId('TicketNotes', 'noteType', t.label, t.fallbackId);
+    ids.add(r.id);
+    if (r.resolvedFrom === 'fallback' && r.warning) warnings.push(r.warning);
+    // A failed READ (no options at all) is not cached, so every remaining label
+    // would retry it — each with the client's own retries — and stall the
+    // ticket view during an Autotask blip. One failure is enough to know.
+    if (r.resolvedFrom === 'fallback' && r.options.length === 0) {
+      for (const rest of CUSTOMER_CORRESPONDENCE_NOTE_TYPES.slice(i + 1)) ids.add(rest.fallbackId);
+      break;
+    }
+  }
+  if (warnings.length > 0) {
+    console.warn(`[getCustomerTicketNotes] noteType resolved from fallback ids: ${warnings.join(' | ')}`);
+  }
+  return ids;
+}
+
+/**
+ * Fetch notes + time entries from Autotask API live for customer view.
+ * Returns only customer-visible correspondence — see isCustomerVisibleTicketNote.
+ */
+export async function getCustomerTicketNotes(
+  ticketId: string,
+  session: PortalSessionIdentity,
+): Promise<TicketNotesResponse> {
   const atTicketId = parseInt(ticketId, 10);
-  if (isNaN(atTicketId)) return { notes: [], ticketId };
+  if (isNaN(atTicketId)) throw new PortalTicketAccessError('denied');
+
+  // Ownership BEFORE any note is read. Throws PortalTicketAccessError.
+  await resolvePortalTicketAccess(atTicketId, session);
 
   const { AutotaskClient } = await import('@/lib/autotask');
   const client = new AutotaskClient();
 
-  const [notes, timeEntries] = await Promise.all([
+  const [notes, timeEntries, correspondenceNoteTypeIds] = await Promise.all([
     client.getTicketNotes(atTicketId),
     client.getTicketTimeEntries(atTicketId),
+    getCorrespondenceNoteTypeIds(),
   ]);
+
+  // Filter first, so author lookups are only paid for notes the customer sees.
+  const visibleNotes = notes.filter(n => isCustomerVisibleTicketNote(n, correspondenceNoteTypeIds));
 
   // Build resource cache for author names
   const resourceIds = new Set<number>();
-  notes.forEach(n => {
+  visibleNotes.forEach(n => {
     if (n.creatorResourceID) resourceIds.add(n.creatorResourceID);
   });
   timeEntries.forEach(te => {
@@ -516,25 +639,21 @@ export async function getCustomerTicketNotes(ticketId: string): Promise<TicketNo
 
   const unified: UnifiedTicketNote[] = [];
 
-  // Only customer-portal-published notes (publish=3)
-  for (const note of notes) {
-    if (note.publish !== NOTE_PUBLISH.CUSTOMER_PORTAL) continue;
-    // Skip system notes (no human creator)
-    if (!note.creatorResourceID && !note.creatorContactID) continue;
-
-    const isCustomerNote = !!note.creatorContactID && !note.creatorResourceID;
+  for (const note of visibleNotes) {
+    const { author, authorType } = resolveCustomerNoteAuthor(
+      note,
+      note.creatorResourceID ? resourceMap.get(note.creatorResourceID) : undefined,
+    );
 
     unified.push({
       id: `note-${note.id}`,
       type: 'note',
       timestamp: note.createDateTime || note.lastActivityDate || '',
-      author: note.creatorResourceID
-        ? resourceMap.get(note.creatorResourceID) || 'Triple Cities Tech'
-        : 'Customer',
-      authorType: isCustomerNote ? 'customer' : 'technician',
+      author,
+      authorType,
       content: note.description || note.title || '',
       title: note.title || null,
-      publishType: NOTE_PUBLISH.CUSTOMER_PORTAL,
+      publishType: NOTE_PUBLISH.CUSTOMER_VISIBLE,
       hoursWorked: null,
       isInternal: false,
     });

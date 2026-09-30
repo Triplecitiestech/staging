@@ -16,6 +16,7 @@ import {
   DELETE_AFTER_HOLD_VALUES,
 } from '@/lib/hr/offboarding-actions'
 import { checkExchangeAutomationAvailability, dispatchExchangeJob } from '@/lib/exchange-online'
+import { RESOLVED_MANUALLY_STATUS } from '@/lib/hr/pending-actions'
 
 // Pax8 license procurement can poll for up to 5 minutes
 export const maxDuration = 300
@@ -725,6 +726,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             'If no run is actually in flight, this request is stuck and will never ' +
             'execute on its own. Review it at /admin/hr/pending.',
         },
+        { status: 409 }
+      )
+    }
+    // A technician closed this out by hand (/admin/hr/pending). Re-running the
+    // pipeline would provision or offboard the person a second time.
+    if (hrRequest.status === RESOLVED_MANUALLY_STATUS) {
+      return NextResponse.json(
+        { error: 'Request was resolved manually and will not be re-run.', requestId: hrRequest.id },
         { status: 409 }
       )
     }

@@ -2,6 +2,8 @@
  * Shared ticket display utilities.
  */
 
+import { classifyPublishVisibility } from '@/lib/autotask-activity';
+
 /** Format minutes into a human-readable duration string. */
 export function formatMinutes(minutes: number): string {
   if (minutes < 60) return `${Math.round(minutes)}m`;
@@ -221,4 +223,142 @@ export function resolveCustomerStatusLabel(
  */
 export function getStatusBadgeColor(statusLabel: string): string {
   return CUSTOMER_STATUS_COLORS[statusLabel as CustomerStatusLabel] || CUSTOMER_STATUS_COLORS['Open'];
+}
+
+// ============================================
+// Customer-visible ticket notes
+// ============================================
+
+/**
+ * TicketNotes.noteType values that are CORRESPONDENCE — a person writing to or
+ * about the customer — as opposed to Autotask system output.
+ *
+ * Why a note-type test exists at all: publish alone is not enough. Autotask
+ * stamps its own workflow-rule firings, merge/absorb records, surveys and RMM
+ * notes with publish 1 ("All Autotask Users", the customer-visible value) too,
+ * and those bodies carry staff email addresses, SLA-breach warnings and
+ * internal nag text ("Workflow Rule 'SLA Event: Breached' fired … to
+ * ben@…; ghenel@…"). Before this list existed, a publish === 3 filter hid them
+ * only by accident, because it hid everything.
+ *
+ * This is an ALLOWLIST so it fails closed: a note type Autotask adds later
+ * stays hidden from customers until someone decides it is correspondence.
+ *
+ * Labels are the authority and are resolved against the live picklist at
+ * runtime (see getCorrespondenceNoteTypeIds in adapters.ts); the ids are the
+ * fallback used only if that lookup fails, and were read from this instance's
+ * TicketNotes.noteType picklist on 2026-09-13. Deliberately excluded: 13
+ * Workflow Rule Note - Task, 91 Workflow Rule Action Note, 92 Forward/Modify
+ * Note, 93 Merged Into Ticket, 94 Absorbed Another Ticket, 95 Copied to
+ * Project, 15 Duplicate Ticket Note, 16 Outsource Workflow Note, 17 Surveys,
+ * 99 RMM Note, 100 BDR Note.
+ */
+export const CUSTOMER_CORRESPONDENCE_NOTE_TYPES: ReadonlyArray<{ label: string; fallbackId: number }> = [
+  { label: 'Task Summary', fallbackId: 1 },
+  { label: 'Task Detail', fallbackId: 2 },
+  { label: 'Task Notes', fallbackId: 3 },
+  { label: 'Client Portal Note', fallbackId: 18 },
+  { label: 'Taskfire Note', fallbackId: 19 },
+  { label: 'Email Note', fallbackId: 101 },
+];
+
+/** The fields the customer-visibility decision reads from an Autotask TicketNote. */
+export interface CustomerNoteCandidate {
+  publish?: number | null;
+  noteType?: number | null;
+  creatorResourceID?: number | null;
+  createdByContactID?: number | null;
+  title?: string | null;
+}
+
+/**
+ * Should the customer portal show this ticket note?
+ *
+ * All three must hold: the publish value classifies as customer-visible (via
+ * the shared classifier, never a bare number compare), the note type is
+ * correspondence, and a person — a resource or a contact — authored it.
+ * Anything unrecognised is hidden: a note wrongly shown to a customer is worse
+ * than one wrongly hidden from them.
+ */
+export function isCustomerVisibleTicketNote(
+  note: CustomerNoteCandidate,
+  correspondenceNoteTypeIds: ReadonlySet<number>,
+): boolean {
+  if (classifyPublishVisibility(note.publish, null).scope !== 'customer_visible') return false;
+  if (note.noteType == null || !correspondenceNoteTypeIds.has(note.noteType)) return false;
+  if (!note.creatorResourceID && !note.createdByContactID) return false;
+  return true;
+}
+
+const CUSTOMER_REPLY_TITLE_PREFIX = 'Customer Reply from ';
+
+/** Title the portal gives a reply it posts on the customer's behalf. */
+export function customerReplyTitle(customerName: string): string {
+  return `${CUSTOMER_REPLY_TITLE_PREFIX}${customerName}`;
+}
+
+/**
+ * The customer name from a portal reply's title, or null if the title is not
+ * one the portal wrote.
+ *
+ * Needed because Autotask stamps the read-only creatorResourceID with the API
+ * user on every note the portal creates, so a reply posted before contact
+ * attribution was fixed reads as authored by the "TCT Customer Portal"
+ * resource. The title is written only by /api/customer/tickets/reply.
+ */
+export function parseCustomerReplyAuthor(title: string | null | undefined): string | null {
+  if (!title || !title.startsWith(CUSTOMER_REPLY_TITLE_PREFIX)) return null;
+  const name = title.slice(CUSTOMER_REPLY_TITLE_PREFIX.length).trim();
+  return name || null;
+}
+
+/**
+ * Who a customer-visible note is from, as the customer should see it.
+ *
+ * A contact id wins over a resource id: when the portal posts a reply with
+ * createdByContactID, Autotask may still stamp creatorResourceID with the API
+ * user, and that reply is the customer's.
+ */
+export function resolveCustomerNoteAuthor(
+  note: CustomerNoteCandidate,
+  resourceName: string | undefined,
+): { author: string; authorType: 'customer' | 'technician' } {
+  const replyAuthor = parseCustomerReplyAuthor(note.title);
+  if (note.createdByContactID) {
+    return { author: replyAuthor ?? 'Customer', authorType: 'customer' };
+  }
+  if (replyAuthor) {
+    return { author: replyAuthor, authorType: 'customer' };
+  }
+  return { author: resourceName || 'Triple Cities Tech', authorType: 'technician' };
+}
+
+// ============================================
+// Portal ticket access
+// ============================================
+
+/** What the portal knows about the signed-in customer, resolved to Autotask ids. */
+export interface PortalTicketAccess {
+  autotaskCompanyId: number;
+  isManager: boolean;
+  /** Null when the signed-in email has no linked Autotask contact. */
+  autotaskContactId: number | null;
+}
+
+/**
+ * May this portal user open this ticket?
+ *
+ * The same rule the ticket LIST applies (getCustomerTicketList): the ticket
+ * must belong to the user's company, and a non-manager sees only tickets they
+ * are the contact on. Before this check existed the notes and reply endpoints
+ * took any ticket id, so the list's restriction could be bypassed by typing a
+ * ticket number — across companies, not only within one.
+ */
+export function portalMayAccessTicket(
+  ticket: { companyID?: number | null; contactID?: number | null },
+  access: PortalTicketAccess,
+): boolean {
+  if (ticket.companyID == null || ticket.companyID !== access.autotaskCompanyId) return false;
+  if (access.isManager) return true;
+  return access.autotaskContactId != null && ticket.contactID === access.autotaskContactId;
 }
