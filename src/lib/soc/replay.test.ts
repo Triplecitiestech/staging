@@ -261,8 +261,8 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
   it('geolocation uses the PUBLIC office address, never the device\'s 192.168.x LAN address (T20260924.0023)', async () => {
     const { result } = await replay(['36101'])
     const geo = result!.enrichment!.signals!.geo
-    expect(geo.alertIp).not.toBe('192.168.0.136')
-    if (geo.alertIp) expect(geo.alertIp).not.toMatch(/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/)
+    expect(geo.alertIp).toBe('4.39.23.157')
+    expect(geo.baseline).toBe('matched_known_network')
   })
 
   it('other devices\' detections outside a TCT change window are ONE summary line, not itemised events', async () => {

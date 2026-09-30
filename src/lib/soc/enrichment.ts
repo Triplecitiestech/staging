@@ -245,7 +245,10 @@ export async function enrichTicket(
     alertTime,
     saasEvents: saas.result?.events || [],
     ticketText: text,
-    ipv4: allIps,
+    // The ticket text of an endpoint alert carries only the LAN address; the
+    // device's public egress comes from Datto RMM (ipClassifications). Both are
+    // offered, and buildSignals takes the first PUBLIC one.
+    ipv4: [...allIps, ...ipClassifications.filter(c => c.class !== 'internal').map(c => c.ip)],
     onKnownNetwork: !!device.networkMatch || deviceVerification?.verified === true
       || alertIpClass?.class === 'client_office' || alertIpClass?.class === 'client_device_egress',
     dataSources,
