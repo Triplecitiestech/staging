@@ -530,12 +530,25 @@ export function normHost(h: string | null | undefined): string | null {
 }
 
 /** DOMAIN\user, user@domain → user */
+/**
+ * Windows built-in principals. Every machine has them, so two events "sharing"
+ * one says nothing about a person — matching on SYSTEM made every SYSTEM-context
+ * detection on every computer at the client "the same user" as the alert
+ * (805 attributed events on T20260924.0023). This is the documented, closed set
+ * of well-known service identities, not a list of observed cases.
+ */
+const NON_PERSON_ACCOUNTS = new Set(['system', 'localsystem', 'local system', 'local service', 'localservice', 'network service', 'networkservice', 'anonymous logon', 'nt authority', 'n/a', 'na', '-', 'unknown', 'none'])
+
 export function normUser(u: string | null | undefined): string | null {
   if (!u) return null
   const s = u.trim().toLowerCase()
   if (!s) return null
   const afterSlash = s.includes('\\') ? s.split('\\').pop()! : s
-  return afterSlash.split('@')[0] || null
+  const name = afterSlash.split('@')[0]
+  if (!name || NON_PERSON_ACCOUNTS.has(name)) return null
+  // Computer accounts (HOST$) and per-session system accounts (DWM-3, UMFD-0).
+  if (name.endsWith('$') || /^(dwm|umfd)-\d+$/.test(name)) return null
+  return name
 }
 
 function eventKey(e: EvidenceEventInput): string {

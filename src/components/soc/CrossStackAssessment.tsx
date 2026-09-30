@@ -664,7 +664,7 @@ function SignalBreakdown({ signals }: { signals: AssessmentSignals }) {
     ? { value: `${source} — matches a known company location`, tone: 'positive' }
     : geo.baseline === 'no_baseline_match'
       ? { value: `${source} — not a known company location/network`, tone: 'negative' }
-      : { value: geo.alertLocation || geo.alertIp || 'Unknown', tone: 'neutral' }
+      : { value: geo.alertLocation || geo.alertIp || 'No public IP address in the evidence — geolocation does not apply (internal addresses have no location)', tone: 'neutral' }
 
   const timingRow: { value: string; tone: SignalTone } = timing.afterHours === null
     ? { value: 'Unknown', tone: 'neutral' }
@@ -766,6 +766,24 @@ const DISPOSITION_META: Record<AttributedEvent['disposition'], { title: string; 
   data_gap: { title: 'Unattributed — listed, never counted', tone: 'text-slate-500' },
 }
 
+/**
+ * Same subject + source + summary + reason = one card with a count and the
+ * first/last time. Mirrors formatEventGroups() in src/lib/soc/evidence.ts,
+ * which does the same for the Autotask note (kept local so this client
+ * component does not bundle the evidence module).
+ */
+function groupRepeats(list: AttributedEvent[]): AttributedEvent[][] {
+  const groups = new Map<string, AttributedEvent[]>()
+  for (const e of list) {
+    const k = [(e.deviceHostname || e.user || e.ioc || '').toLowerCase(), e.source, e.summary, e.reason, e.verification ?? ''].join('\u0000')
+    const g = groups.get(k)
+    if (g) g.push(e)
+    else groups.set(k, [e])
+  }
+  const t = (e: AttributedEvent) => (e.timestampUtc ? Date.parse(e.timestampUtc) : Number.POSITIVE_INFINITY)
+  return [...groups.values()].map(g => [...g].sort((a, b) => t(a) - t(b))).sort((a, b) => t(a[0]) - t(b[0]))
+}
+
 function EvidenceTimeline({ events, contextSummaries }: { events: AttributedEvent[]; contextSummaries: string[] }) {
   const order: AttributedEvent['disposition'][] = ['alert', 'corroboration', 'tct_change', 'context', 'data_gap']
   return (
@@ -780,18 +798,25 @@ function EvidenceTimeline({ events, contextSummaries }: { events: AttributedEven
               <p className={`text-xs font-medium mb-1.5 ${DISPOSITION_META[d].tone}`}>{DISPOSITION_META[d].title}</p>
               {list.length === 0 && extra.length === 0 && <p className="text-xs text-slate-500">None.</p>}
               <div className="space-y-1.5">
-                {list.map(e => (
-                  <div key={e.key} className="bg-black/30 rounded p-2 text-xs">
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                      <span className="text-white">{e.deviceHostname || e.user || e.ioc || 'no device'}</span>
-                      <span className="text-slate-400">{e.timestampUtc ? e.timestampUtc.replace('.000Z', 'Z') : 'time unknown'}</span>
-                      {e.siteLocalTime && <span className="text-slate-500">{e.siteLocalTime}</span>}
-                      <span className="text-slate-400">{e.source}{e.sourceRecordId ? ` #${e.sourceRecordId}` : ' (no record id)'}</span>
+                {groupRepeats(list).map(g => {
+                  const e = g[0]
+                  const last = g[g.length - 1]
+                  const when = (x: AttributedEvent) => (x.timestampUtc ? x.timestampUtc.replace('.000Z', 'Z') : 'time unknown')
+                  return (
+                    <div key={e.key} className="bg-black/30 rounded p-2 text-xs">
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span className="text-white">{e.deviceHostname || e.user || e.ioc || 'no device'}</span>
+                        {g.length > 1
+                          ? <span className="text-slate-400">{g.length} times · {when(e)} to {when(last)}</span>
+                          : <span className="text-slate-400">{when(e)}</span>}
+                        {g.length === 1 && e.siteLocalTime && <span className="text-slate-500">{e.siteLocalTime}</span>}
+                        <span className="text-slate-400">{e.source}{e.sourceRecordId ? ` #${e.sourceRecordId}${g.length > 1 && last.sourceRecordId ? ` … #${last.sourceRecordId}` : ''}` : ' (no record id)'}</span>
+                      </div>
+                      <p className="text-slate-300 mt-0.5 break-words">{e.summary}</p>
+                      <p className="text-slate-500 mt-0.5 break-words">{e.reason}{e.verification ? ` Verify: ${e.verification}` : ''}</p>
                     </div>
-                    <p className="text-slate-300 mt-0.5 break-words">{e.summary}</p>
-                    <p className="text-slate-500 mt-0.5 break-words">{e.reason}{e.verification ? ` Verify: ${e.verification}` : ''}</p>
-                  </div>
-                ))}
+                  )
+                })}
                 {extra.map((c, i) => <p key={i} className="text-xs text-slate-400 break-words">{c}</p>)}
               </div>
             </div>

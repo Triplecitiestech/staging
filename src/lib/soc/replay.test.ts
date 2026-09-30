@@ -258,6 +258,25 @@ describe('Wilmar replay — T20260927.0006 as it stands now (36100 absorbed)', (
     expect(result!.ticketNote).toMatch(/4\.39\.23\.157: client office connection \(Wilmar - Washington/)
   })
 
+  it('geolocation uses the PUBLIC office address, never the device\'s 192.168.x LAN address (T20260924.0023)', async () => {
+    const { result } = await replay(['36101'])
+    const geo = result!.enrichment!.signals!.geo
+    expect(geo.alertIp).not.toBe('192.168.0.136')
+    if (geo.alertIp) expect(geo.alertIp).not.toMatch(/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/)
+  })
+
+  it('other devices\' detections outside a TCT change window are ONE summary line, not itemised events', async () => {
+    const { result } = await replay(['36101'])
+    const events = result!.enrichment!.events!
+    const windows = result!.enrichment!.changeWindows ?? []
+    const inAWindow = (iso: string | null) => !!iso && windows.some((w) => iso >= w.startUtc && iso <= w.endUtc)
+    for (const e of events) {
+      if (e.disposition === 'alert' || (e.deviceHostname ?? '').toUpperCase() === 'WIL0170') continue
+      if (e.source !== 'RocketCyber') continue
+      expect(inAWindow(e.timestampUtc)).toBe(true)
+    }
+  })
+
   it('finds both TCT change windows and excludes events inside them from corroboration', async () => {
     const { result } = await replay(['36101'])
     const windows = result!.enrichment!.changeWindows!
@@ -545,5 +564,55 @@ describe('lastSignedInName (the RMM login shown to the customer)', () => {
     expect(lastSignedInName('CORP\\emily.armstrong')).toBe('emily.armstrong')
     expect(lastSignedInName('emily@ezred.com')).toBe('emily@ezred.com')
     expect(lastSignedInName(null)).toBeNull()
+  })
+})
+
+
+describe('Other-device detections and built-in accounts (T20260924.0023: 805 attributed events)', () => {
+  const primary = {
+    retrieved: true, recordSource: 'RocketCyber', incidentId: '1', threatName: 'Trojan:Script/Wacatac.H!ml', signal: 'malicious' as const,
+    deviceHostname: 'DOG-006', user: 'NT AUTHORITY\\SYSTEM', timestampUtc: '2026-09-24T20:57:25Z', actionReported: null, executionStatus: null,
+  }
+  const lsass = (host: string, iso: string) => ({ hostname: host, threatName: 'Attempted Credential Stealing From lsass.exe', user: 'NT AUTHORITY\\SYSTEM', event_time: iso })
+  const rc = {
+    otherEvents: [
+      lsass('DOGB-001', '2026-09-24T10:00:00.000Z'), lsass('DOGB-001', '2026-09-24T11:00:00.000Z'),
+      lsass('DOG-002', '2026-09-24T12:00:00.000Z'), lsass('DOG-006', '2026-09-24T13:00:00.000Z'),
+      lsass('NOT-OURS', '2026-09-24T12:00:00.000Z'),
+    ],
+  }
+
+  it('a SYSTEM-context detection on ANOTHER device is not "the same user" and is not itemised', async () => {
+    const { buildEvidenceInputs } = await import('./enrichment')
+    const out = buildEvidenceInputs({
+      ticket: { ticketNumber: 'T1' } as never, sourceSystem: 'rocketcyber', primary, rocketCyber: rc as never,
+      edr: null, dns: null, saas: null, deviceRecord: null, rmmAlerts: [], alertDevice: 'DOG-006',
+      clientHostnames: ['DOG-006', 'DOG-002', 'DOGB-001'], changeWindows: [],
+    })
+    const hosts = out.filter((e) => !e.isAlert).map((e) => e.deviceHostname)
+    expect(hosts).toEqual(['DOG-006'])
+  })
+
+  it('summarises the rest in one line: count, device count, detection name — this client\'s devices only', async () => {
+    const { summarizeOtherDeviceDetections } = await import('./enrichment')
+    const line = summarizeOtherDeviceDetections({
+      primary, rocketCyber: rc as never, alertDevice: 'DOG-006', clientHostnames: ['DOG-006', 'DOG-002', 'DOGB-001'], changeWindows: [],
+    })!
+    expect(line).toMatch(/3 detections on 2 other devices/)
+    expect(line).toMatch(/Attempted Credential Stealing From lsass\.exe on 2 devices \((DOGB-001, DOG-002|DOG-002, DOGB-001)\)/)
+    expect(line).not.toMatch(/NOT-OURS/)
+  })
+
+  it('an event inside a DETECTED TCT change window is itemised (labelled later), not summarised', async () => {
+    const { buildEvidenceInputs, summarizeOtherDeviceDetections } = await import('./enrichment')
+    const changeWindows = [{ fromUtc: '2026-09-24T11:30:00.000Z', toUtc: '2026-09-24T12:30:00.000Z' }]
+    const out = buildEvidenceInputs({
+      ticket: { ticketNumber: 'T1' } as never, sourceSystem: 'rocketcyber', primary, rocketCyber: rc as never,
+      edr: null, dns: null, saas: null, deviceRecord: null, rmmAlerts: [], alertDevice: 'DOG-006',
+      clientHostnames: ['DOG-006', 'DOG-002', 'DOGB-001'], changeWindows,
+    })
+    expect(out.map((e) => e.deviceHostname)).toContain('DOG-002')
+    const line = summarizeOtherDeviceDetections({ primary, rocketCyber: rc as never, alertDevice: 'DOG-006', clientHostnames: ['DOG-006', 'DOG-002', 'DOGB-001'], changeWindows })!
+    expect(line).toMatch(/2 detections on 1 other device\b/)
   })
 })

@@ -11,6 +11,7 @@ import {
   formatEventGroups,
   NOTE_END,
   NOTE_MAX_CHARS,
+  normUser,
   guardNarrative,
   isVerifiedVisibility,
   lintCustomerMessage,
@@ -333,5 +334,18 @@ describe('assessment note size (T20260929.0016: a 36,286-char note exceeded Auto
   it('leaves a note under the limit byte-identical', () => {
     const lines = ['a', 'b', NOTE_END]
     expect(fitNoteToLimit(lines, 1, 2)).toBe(lines.join('\n'))
+  })
+})
+
+
+describe('normUser — built-in accounts never identify a person', () => {
+  it('SYSTEM, service, computer and session accounts are not users', () => {
+    for (const u of ['NT AUTHORITY\\SYSTEM', 'SYSTEM', 'NT AUTHORITY\\LOCAL SERVICE', 'NETWORK SERVICE', 'CORP\\DOG-006$', 'Window Manager\\DWM-3', 'Font Driver Host\\UMFD-0', '-', 'N/A']) {
+      expect(normUser(u)).toBeNull()
+    }
+  })
+  it('real people still match across domain and UPN forms', () => {
+    expect(normUser('AzureAD\\EmilyArmstrong')).toBe('emilyarmstrong')
+    expect(normUser('emilyarmstrong@ezred.com')).toBe('emilyarmstrong')
   })
 })
