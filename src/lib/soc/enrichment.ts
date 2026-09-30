@@ -42,6 +42,7 @@ import {
   extractIpv4s,
   normHost,
   normUser,
+  privateRange,
   resolveCompanyProfile,
   signalFromThreatName,
   toIsoUtc,
@@ -220,12 +221,21 @@ export async function enrichTicket(
 
   // 10. The detection this assessment is anchored to, and every correlated event.
   const primary = primaryDetection(ticket, rocketCyber, body, sourceSystem, hostname);
+  const changeWindows = detectFleetChangeWindows(device.rmmAlerts, {
+    siteDeviceCounts: device.siteDeviceCounts, fromUtc: changeFrom, toUtc: changeTo,
+  });
   const eventInputs = buildEvidenceInputs({
     ticket, sourceSystem, primary, rocketCyber, edr: edr.result, dns: dns.result, saas: saas.result,
     deviceRecord: device.deviceRecord, rmmAlerts: device.rmmAlerts, alertDevice: effectiveHostname,
     clientHostnames: device.devices.map(d => d.hostname).filter(Boolean),
-    window: { fromUtc: changeFrom, toUtc: changeTo },
+    changeWindows: changeWindows.map(w => ({ fromUtc: w.startUtc, toUtc: w.endUtc })),
   });
+  const otherDevices = summarizeOtherDeviceDetections({
+    primary, rocketCyber, alertDevice: effectiveHostname,
+    clientHostnames: device.devices.map(d => d.hostname).filter(Boolean),
+    changeWindows: changeWindows.map(w => ({ fromUtc: w.startUtc, toUtc: w.endUtc })),
+  });
+  if (otherDevices) contextSummaries.push(otherDevices);
 
   // Assemble the independent signal axes (timing, geo, corroboration, identity-change).
   // recurrence is a placeholder here — the engine fills it from the analysis history.
@@ -248,9 +258,6 @@ export async function enrichTicket(
     timezone: company.profile.timezone,
   });
 
-  const changeWindows = detectFleetChangeWindows(device.rmmAlerts, {
-    siteDeviceCounts: device.siteDeviceCounts, fromUtc: changeFrom, toUtc: changeTo,
-  });
   const changeContext = detectAutotaskChangeContext(company.work, { fromUtc: changeFrom, toUtc: changeTo, excludeTicketIds: [Number(ticket.autotaskTicketId)] });
 
   return {
@@ -409,8 +416,13 @@ export function buildEvidenceInputs(a: {
   alertDevice: string | null;
   /** Hostnames of THIS client's managed devices (Datto RMM) — scopes other-device events. */
   clientHostnames?: string[];
-  /** The change-correlation window; other-device events outside it are not relevant. */
-  window?: { fromUtc: string; toUtc: string };
+  /**
+   * DETECTED TCT change windows (not the whole search window). Another of this
+   * client's devices is itemised only inside one of these — that is what a
+   * fleet-wide change looks like and it must be shown labelled. Everything else
+   * on other devices is one summary line (summarizeOtherDeviceDetections).
+   */
+  changeWindows?: Array<{ fromUtc: string; toUtc: string }>;
 }): EvidenceEventInput[] {
   const out: EvidenceEventInput[] = [];
   const src = alertSourceName(a.sourceSystem);
@@ -453,7 +465,7 @@ export function buildEvidenceInputs(a: {
     const ms = getEventMillis(ev);
     const evIso = ms != null ? new Date(ms).toISOString() : toIsoUtc(f.eventTime);
     const related = (subjDevice && evDevice === subjDevice) || (subjUser && evUser === subjUser) || (subjIoc && evIoc === subjIoc);
-    const inWindow = !!(a.window && evIso && evIso >= a.window.fromUtc && evIso <= a.window.toUtc);
+    const inWindow = !!(evIso && (a.changeWindows ?? []).some(w => evIso >= w.fromUtc && evIso <= w.toUtc));
     const clientDeviceInWindow = inWindow && evDevice !== null && clientHosts.has(evDevice);
     if (!related) {
       if (!clientDeviceInWindow || otherDeviceKept >= MAX_OTHER_DEVICE_EVENTS) continue;
@@ -694,8 +706,15 @@ function buildSignals(params: {
   // ── Geolocation vs baseline ── (authoritative IP comes from the SaaS event)
   const eventWithIp = params.saasEvents.find(e => e.ip);
   const eventWithLoc = params.saasEvents.find(e => e.location);
-  const ipv6 = extractIpv6(params.ticketText);
-  const alertIp = eventWithIp?.ip || ipv6[0] || params.ipv4[0] || null;
+  // Geolocation is a property of a PUBLIC address only. The ticket text of an
+  // endpoint alert usually carries the device's LAN address first (192.168.x on
+  // T20260924.0023), which has no location — reporting it as "not a known
+  // company location" was a false negative signal. Private ranges are skipped;
+  // with no public address the axis is "unknown", never "no match".
+  const isPublic = (ip: string) => privateRange(ip) === null;
+  const ipv6 = extractIpv6(params.ticketText).filter(isPublic);
+  const saasIp = eventWithIp?.ip && isPublic(eventWithIp.ip) ? eventWithIp.ip : null;
+  const alertIp = saasIp || ipv6[0] || params.ipv4.find(isPublic) || null;
   const alertLocation = eventWithLoc?.location || null;
   const locationsSeenNearby = Array.from(
     new Set(params.saasEvents.map(e => e.location).filter((l): l is string => !!l)),
@@ -1605,4 +1624,45 @@ export async function matchKnownBenign(params: {
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+
+/**
+ * One line for every RocketCyber detection on this client's OTHER devices that
+ * is not itemised (not about this device/user/file, not inside a detected TCT
+ * change window). Listing them one by one buried the alert under hundreds of
+ * other machines' events; dropping them would hide a fleet-wide pattern. So the
+ * technician gets the counts: how many, on how many devices, of what.
+ */
+export function summarizeOtherDeviceDetections(a: {
+  primary: PrimaryDetection;
+  rocketCyber: RocketCyberDetail | null;
+  alertDevice: string | null;
+  clientHostnames: string[];
+  changeWindows: Array<{ fromUtc: string; toUtc: string }>;
+}): string | null {
+  const subjDevice = normHost(a.primary.deviceHostname ?? a.alertDevice);
+  const subjUser = normUser(a.primary.user);
+  const subjIoc = (a.rocketCyber?.hash ?? '').toLowerCase() || null;
+  const clientHosts = new Set(a.clientHostnames.map(h => normHost(h)).filter((h): h is string => !!h));
+  const byThreat = new Map<string, Set<string>>();
+  let count = 0;
+  for (const ev of a.rocketCyber?.otherEvents ?? []) {
+    const f = extractDetectionFields(ev);
+    const evDevice = normHost((f.device || '').split('|')[0].trim() || null);
+    if (!evDevice || !clientHosts.has(evDevice) || evDevice === subjDevice) continue;
+    if ((subjUser && normUser(f.userContext) === subjUser) || (subjIoc && (f.hash ?? '').toLowerCase() === subjIoc)) continue;
+    const ms = getEventMillis(ev);
+    const evIso = ms != null ? new Date(ms).toISOString() : toIsoUtc(f.eventTime);
+    if (evIso && a.changeWindows.some(w => evIso >= w.fromUtc && evIso <= w.toUtc)) continue;
+    const threat = f.threatName || f.detectionMessage?.slice(0, 80) || 'unnamed detection';
+    if (!byThreat.has(threat)) byThreat.set(threat, new Set());
+    byThreat.get(threat)!.add(evDevice.toUpperCase());
+    count++;
+  }
+  if (count === 0) return null;
+  const devices = new Set([...byThreat.values()].flatMap(s => [...s]));
+  const top = [...byThreat.entries()].sort((x, y) => y[1].size - x[1].size).slice(0, 3)
+    .map(([t, d]) => `${t} on ${d.size} device${d.size === 1 ? '' : 's'} (${[...d].slice(0, 5).join(', ')}${d.size > 5 ? ', …' : ''})`);
+  return `RocketCyber also reported ${count} detection${count === 1 ? '' : 's'} on ${devices.size} other device${devices.size === 1 ? '' : 's'} at this client between 72 hours before the alert and now — not about this device, user or file, so not itemised and not counted: ${top.join('; ')}${byThreat.size > 3 ? `; and ${byThreat.size - 3} other detection type(s)` : ''}. Many devices with the same detection at once can mean a shared cause (a tool or policy change) or spread — check it separately.`;
 }
