@@ -46,6 +46,8 @@ import {
   privateRange,
   saasAlertFacts,
   buildAccountChecks,
+  buildAccountFindings,
+  formatLocalTime,
   locationText,
   resolveCompanyProfile,
   signalFromThreatName,
@@ -280,6 +282,17 @@ export async function enrichTicket(
     if (!signals.geo.alertIp && saasBodyForFacts.ip && privateRange(saasBodyForFacts.ip) === null) signals.geo.alertIp = saasBodyForFacts.ip;
   }
 
+  const accountInput = saasBodyForFacts?.userName ? {
+    alertIp: saasBodyForFacts.ip,
+    userName: saasBodyForFacts.userName,
+    fullName: saasBodyForFacts.fullName,
+    alertTimeUtc: saasBodyForFacts.iocTriggeredAtUtc ?? saasBodyForFacts.eventTimeUtc,
+    devices: device.devices.map(d => ({ hostname: d.hostname, extIpAddress: d.extIpAddress || null, lastUser: d.lastUser || null, description: d.description || null, lastSeen: d.lastSeen || null, online: typeof d.online === 'boolean' ? d.online : null })),
+    managedDevices: m365Identity ? (m365Identity.managedDevices ?? null) : null,
+    privilegeEvents: m365Identity ? (m365Identity.privilegeEvents ?? []) : null,
+    signIns: m365Identity ? m365Identity.signIns : null,
+    m365Gap,
+  } : null;
   const changeContext = detectAutotaskChangeContext(company.work, { fromUtc: changeFrom, toUtc: changeTo, excludeTicketIds: [Number(ticket.autotaskTicketId)] });
 
   return {
@@ -306,6 +319,13 @@ export async function enrichTicket(
     primary,
     contextSummaries,
     alertFacts: saasBodyForFacts ? saasAlertFacts(saasBodyForFacts) : [],
+    accountFindings: saasBodyForFacts?.userName && accountInput
+      ? buildAccountFindings({
+          ...accountInput,
+          clientIsScript: !!saasBodyForFacts.userAgent && !/mozilla\/|edg\/|chrome\/|safari\/|firefox\/|outlook|teams|onedrive|microsoft office/i.test(saasBodyForFacts.userAgent),
+          alertLocalTime: accountInput.alertTimeUtc ? formatLocalTime(accountInput.alertTimeUtc, company.profile.timezone) : null,
+        })
+      : null,
     accountChecks: saasBodyForFacts?.userName
       ? buildAccountChecks({
           alertIp: saasBodyForFacts.ip,

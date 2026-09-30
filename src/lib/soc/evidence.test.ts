@@ -17,6 +17,7 @@ import {
   buildAccountChecks,
   deviceUserMatches,
   resolveUserDevices,
+  buildAccountFindings,
   parseSaasAlertsBody,
   saasAlertFacts,
   guardNarrative,
@@ -485,5 +486,43 @@ describe('resolveUserDevices — every source that ties a device to the account 
   it('short names never match by prefix — "al" does not claim "ALBERTPC\\alex"', () => {
     const r = resolveUserDevices({ userName: 'al@example.com', fullName: 'Al Bo', rmmDevices: [{ ...other, hostname: 'ALBERTPC', lastUser: 'ALBERTPC\\alex', description: 'Albert desk' }] })
     expect(r).toHaveLength(0)
+  })
+})
+
+
+describe('buildAccountFindings — the bottom line and next step (T20260930.0005 page led with a stale "read the audit log")', () => {
+  const ip6 = '2001:4453:658:2800:cda5:3382:16bb:7e91'
+  const base = {
+    alertIp: ip6, userName: 'ghenel@example.com', fullName: 'Ghenel Bacalla', alertTimeUtc: '2026-09-30T12:35:03Z', m365Gap: null,
+    devices: [{ hostname: 'ELLYSEA', extIpAddress: '180.195.195.139', lastUser: 'ELLYSEA\\GhenelU', description: 'Ghenels Personal Computer', lastSeen: null, online: true }],
+    managedDevices: [],
+    signIns: [1, 2, 3].map((n) => ({ time: `2026-09-30T1${n}:00:00Z`, ip: ip6, location: 'PH', device: 'Windows10 / Edge', deviceName: null, status: 'success' })),
+    clientIsScript: true, alertLocalTime: 'Wed, Sep 30, 2026, 8:35 AM EDT',
+  }
+
+  it('tenant read, no grant record, same IP as own sign-ins: says who, which computer, what is unconfirmed, and asks the right question', () => {
+    const r = buildAccountFindings({ ...base, privilegeEvents: [] })
+    expect(r.summary[0]).toBe("Most likely Ghenel Bacalla themself: the alert came from the same IP address as 3 of Ghenel Bacalla's 3 sign-in(s) around that time (3 successful).")
+    expect(r.summary[1]).toMatch(/^Ghenel's computer is likely ELLYSEA \(2 links: RMM last user, RMM description\); its public IP \(180\.195\.195\.139\) cannot be compared with the IPv6 alert address\.$/)
+    expect(r.summary[2]).toMatch(/NO record of a consent, role or app change/)
+    expect(r.summary[3]).toMatch(/script or app library/)
+    expect(r.nextStep).toMatch(/^Ask Ghenel what app or script they connected to their account at Wed, Sep 30, 2026, 8:35 AM EDT/)
+    expect(r.nextStep).not.toMatch(/Read the Microsoft Entra audit log/)
+  })
+
+  it('a recorded grant is named and becomes the question', () => {
+    const r = buildAccountFindings({ ...base, privilegeEvents: [{ time: '2026-09-30T12:35:01Z', activity: 'Consent to application', result: 'success', ip: ip6, targets: ['ServicePrincipal: Example App'], details: ['ConsentAction.Permissions: Scope: Mail.Read'] }] })
+    expect(r.summary[2]).toBe('Microsoft 365 recorded: "Consent to application" on ServicePrincipal: Example App — ConsentAction.Permissions: Scope: Mail.Read.')
+    expect(r.nextStep).toMatch(/^Ask Ghenel whether they intended "Consent to application" on ServicePrincipal: Example App/)
+  })
+
+  it('only when the tenant could NOT be read does it send the technician to the audit log', () => {
+    const r = buildAccountFindings({ ...base, privilegeEvents: null, signIns: null, m365Gap: 'M365 tenant not connected' })
+    expect(r.nextStep).toMatch(/^Read the Microsoft Entra audit log .* the SOC could not \(M365 tenant not connected\)/)
+  })
+
+  it('an IP that matches none of the sign-ins is not called the user', () => {
+    const r = buildAccountFindings({ ...base, alertIp: '203.0.113.9', privilegeEvents: [] })
+    expect(r.summary[0]).toMatch(/matches none of .* treat it as possibly not Ghenel/)
   })
 })

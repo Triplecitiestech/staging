@@ -869,7 +869,7 @@ export function classifyFromEvidence(input: ClassificationInput): Classification
   rationale.push(
     `${input.primary.recordSource} reported ${input.primary.signal === 'malicious' ? 'a concrete-signature (known bad) detection' : 'a suspicious event'}${input.primary.threatName ? ` (${input.primary.threatName})` : ''}; no independent source corroborated it.`,
   )
-  if (input.identityChange) rationale.push('Identity/MFA change with no positive benign evidence — confirm with the user before closing.')
+  if (input.identityChange) rationale.push('Identity or access change (MFA, role or app grant) with no positive benign evidence — confirm with the user before closing.')
   const tctChanges = input.events.filter((e) => e.disposition === 'tct_change').length
   if (tctChanges > 0) rationale.push(`${tctChanges} correlated event(s) fell inside TCT-initiated change windows and were excluded.`)
   return {
@@ -1320,6 +1320,76 @@ export function resolveUserDevices(a: {
   return [...byHost.values()].sort((x, y) => rank[x.strength] - rank[y.strength])
 }
 
+export interface AccountFindings {
+  /** The answer, in the order a technician needs it: who, from where, what, what is unknown. */
+  summary: string[]
+  /** The one next step, reflecting what has ALREADY been checked. */
+  nextStep: string
+}
+
+/**
+ * The bottom line for an account alert, computed from what was actually
+ * checked — never the LLM. Before this the page led with an AI summary that
+ * never saw the checks and a "final recommendation" telling the technician to
+ * read the audit log the SOC had already read (T20260930.0005).
+ */
+export function buildAccountFindings(a: AccountCheckInput & { clientIsScript: boolean; alertLocalTime: string | null }): AccountFindings {
+  const who = a.fullName ?? a.userName ?? 'the account holder'
+  const firstName = (a.fullName ?? '').split(/\s+/)[0] || who
+  const summary: string[] = []
+  // Who: the alert IP against the account's own sign-ins.
+  let sameIp = 0
+  if (a.signIns && a.alertIp) {
+    sameIp = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase()).length
+    const ok = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase() && /^success/.test(s.status)).length
+    summary.push(sameIp
+      ? `Most likely ${who} themself: the alert came from the same IP address as ${sameIp} of ${who}'s ${a.signIns.length} sign-in(s) around that time${ok ? ` (${ok} successful)` : ''}.`
+      : `The alert IP matches none of ${who}'s ${a.signIns.length} sign-in(s) around that time — treat it as possibly not ${firstName} until shown otherwise.`)
+  } else if (!a.signIns) {
+    summary.push(`Could not check who made the change: ${who}'s sign-ins could not be read${a.m365Gap ? ` (${a.m365Gap})` : ''}.`)
+  }
+  // Where: the account's computer.
+  const resolved = resolveUserDevices({
+    userName: a.userName, fullName: a.fullName, rmmDevices: a.devices,
+    managedDevices: a.managedDevices ?? null,
+    signInDeviceNames: (a.signIns ?? []).map((s) => s.deviceName ?? '').filter(Boolean),
+  })
+  const top = resolved[0]
+  if (top) {
+    const d = top.rmm
+    const ipLine = !d || !d.extIpAddress || !a.alertIp ? 'its IP could not be compared with the alert'
+      : d.extIpAddress.toLowerCase() === a.alertIp.toLowerCase() ? 'it has the SAME public IP as the alert'
+        : isV6(a.alertIp) !== isV6(d.extIpAddress) ? `its public IP (${d.extIpAddress}) cannot be compared with the IPv${isV6(a.alertIp) ? '6' : '4'} alert address`
+          : `its public IP (${d.extIpAddress}) is DIFFERENT from the alert's`
+    summary.push(`${firstName}'s computer is ${top.strength === 'strong' ? '' : top.strength + ' '}${top.hostname} (${top.basis.length} link${top.basis.length === 1 ? '' : 's'}: ${top.basis.map((b) => b.split(' "')[0].replace(/^Datto RMM /, 'RMM ')).join(', ')}); ${ipLine}.`)
+  } else {
+    summary.push(`No computer could be tied to ${who} in Datto RMM, Intune or sign-in records.`)
+  }
+  // What: the tenant's record of the grant.
+  if (a.privilegeEvents && a.privilegeEvents.length) {
+    const e = a.privilegeEvents[0]
+    summary.push(`Microsoft 365 recorded: "${e.activity}"${e.targets.length ? ` on ${e.targets.join(', ')}` : ''}${e.details.length ? ` — ${e.details[0]}` : ''}${a.privilegeEvents.length > 1 ? ` (+${a.privilegeEvents.length - 1} more)` : ''}.`)
+  } else if (a.privilegeEvents) {
+    summary.push('Microsoft 365 has NO record of a consent, role or app change by this account within 6 hours — the grant SaaS Alerts reported is not confirmed by the tenant.')
+  } else {
+    summary.push(`What was granted is unknown: the Microsoft 365 audit log could not be read${a.m365Gap ? ` (${a.m365Gap})` : ''}.`)
+  }
+  if (a.clientIsScript) summary.push('The action came from a script or app library, not a web browser.')
+
+  const when = a.alertLocalTime ?? a.alertTimeUtc ?? 'the alert time'
+  let nextStep: string
+  if (a.privilegeEvents && a.privilegeEvents.length) {
+    nextStep = `Ask ${firstName} whether they intended "${a.privilegeEvents[0].activity}"${a.privilegeEvents[0].targets.length ? ` on ${a.privilegeEvents[0].targets[0]}` : ''} at ${when}. If not: remove the consent or role, revoke ${firstName}'s sessions, and escalate — a password reset alone does not remove an OAuth grant.`
+  } else if (a.privilegeEvents && sameIp > 0) {
+    nextStep = `Ask ${firstName} what app or script they connected to their account at ${when}${a.clientIsScript ? ' (the alert shows a script library, not a browser)' : ''}. If they don't recognise it, open the SaaS Alerts IOC details link for the raw event and treat it as unauthorised.`
+  } else if (a.privilegeEvents) {
+    nextStep = `The alert IP is not one ${firstName} signed in from, and Microsoft 365 has no record of the grant — open the SaaS Alerts IOC details link for the raw event, and confirm with ${firstName} before closing.`
+  } else {
+    nextStep = `Read the Microsoft Entra audit log for ${a.userName ?? 'the account'} around ${when} — the SOC could not (${a.m365Gap ?? 'tenant not readable'}).`
+  }
+  return { summary, nextStep }
+}
+
 /**
  * What the SOC can check itself about WHO did this and FROM WHERE: the
  * tenant's own record of what the account granted, its sign-ins around the
@@ -1441,6 +1511,8 @@ export interface AssessmentNoteInput {
   alertTriage?: string | null
   /** What the SOC itself checked about the account (M365 + Datto RMM). */
   accountChecks?: AlertFact[]
+  /** Computed bottom line (account alerts). Rendered FIRST, in place of the AI summary. */
+  bottomLine?: string[] | null
 }
 
 export function buildAssessmentNote(n: AssessmentNoteInput): string {
@@ -1452,6 +1524,12 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   L.push(`Classification and confidence are computed in code from the evidence below; the AI wrote only the narrative. Last assessed ${n.generatedAtUtc.replace(/\.\d{3}Z$/, 'Z')}.`)
   if (n.twinTickets.length) {
     L.push(`Twin tickets (same device, file and detection time — covered by this one assessment): ${n.twinTickets.map((t) => `${t.ticketNumber}${t.incidentId ? ` (incident ${t.incidentId}${t.threatName ? `, ${t.threatName}` : ''})` : ''}`).join('; ')}`)
+  }
+  if (n.bottomLine && n.bottomLine.length) {
+    L.push('')
+    L.push('BOTTOM LINE (computed from the checks below)')
+    for (const b of n.bottomLine) L.push(`- ${b}`)
+    if (n.technicianActions[0]) L.push(`NEXT STEP: ${n.technicianActions[0]}`)
   }
   if (n.alertFacts && n.alertFacts.length) {
     L.push('')
@@ -1482,8 +1560,10 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   L.push('- Customer updates go to: the contact marked Customer Contact = Technical; otherwise the device\'s last signed-in user if they match exactly one contact; otherwise nobody (a technician decides).')
   L.push(`- Site time zone: ${n.profile.timezone} (${n.profile.timezoneBasis})`)
   L.push('')
-  L.push('SUMMARY (AI-written from the evidence below; not itself evidence)')
-  L.push(n.narrative && n.narrative.trim() ? n.narrative.trim() : r.rationale.join(' '))
+  if (!n.bottomLine || !n.bottomLine.length) {
+    L.push('SUMMARY (AI-written from the evidence below; not itself evidence)')
+    L.push(n.narrative && n.narrative.trim() ? n.narrative.trim() : r.rationale.join(' '))
+  }
   if (n.narrativeRemoved.length) L.push(`[${n.narrativeRemoved.length} AI sentence(s) removed: they asserted something the evidence does not support.]`)
   L.push('')
   const byDisp = (d: Disposition) => n.events.filter((e) => e.disposition === d)
