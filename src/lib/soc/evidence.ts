@@ -1107,6 +1107,8 @@ export interface SaasAlertBody {
   ipFlagsTrue: string[]
   userName: string | null
   fullName: string | null
+  /** Entra object id of the account ("User Id"). */
+  userId: string | null
   userAgent: string | null
   deviceStatus: string | null
   eventId: string | null
@@ -1164,6 +1166,7 @@ export function parseSaasAlertsBody(text: string): SaasAlertBody | null {
     ipFlagsTrue: flags,
     userName: line('User Name'),
     fullName: line('Full Name'),
+    userId: line('User Id'),
     userAgent: line('Device User Agent'),
     deviceStatus: line('Device Status Type'),
     eventId: line('Event ID'),
@@ -1212,6 +1215,96 @@ export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
   if (b.iocName) f.push({ label: 'Rule', value: `${b.iocName}${b.status ? ` (${b.status})` : ''}` })
   if (b.eventId) f.push({ label: 'SaaS Alerts event id', value: b.eventId })
   for (const l of b.links) f.push({ label: l.label, value: l.url })
+  return f
+}
+
+/** A Datto RMM device as the account check needs it. */
+export interface AccountDeviceInput {
+  hostname: string
+  extIpAddress: string | null
+  lastUser: string | null
+  lastSeen: string | null
+  online: boolean | null
+}
+
+export interface AccountCheckInput {
+  alertIp: string | null
+  userName: string | null
+  fullName: string | null
+  alertTimeUtc: string | null
+  devices: AccountDeviceInput[]
+  privilegeEvents: Array<{ time: string; activity: string; result: string; ip: string | null; targets: string[]; details: string[] }> | null
+  signIns: Array<{ time: string; ip: string | null; location: string | null; device: string | null; status: string }> | null
+  /** Why the M365 lookup could not run or was partial — shown, never hidden. */
+  m365Gap: string | null
+}
+
+const isV6 = (ip: string) => ip.includes(':')
+const v6Prefix64 = (ip: string) => ip.toLowerCase().split(':').slice(0, 4).join(':')
+
+/** Does a Datto RMM "last user" belong to this account? Exact on the UPN local part or the compacted full name — never fuzzy. */
+export function deviceUserMatches(lastUser: string | null, userName: string | null, fullName: string | null): boolean {
+  const u = normUser(lastUser)
+  if (!u) return false
+  const local = userName ? userName.toLowerCase().split('@')[0] : null
+  const compact = fullName ? fullName.toLowerCase().replace(/[^a-z0-9]/g, '') : null
+  return (!!local && u === local) || (!!compact && u.replace(/[^a-z0-9]/g, '') === compact)
+}
+
+/**
+ * What the SOC can check itself about WHO did this and FROM WHERE: the
+ * tenant's own record of what the account granted, its sign-ins around the
+ * alert, and whether the alert's IP is the public IP of a computer that
+ * account uses (Datto RMM). Every line states its source and its limit.
+ */
+export function buildAccountChecks(a: AccountCheckInput): AlertFact[] {
+  const f: AlertFact[] = []
+  // 1. What the tenant says the account did.
+  if (a.privilegeEvents === null) {
+    f.push({ label: 'Microsoft 365 audit log', value: 'Not read', meaning: a.m365Gap ?? 'The tenant could not be queried.' })
+  } else if (a.privilegeEvents.length === 0) {
+    f.push({ label: 'Microsoft 365 audit log', value: 'No consent, role or app change initiated by this account in the ±6h window', meaning: 'The tenant has no matching record — SaaS Alerts may have classified a different action as a grant. Open the SaaS Alerts IOC link to see the raw event.' })
+  } else {
+    for (const e of a.privilegeEvents) {
+      f.push({
+        label: `Microsoft 365 audit log — ${e.time.replace(/\.\d+Z$/, 'Z')}`,
+        value: `${e.activity} (${e.result})${e.targets.length ? ` → ${e.targets.join('; ')}` : ''}${e.ip ? ` from ${e.ip}` : ''}`,
+        meaning: e.details.length ? e.details.join(' | ') : undefined,
+      })
+    }
+  }
+  // 2. Sign-ins: was the alert IP one the account actually signed in from?
+  if (a.signIns && a.alertIp) {
+    const same = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase())
+    const samePrefix = isV6(a.alertIp) ? a.signIns.filter((s) => s.ip && isV6(s.ip) && v6Prefix64(s.ip) === v6Prefix64(a.alertIp!) && !same.includes(s)) : []
+    const first = same[0] ?? samePrefix[0]
+    f.push({
+      label: 'Sign-ins from the alert IP',
+      value: same.length
+        ? `${same.length} of ${a.signIns.length} sign-in(s) in the window came from ${a.alertIp}`
+        : samePrefix.length
+          ? `No exact match; ${samePrefix.length} sign-in(s) from the same /64 network (${v6Prefix64(a.alertIp)}::/64)`
+          : `None of ${a.signIns.length} sign-in(s) in the window came from ${a.alertIp}`,
+      meaning: first ? `e.g. ${first.time.replace(/\.\d+Z$/, 'Z')} · ${first.status}${first.device ? ` · ${first.device}` : ''}${first.location ? ` · ${first.location}` : ''}` : undefined,
+    })
+  }
+  // 3. Datto RMM: the account's own computer(s) and their public IP.
+  const mine = a.devices.filter((d) => deviceUserMatches(d.lastUser, a.userName, a.fullName))
+  if (mine.length === 0) {
+    f.push({ label: "Account's computer (Datto RMM)", value: 'No managed device has this account as its last signed-in user', meaning: 'Cannot compare the alert IP with a device — the action may have come from an unmanaged computer or a server-side app.' })
+  }
+  for (const d of mine) {
+    let verdict: string
+    if (!a.alertIp || !d.extIpAddress) verdict = 'cannot compare — one of the two addresses is missing'
+    else if (d.extIpAddress.toLowerCase() === a.alertIp.toLowerCase()) verdict = 'SAME public IP as the alert'
+    else if (isV6(a.alertIp) !== isV6(d.extIpAddress)) verdict = `cannot compare — the alert IP is IPv${isV6(a.alertIp) ? '6' : '4'} and Datto RMM reports IPv${isV6(d.extIpAddress) ? '6' : '4'} for the device; a home connection commonly has both`
+    else verdict = 'DIFFERENT public IP from the alert'
+    f.push({
+      label: `Account's computer (Datto RMM) — ${d.hostname}`,
+      value: `public IP ${d.extIpAddress ?? 'unknown'} · last user ${d.lastUser ?? 'unknown'} · ${d.online ? 'online' : 'offline'}${d.lastSeen ? ` · last seen ${d.lastSeen}` : ''}`,
+      meaning: `${verdict}. Datto RMM reports the device's CURRENT public IP, not its IP at the time of the alert.`,
+    })
+  }
   return f
 }
 
@@ -1264,6 +1357,8 @@ export interface AssessmentNoteInput {
   alertFacts?: AlertFact[]
   /** The alert rule's own triage guidance, verbatim. */
   alertTriage?: string | null
+  /** What the SOC itself checked about the account (M365 + Datto RMM). */
+  accountChecks?: AlertFact[]
 }
 
 export function buildAssessmentNote(n: AssessmentNoteInput): string {
@@ -1286,6 +1381,14 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
     if (n.alertTriage) {
       L.push('- The alert rule\'s own triage steps:')
       for (const t of n.alertTriage.split(/\n\s*\n|\n/).map((x) => x.trim()).filter(Boolean)) L.push(`  ${t}`)
+    }
+  }
+  if (n.accountChecks && n.accountChecks.length) {
+    L.push('')
+    L.push('WHAT WE CHECKED (Microsoft 365 tenant + Datto RMM)')
+    for (const f of n.accountChecks) {
+      L.push(`- ${f.label}: ${f.value}`)
+      if (f.meaning) L.push(`  → ${f.meaning}`)
     }
   }
   L.push('')
@@ -1376,8 +1479,12 @@ export function fitNoteToLimit(lines: string[], ctxStart: number, ctxEnd: number
 }
 
 /** Deterministic technician steps, scoped by the evidence. */
-export function technicianActions(r: ClassificationResult, p: PrimaryDetection, ctx: { coManaged: boolean; hasTctChange: boolean; notConnected: string[]; hasRuleTriage?: boolean; auditLogNeeded?: { user: string | null; atUtc: string | null; tenantReadable: boolean } | null }): string[] {
+export function technicianActions(r: ClassificationResult, p: PrimaryDetection, ctx: { coManaged: boolean; hasTctChange: boolean; notConnected: string[]; hasRuleTriage?: boolean; auditLogNeeded?: { user: string | null; atUtc: string | null; tenantReadable: boolean } | null; privilegeFound?: { user: string | null; events: Array<{ time: string; activity: string; targets: string[]; details: string[] }> } | null }): string[] {
   const a: string[] = []
+  if (ctx.privilegeFound && ctx.privilegeFound.events.length) {
+    const what = ctx.privilegeFound.events.slice(0, 3).map((e) => `"${e.activity}"${e.targets.length ? ` on ${e.targets.join(', ')}` : ''} at ${e.time.replace(/\.\d+Z$/, 'Z')}${e.details.length ? ` (${e.details[0]})` : ''}`).join('; ')
+    a.push(`Ask ${ctx.privilegeFound.user ?? 'the account holder'} whether they intended this, as recorded by Microsoft 365: ${what}. If not intended: remove the consent or role in Entra, revoke the account's sessions, and escalate — a password reset alone does not remove an OAuth grant.`)
+  }
   if (ctx.auditLogNeeded) {
     const who = ctx.auditLogNeeded.user ?? 'the account'
     const when = ctx.auditLogNeeded.atUtc ? ` around ${ctx.auditLogNeeded.atUtc.replace(/\.\d{3}Z$/, 'Z')} (UTC)` : ''

@@ -32,3 +32,30 @@ describe('Graph refusals are explained from the token (T20260930.0005: "grant th
     expect(gaps[0]).toMatch(/refused by Microsoft: .*Insufficient privileges/)
   })
 })
+
+import { isPrivilegeActivity, toPrivilegeEvent } from './m365-identity'
+
+describe('privilege / app-grant audit records (what a Stage 3c alert actually did)', () => {
+  it('keeps consent, role and app records; drops ordinary activity', () => {
+    expect(isPrivilegeActivity({ activityDisplayName: 'Consent to application', category: 'ApplicationManagement' })).toBe(true)
+    expect(isPrivilegeActivity({ activityDisplayName: 'Add member to role', category: 'RoleManagement' })).toBe(true)
+    expect(isPrivilegeActivity({ activityDisplayName: 'Add delegated permission grant', category: 'ApplicationManagement' })).toBe(true)
+    expect(isPrivilegeActivity({ activityDisplayName: 'Update user', category: 'UserManagement' })).toBe(false)
+    expect(isPrivilegeActivity({ activityDisplayName: 'Add member to group', category: 'GroupManagement' })).toBe(false)
+  })
+
+  it('records the app, the permissions and the IP Entra logged', () => {
+    const e = toPrivilegeEvent({
+      activityDisplayName: 'Consent to application', activityDateTime: '2026-09-30T12:35:01.123Z', category: 'ApplicationManagement', result: 'success',
+      initiatedBy: { user: { id: 'x', userPrincipalName: 'user@example.com', ipAddress: '2001:4453:658:2800::1' } },
+      targetResources: [{ type: 'ServicePrincipal', displayName: 'Example Sync App', modifiedProperties: [
+        { displayName: 'ConsentContext.IsAdminConsent', newValue: '"True"' },
+        { displayName: 'ConsentAction.Permissions', newValue: '"Scope: Mail.Read, offline_access"' },
+        { displayName: 'SomethingIrrelevant', newValue: '"x"' },
+      ] }],
+    })
+    expect(e.targets).toEqual(['ServicePrincipal: Example Sync App'])
+    expect(e.ip).toBe('2001:4453:658:2800::1')
+    expect(e.details).toEqual(['ConsentContext.IsAdminConsent: True', 'ConsentAction.Permissions: Scope: Mail.Read, offline_access'])
+  })
+})

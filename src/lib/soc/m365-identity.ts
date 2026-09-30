@@ -22,7 +22,7 @@
  */
 
 import { getTenantCredentials, getAccessToken, graphRequest, tokenRoles } from '@/lib/graph';
-import type { DataSourceStatus, M365IdentityCorrelation, M365AuthMethod, M365AuditEvent, M365SignIn } from './types';
+import type { DataSourceStatus, M365IdentityCorrelation, M365AuthMethod, M365AuditEvent, M365PrivilegeEvent, M365SignIn } from './types';
 
 const WINDOW_MS = 6 * 60 * 60 * 1000; // ±6h, consistent with the rest of SOC enrichment
 
@@ -52,9 +52,40 @@ function isAuthMethodActivity(activity: string): boolean {
 interface RawDirectoryAudit {
   activityDisplayName?: string;
   activityDateTime?: string;
+  category?: string;
   result?: string;
-  initiatedBy?: { user?: { userPrincipalName?: string; displayName?: string }; app?: { displayName?: string } };
-  targetResources?: Array<{ userPrincipalName?: string; displayName?: string; type?: string }>;
+  initiatedBy?: { user?: { id?: string; userPrincipalName?: string; displayName?: string; ipAddress?: string }; app?: { displayName?: string } };
+  targetResources?: Array<{ userPrincipalName?: string; displayName?: string; type?: string; modifiedProperties?: Array<{ displayName?: string; newValue?: string | null }> }>;
+}
+
+/**
+ * Directory-audit activities that GRANT access — what a "privilege or app
+ * grant" alert is about. Matched on Entra's own category first, activity name
+ * second; everything else the account did is left out.
+ */
+export function isPrivilegeActivity(a: { activityDisplayName?: string; category?: string }): boolean {
+  if (/^(ApplicationManagement|RoleManagement)$/i.test(a.category ?? '')) return true;
+  return /consent|app role|role assignment|member to role|service principal|delegated permission|oauth|application|credential|certificate|owner/i.test(a.activityDisplayName ?? '');
+}
+
+/** Keep the modified properties that say WHAT was granted; strip Entra's quoting. */
+function privilegeDetails(t: NonNullable<RawDirectoryAudit['targetResources']>[number]): string[] {
+  const keep = /ConsentAction\.Permissions|ConsentContext\.IsAdminConsent|ConsentContext\.OnBehalfOfAll|Role\.DisplayName|AppRole\.Value|AppRole\.DisplayName|DelegatedPermissionGrant\.Scope|KeyDescription|ServicePrincipalNames|AppAddress/i;
+  return (t.modifiedProperties ?? [])
+    .filter(m => m.displayName && keep.test(m.displayName) && m.newValue)
+    .map(m => `${m.displayName}: ${String(m.newValue).replace(/^"+|"+$/g, '').replace(/\\"/g, '"').replace(/\s+/g, ' ').slice(0, 300)}`);
+}
+
+export function toPrivilegeEvent(a: RawDirectoryAudit): M365PrivilegeEvent {
+  return {
+    time: a.activityDateTime || '',
+    activity: a.activityDisplayName || 'unknown activity',
+    category: a.category ?? null,
+    result: a.result || 'unknown',
+    ip: a.initiatedBy?.user?.ipAddress || null,
+    targets: (a.targetResources || []).map(t => `${t.type || 'Object'}: ${t.displayName || t.userPrincipalName || '(no name)'}`),
+    details: (a.targetResources || []).flatMap(privilegeDetails),
+  };
 }
 
 interface RawSignIn {
@@ -85,6 +116,8 @@ function isRegistration(activity: string): boolean {
 export async function fetchM365Identity(params: {
   companyId: string | null;
   userPrincipalName: string | null;
+  /** Entra object id of the account (SaaS Alerts "User Id"), for the initiatedBy filter. */
+  userObjectId?: string | null;
   alertTime: string;
 }): Promise<{ result: M365IdentityCorrelation | null; status: DataSourceStatus; gap?: string }> {
   const { companyId, userPrincipalName, alertTime } = params;
@@ -154,6 +187,33 @@ export async function fetchM365Identity(params: {
     recordGraphGap('AuditLog.Read.All (directory audits)', err, permissionGaps, roles, 'AuditLog.Read.All');
   }
 
+  // 1b. What the account ITSELF did that grants access (consents, role
+  // assignments, app/service principal changes). The auth-method query above
+  // filters on the TARGET user and on MFA activities, so an app consent made
+  // BY the user never appeared (T20260930.0005). Filtered server-side on
+  // initiatedBy/user/id (documented filter) when the object id is known;
+  // otherwise on the initiating UPN in memory.
+  let privilegeEvents: M365PrivilegeEvent[] = [];
+  if (params.userObjectId || userPrincipalName) {
+    try {
+      const idFilter = params.userObjectId && /^[0-9a-f-]{36}$/i.test(params.userObjectId)
+        ? ` and initiatedBy/user/id eq '${params.userObjectId}'` : '';
+      const filter = `activityDateTime ge ${since} and activityDateTime le ${until}${idFilter}`;
+      const data = await graphRequest<{ value: RawDirectoryAudit[] }>(
+        token,
+        `/auditLogs/directoryAudits?$filter=${encodeURIComponent(filter)}&$top=100`,
+      );
+      const upn = userPrincipalName?.toLowerCase() ?? null;
+      privilegeEvents = (data.value || [])
+        .filter(a => idFilter || (upn && (a.initiatedBy?.user?.userPrincipalName || '').toLowerCase() === upn))
+        .filter(isPrivilegeActivity)
+        .map(toPrivilegeEvent)
+        .sort((x, y) => x.time.localeCompare(y.time));
+    } catch (err) {
+      recordGraphGap('AuditLog.Read.All (privilege / app-grant audit records)', err, permissionGaps, roles, 'AuditLog.Read.All');
+    }
+  }
+
   const removeThenReregister =
     auditEvents.some(e => isRemoval(e.activity)) && auditEvents.some(e => isRegistration(e.activity));
 
@@ -210,12 +270,14 @@ export async function fetchM365Identity(params: {
     remainingMethods,
     hasStrongMethodRemaining,
     permissionGaps,
+    privilegeEvents,
   };
 
   // Build the status/gap summary.
   const confirmed = auditEvents.length > 0;
   const pieces: string[] = [];
   if (confirmed) pieces.push(`${auditEvents.length} matching audit event(s)${removeThenReregister ? ' incl. a remove-then-reregister sequence' : ''}`);
+  if (privilegeEvents.length > 0) pieces.push(`${privilegeEvents.length} access-granting audit record(s) initiated by the account`);
   if (signIns.length > 0) pieces.push(`${signIns.length} sign-in(s)`);
   if (remainingMethods.length > 0) pieces.push(`${remainingMethods.length} method(s) currently registered`);
 
