@@ -645,6 +645,38 @@ export function formatEventLine(e: AttributedEvent): string {
   return `- ${subject} · ${when} · ${e.source}${e.sourceRecordId ? ` #${e.sourceRecordId}` : ' (no record id)'} · ${e.summary} — ${e.reason}${e.verification ? ` Verify: ${e.verification}` : ''}`
 }
 
+/**
+ * Collapse repeats: events with the same subject, source, summary and
+ * disposition reason render as ONE line with a count and the first/last time.
+ * A device that fires the same detection 100 times is one fact, not 100 — and
+ * listing each one pushed the note past Autotask's 32,000-character limit, so
+ * the write failed and the ticket got no assessment at all (T20260929.0016).
+ */
+export function formatEventGroups(events: AttributedEvent[]): string[] {
+  const groups = new Map<string, AttributedEvent[]>()
+  for (const e of events) {
+    const subject = (e.deviceHostname || e.user || e.ioc || 'no device').toLowerCase()
+    const k = [subject, e.source, e.summary, e.reason, e.verification ?? ''].join('\u0000')
+    const g = groups.get(k)
+    if (g) g.push(e)
+    else groups.set(k, [e])
+  }
+  const t = (e: AttributedEvent) => (e.timestampUtc ? Date.parse(e.timestampUtc) : Number.POSITIVE_INFINITY)
+  return [...groups.values()]
+    .map((g) => [...g].sort((a, b) => t(a) - t(b)))
+    .sort((a, b) => t(a[0]) - t(b[0]))
+    .map((g) => {
+      if (g.length === 1) return formatEventLine(g[0])
+      const first = g[0]
+      const last = g[g.length - 1]
+      const at = (e: AttributedEvent) => (e.timestampUtc ? `${isoSeconds(e.timestampUtc)}${e.siteLocalTime ? ` (${e.siteLocalTime})` : ''}` : 'time unknown')
+      const subject = first.deviceHostname || first.user || first.ioc || 'no device'
+      const ids = g.map((e) => e.sourceRecordId).filter((x): x is string => !!x)
+      const idText = ids.length ? ` (records #${ids[0]} … #${ids[ids.length - 1]})` : ''
+      return `- ${subject} · ${g.length} times, ${at(first)} to ${at(last)} · ${first.source}${idText} · ${first.summary} — ${first.reason}${first.verification ? ` Verify: ${first.verification}` : ''}`
+    })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Item 7 — Co-managed awareness (company profile)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1041,6 +1073,13 @@ export function lintCustomerMessage(text: string, opts: { lockdownPermitted: boo
 export const NOTE_HEADER = '═══ SOC ANALYST ASSESSMENT ═══'
 export const NOTE_END = '═══ END SOC ASSESSMENT ═══'
 
+/**
+ * Autotask rejects a TicketNotes.description over 32,000 characters (Kaseya
+ * REST docs: `description string (32000)`). The note is kept under this, with
+ * headroom for line-ending conversion, so the write can never fail on size.
+ */
+export const NOTE_MAX_CHARS = 30000
+
 const CLASS_LABEL: Record<SocClassification, string> = {
   confirmed_malicious: 'CONFIRMED MALICIOUS',
   suspicious_review: 'SUSPICIOUS — NEEDS REVIEW',
@@ -1107,7 +1146,9 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   L.push('')
   L.push('CONTEXT (does not raise or lower confidence)')
   const ctx = byDisp('context')
-  L.push(...(ctx.length ? ctx.map(formatEventLine) : ['- none']))
+  const ctxStart = L.length
+  L.push(...(ctx.length ? formatEventGroups(ctx) : ['- none']))
+  const ctxEnd = L.length
   for (const c of n.changeContext) L.push(`- ${c.label}`)
   L.push('')
   L.push('TCT-INITIATED CHANGES (fleet-wide patterns; events inside are excluded from corroboration)')
@@ -1118,14 +1159,14 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
   const inWin = byDisp('tct_change')
   if (inWin.length) {
     L.push('  Events inside these windows:')
-    L.push(...inWin.map((e) => `  ${formatEventLine(e)}`))
+    L.push(...formatEventGroups(inWin).map((line) => `  ${line}`))
   }
   L.push('')
   L.push('IP ADDRESSES')
   L.push(...(n.ips.length ? n.ips.map((i) => `- ${i.ip}: ${i.label}`) : ['- none found in the evidence']))
   L.push('')
   L.push('DATA GAPS')
-  const gaps = [...n.dataGaps, ...byDisp('data_gap').map((e) => formatEventLine(e).slice(2))]
+  const gaps = [...n.dataGaps, ...formatEventGroups(byDisp('data_gap')).map((line) => line.slice(2))]
   L.push(...(gaps.length ? gaps.map((g) => `- ${g}`) : ['- none']))
   L.push('')
   L.push('WHY THIS CLASSIFICATION (computed in code)')
@@ -1141,7 +1182,31 @@ export function buildAssessmentNote(n: AssessmentNoteInput): string {
     L.push('--- end message ---')
   }
   L.push(NOTE_END)
-  return L.join('\n')
+  return fitNoteToLimit(L, ctxStart, ctxEnd)
+}
+
+/**
+ * Last line of defence for the size limit. Context is the only section that is
+ * both unbounded and not decision-bearing, so it is trimmed first (latest lines
+ * dropped, with a line saying how many); only if that is not enough is the
+ * note cut, always keeping the end marker so an edit-in-place still finds it.
+ */
+export function fitNoteToLimit(lines: string[], ctxStart: number, ctxEnd: number, max = NOTE_MAX_CHARS): string {
+  let text = lines.join('\n')
+  if (text.length <= max) return text
+  const ctx = lines.slice(ctxStart, ctxEnd)
+  const before = lines.slice(0, ctxStart)
+  const after = lines.slice(ctxEnd)
+  let keep = ctx.length
+  while (keep > 0) {
+    keep--
+    const omitted = ctx.length - keep
+    const marker = `- [${omitted} more context line(s) omitted to fit Autotask's 32,000-character note limit — see the source portals]`
+    text = [...before, ...ctx.slice(0, keep), marker, ...after].join('\n')
+    if (text.length <= max) return text
+  }
+  const tail = `\n[Note cut to fit Autotask's 32,000-character limit]\n${NOTE_END}`
+  return text.slice(0, max - tail.length) + tail
 }
 
 /** Deterministic technician steps, scoped by the evidence. */
