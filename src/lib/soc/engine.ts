@@ -22,7 +22,7 @@ import {
   buildCustomerMessage,
   classificationLabel,
   classifyFromEvidence,
-  formatEventLine,
+  formatEventGroups,
   formatVisibilityLines,
   guardNarrative,
   isVerifiedVisibility,
@@ -597,7 +597,7 @@ async function assessGroup(
   // ── Narrative (the LLM describes; it does not decide).
   let narrative: { executiveSummary?: string; customerImpact?: string } | null = null;
   let narrativeRemoved: string[] = [];
-  const byDisp = (d: AttributedEvent['disposition']) => events.filter(e => e.disposition === d).map(formatEventLine);
+  const byDisp = (d: AttributedEvent['disposition']) => formatEventGroups(events.filter(e => e.disposition === d));
   if (rt.llm === 'on') {
     try {
       onAiCall();
@@ -910,11 +910,17 @@ function classificationToAction(
   return 'investigate';
 }
 
-/** "AzureAD\\EmilyArmstrong" → "EmilyArmstrong": the RMM account, never presented as an owner. */
-function lastSignedInName(raw: string | null): string | null {
+/**
+ * "AzureAD\\EmilyArmstrong" → "Emily Armstrong": the RMM account, never
+ * presented as an owner. A run-together name is spaced at its case changes
+ * only when it is letters alone — "jsmith", "emily.armstrong" and UPNs are
+ * left exactly as the RMM reported them rather than guessed at.
+ */
+export function lastSignedInName(raw: string | null): string | null {
   if (!raw) return null
   const t = raw.split('\\').pop()?.trim() ?? ''
-  return t || null
+  if (!t) return null
+  return /^[A-Za-z]+$/.test(t) ? t.replace(/([a-z])([A-Z])/g, '$1 $2') : t
 }
 
 /** Does this ticket already carry a (non-skip) SOC analysis row? */

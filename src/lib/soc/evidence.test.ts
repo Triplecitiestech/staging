@@ -7,6 +7,10 @@ import {
   classifyIp,
   detectAutotaskChangeContext,
   detectFleetChangeWindows,
+  fitNoteToLimit,
+  formatEventGroups,
+  NOTE_END,
+  NOTE_MAX_CHARS,
   guardNarrative,
   isVerifiedVisibility,
   lintCustomerMessage,
@@ -274,5 +278,60 @@ describe('identity-change detection ignores remediation boilerplate', () => {
     const t = { title: 'Defender Detected Trojan:Win32/NSteal.SA on WIL0170', description: 'Description: Known Bad\n\nRemediation: Conduct a password reset across all affected systems', } as SecurityTicket
     expect(isIdentityChangeAlert(t)).toBe(false)
     expect(isIdentityChangeAlert({ ...t, title: 'user@x.com/Respond: Multiple MFA Auth Failure' })).toBe(true)
+  })
+})
+
+
+describe('assessment note size (T20260929.0016: a 36,286-char note exceeded Autotask\'s 32,000 limit and was never written)', () => {
+  const ctxEvent = (i: number, device = 'ER-001', summary = 'Other RocketCyber detection: Attempted Credential Stealing From lsass.exe'): AttributedEvent => ({
+    source: 'RocketCyber', sourceRecordId: `rec-${i}`, deviceHostname: device, user: null, ioc: null,
+    timestampUtc: new Date(Date.UTC(2026, 8, 11, 13, i)).toISOString(), signal: 'malicious', summary,
+    key: `k${i}`, siteLocalTime: null, siteTimezone: 'America/New_York', attributed: true, missing: [],
+    relation: 'same_device', independent: false, changeWindow: null, disposition: 'context',
+    reason: 'Reported by the same source that raised the alert (RocketCyber) — not independent.', verification: null,
+  })
+
+  it('collapses 100 identical detections on one device into ONE line with the count and first/last time', () => {
+    const lines = formatEventGroups(Array.from({ length: 100 }, (_, i) => ctxEvent(i)))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('100 times')
+    expect(lines[0]).toContain('2026-09-11T13:00:00Z')
+    expect(lines[0]).toContain('#rec-0 … #rec-99')
+  })
+
+  it('keeps different devices and different detections as separate lines, in time order', () => {
+    const lines = formatEventGroups([ctxEvent(5, 'ER-002'), ctxEvent(1), ctxEvent(2), ctxEvent(3, 'ER-001', 'Other detection: X')])
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toContain('2 times')
+    expect(lines[1]).toContain('Other detection: X')
+    expect(lines[2]).toContain('ER-002')
+  })
+
+  it('a single event renders exactly as before', () => {
+    expect(formatEventGroups([ctxEvent(1)])[0]).not.toContain('times,')
+  })
+
+  it('trims context lines, never the decision-bearing sections, and keeps the end marker', () => {
+    const ctx = Array.from({ length: 2000 }, (_, i) => `- context line ${i} ${'x'.repeat(40)}`)
+    const lines = ['HEADER', 'CONTEXT', ...ctx, 'WHY THIS CLASSIFICATION', 'CUSTOMER UPDATE: sent', NOTE_END]
+    const out = fitNoteToLimit(lines, 2, 2 + ctx.length)
+    expect(out.length).toBeLessThanOrEqual(NOTE_MAX_CHARS)
+    expect(NOTE_MAX_CHARS).toBeLessThan(32000)
+    expect(out).toContain('WHY THIS CLASSIFICATION')
+    expect(out).toContain('CUSTOMER UPDATE: sent')
+    expect(out.endsWith(NOTE_END)).toBe(true)
+    expect(out).toMatch(/more context line\(s\) omitted to fit Autotask's 32,000-character note limit/)
+  })
+
+  it('cuts the note (keeping the end marker) only when trimming context alone cannot fit it', () => {
+    const lines = ['HEADER', 'x'.repeat(40000), NOTE_END]
+    const out = fitNoteToLimit(lines, 1, 1)
+    expect(out.length).toBeLessThanOrEqual(NOTE_MAX_CHARS)
+    expect(out.endsWith(NOTE_END)).toBe(true)
+  })
+
+  it('leaves a note under the limit byte-identical', () => {
+    const lines = ['a', 'b', NOTE_END]
+    expect(fitNoteToLimit(lines, 1, 2)).toBe(lines.join('\n'))
   })
 })

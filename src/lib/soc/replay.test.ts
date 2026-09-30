@@ -536,3 +536,14 @@ describe('Kill switch SOC_AUTO_CUSTOMER_NOTIFY', () => {
     expect(a.source).toBe('default')
   })
 })
+
+describe('lastSignedInName (the RMM login shown to the customer)', () => {
+  it('spaces a run-together name and strips the domain', async () => {
+    const { lastSignedInName } = await import('./engine')
+    expect(lastSignedInName('AzureAD\\EmilyArmstrong')).toBe('Emily Armstrong')
+    expect(lastSignedInName('jsmith')).toBe('jsmith')
+    expect(lastSignedInName('CORP\\emily.armstrong')).toBe('emily.armstrong')
+    expect(lastSignedInName('emily@ezred.com')).toBe('emily@ezred.com')
+    expect(lastSignedInName(null)).toBeNull()
+  })
+})
