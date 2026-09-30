@@ -525,7 +525,7 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
 
             {enrichment.m365Identity.permissionGaps.length > 0 && (
               <p className="text-xs text-rose-400">
-                Partial read — could not access: {enrichment.m365Identity.permissionGaps.join('; ')}. Grant these Graph permissions in the customer&apos;s app registration.
+                Partial read — could not access: {enrichment.m365Identity.permissionGaps.join('; ')}.
               </p>
             )}
           </div>
