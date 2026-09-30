@@ -679,7 +679,8 @@ async function assessGroup(
   const needsAuditLog = facts.some(f => f.label === 'SaaS Alerts data quality' && /incomplete/i.test(f.value))
     || /privilege|app grant|oauth|consent|service principal|role/i.test(primaryDet.actionReported ?? '');
   const m365Readable = visibility.some(v => v.source === 'M365' && v.state === 'connected');
-  const actions = technicianActions(cls, primaryDet, {
+  const findings = enrichment.accountFindings ?? null;
+  const baseActions = technicianActions(cls, primaryDet, {
     coManaged: profile.coManaged, hasTctChange: windows.length > 0, notConnected,
     hasRuleTriage: !!enrichment.alertTriage,
     auditLogNeeded: primaryDet.recordSource.startsWith('SaaS Alerts') && needsAuditLog && !(enrichment.m365Identity?.privilegeEvents?.length)
@@ -689,6 +690,11 @@ async function assessGroup(
       ? { user: primaryDet.user, events: enrichment.m365Identity.privilegeEvents }
       : null,
   });
+  // For an account alert the computed next step already reflects what was
+  // checked; the generic audit-log / privilege steps would repeat or contradict it.
+  const actions = findings
+    ? [findings.nextStep, ...baseActions.filter(x => !/^(Read the Microsoft Entra audit log|Ask .* whether they intended this)/.test(x))]
+    : baseActions;
   const tenantRootCause = signals?.recurrence?.recurringPattern ? defaultTenantRootCause(signals) : null;
   const internalNote = buildAssessmentNote({
     ticketNumber: primary.ticketNumber,
@@ -706,7 +712,8 @@ async function assessGroup(
     ips: enrichment.ipClassifications ?? [],
     dataGaps: [...dataGaps, ...(enrichment.contextSummaries ?? [])],
     profile,
-    narrative: narrative?.executiveSummary ?? null,
+    narrative: findings ? null : (narrative?.executiveSummary ?? null),
+    bottomLine: findings?.summary ?? null,
     narrativeRemoved,
     technicianActions: actions,
     customerUpdate: { status: customerStatus, message: customerMessage },
@@ -717,7 +724,7 @@ async function assessGroup(
   });
 
   const finalVerdict = classificationToVerdict(cls.classification);
-  const finalReasoning = narrative?.executiveSummary || cls.rationale.join(' ');
+  const finalReasoning = findings ? findings.summary.join(' ') : (narrative?.executiveSummary || cls.rationale.join(' '));
   const recommendedAction = classificationToAction(cls.classification, cls.confidence, config, matchedRules);
   const assessment: SocAssessment = {
     executiveSummary: finalReasoning,

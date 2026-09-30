@@ -138,6 +138,7 @@ export interface EnrichmentBundle {
   alertFacts?: Array<{ label: string; value: string; meaning?: string }>
   alertTriage?: string | null
   accountChecks?: Array<{ label: string; value: string; meaning?: string }>
+  accountFindings?: { summary: string[]; nextStep: string } | null
 }
 
 export interface VisibilityEntry {
@@ -207,6 +208,55 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
 
   return (
     <div className="space-y-6">
+      {/* Bottom line — the answer first */}
+      <Section title="Bottom Line" subtitle={enrichment?.accountFindings ? 'Computed from the checks below — not AI-written' : undefined}>
+        <div className="p-4 space-y-3">
+          {enrichment?.accountFindings?.summary?.length
+            ? (
+              <ul className="space-y-1.5">
+                {enrichment.accountFindings.summary.map((b, i) => (
+                  <li key={i} className="text-sm text-slate-200 flex items-start gap-2"><span className="text-cyan-400 mt-0.5">•</span><span className="break-words">{b}</span></li>
+                ))}
+              </ul>
+            )
+            : <p className="text-sm text-slate-200 whitespace-pre-wrap">{assessment.executiveSummary}</p>}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${meta.bg} ${meta.text}`}>{meta.label}</span>
+            {typeof assessment.confidence === 'number' && (
+              <span className="text-xs text-slate-400">{Math.round(assessment.confidence * 100)}% confidence</span>
+            )}
+            {assessment.riskLevel && (
+              <span className={`text-xs font-medium ${RISK_COLORS[assessment.riskLevel] || 'text-slate-400'}`}>Risk: {assessment.riskLevel.toUpperCase()}</span>
+            )}
+          </div>
+        </div>
+      </Section>
+
+      {/* Final Recommendation */}
+      <div className="border border-cyan-500/40 bg-cyan-500/10 rounded-lg p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-300 mb-2">Next Step</h3>
+        <p className="text-base text-white font-medium whitespace-pre-wrap">{assessment.finalRecommendation}</p>
+        {isFalsePositive && (
+          <p className="text-sm text-green-300 mt-2">No customer notification recommended. Add internal note and close after technician review.</p>
+        )}
+      </div>
+
+      {/* Recommended Technician Actions */}
+      {assessment.recommendedTechnicianActions?.length > 0 && (
+        <Section title="Recommended Technician Actions">
+          <ol className="p-4 space-y-2">
+            {assessment.recommendedTechnicianActions.map((step, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">{i + 1}</span>
+                {/* Strip any leading "N." / "N)" the model baked into the text —
+                    the circle already numbers the step (was rendering "1. 11."). */}
+                <span className="text-sm text-slate-300">{step.replace(/^\s*\d+[.)]\s*/, '')}</span>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+
       {/* What the alert itself says — the source's own fields. First, because it is what a technician acts on. */}
       {enrichment?.alertFacts && enrichment.alertFacts.length > 0 && (
         <Section title="What the Alert Says" subtitle="The source's own fields, verbatim. Lines marked → are our reading of them.">
@@ -244,33 +294,14 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
         </Section>
       )}
 
+      {/* Everything else: available, but out of the way of the answer. */}
+      <details className="group border border-white/10 rounded-lg">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-300 hover:text-white">
+          Supporting detail — visibility, signals, raw evidence, data sources and gaps
+        </summary>
+        <div className="space-y-6 p-4 pt-2">
       {/* Visibility map — what each source could actually see for THIS client. */}
       {enrichment?.visibility && enrichment.visibility.length > 0 && <VisibilityMap entries={enrichment.visibility} profile={enrichment.profile} />}
-
-      {/* Executive Summary */}
-      <Section title="Executive Summary">
-        <div className="p-4 space-y-3">
-          <p className="text-sm text-slate-200 whitespace-pre-wrap">{assessment.executiveSummary}</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${meta.bg} ${meta.text}`}>{meta.label}</span>
-            {typeof assessment.confidence === 'number' && (
-              <span className="text-xs text-slate-400">{Math.round(assessment.confidence * 100)}% confidence</span>
-            )}
-            {assessment.riskLevel && (
-              <span className={`text-xs font-medium ${RISK_COLORS[assessment.riskLevel] || 'text-slate-400'}`}>Risk: {assessment.riskLevel.toUpperCase()}</span>
-            )}
-          </div>
-        </div>
-      </Section>
-
-      {/* Final Recommendation */}
-      <div className={`border rounded-lg p-5 ${meta.bg}`}>
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Final Recommendation</h3>
-        <p className="text-base text-white font-medium whitespace-pre-wrap">{assessment.finalRecommendation}</p>
-        {isFalsePositive && (
-          <p className="text-sm text-green-300 mt-2">No customer notification recommended. Add internal note and close after technician review.</p>
-        )}
-      </div>
 
       {/* Signal Breakdown — the independent axes, never collapsed into one verdict */}
       {enrichment?.signals && <SignalBreakdown signals={enrichment.signals} />}
@@ -570,22 +601,6 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
         </Section>
       )}
 
-      {/* Recommended Technician Actions */}
-      {assessment.recommendedTechnicianActions?.length > 0 && (
-        <Section title="Recommended Technician Actions">
-          <ol className="p-4 space-y-2">
-            {assessment.recommendedTechnicianActions.map((step, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">{i + 1}</span>
-                {/* Strip any leading "N." / "N)" the model baked into the text —
-                    the circle already numbers the step (was rendering "1. 11."). */}
-                <span className="text-sm text-slate-300">{step.replace(/^\s*\d+[.)]\s*/, '')}</span>
-              </li>
-            ))}
-          </ol>
-        </Section>
-      )}
-
       {/* Tenant Root Cause — why this keeps recurring, what to check in the tenant */}
       {assessment.tenantRootCause && (
         <Section title="Tenant Root Cause" subtitle="Recurring pattern detected — what to investigate in this tenant">
@@ -605,6 +620,9 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
           </ul>
         </Section>
       )}
+
+        </div>
+      </details>
 
       {/* Ticket Closure Note — short copy/paste resolution */}
       {assessment.closureNote && (

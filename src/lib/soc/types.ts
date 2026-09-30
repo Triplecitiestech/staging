@@ -715,6 +715,8 @@ export interface EnrichmentBundle {
   alertTriage?: string | null;
   /** What the SOC itself checked about the account and its devices (M365 audit/sign-ins, Datto RMM IP match). */
   accountChecks?: import('./evidence').AlertFact[];
+  /** The computed bottom line + next step for an account alert. */
+  accountFindings?: import('./evidence').AccountFindings | null;
 }
 
 // ── Known Benign Security Events ──
