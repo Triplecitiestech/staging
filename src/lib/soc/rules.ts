@@ -141,6 +141,10 @@ export function isSecurityTicket(ticket: SecurityTicket): boolean {
     'vpn detected', 'gaming process', 'network inspection', 'bittorrent',
     'tor browser', 'tor exit', 'proxy', 'socks', 'blocked', 'firewall',
     'denied', 'quarantine', 'sandbox', 'detection',
+    // Windows account-security events raised by Datto RMM monitoring policies
+    // land in the generic Monitoring Alert queue (T20261001.0011 was skipped).
+    'failed to log on', 'logon failure', 'account security monitoring',
+    'locked out', 'account lockout', 'bad password',
   ];
 
   return securityKeywords.some(kw => text.includes(kw));

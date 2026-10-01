@@ -135,6 +135,17 @@ export async function PUT(request: NextRequest) {
         publish: 1, // All Autotask Users (customer-visible)
       });
 
+      // Record the send on the incident so an automatic run never emails the
+      // customer a second time for it.
+      try {
+        await prisma.$executeRawUnsafe(`
+          UPDATE soc_assessment_records
+          SET "customerNotifyState" = 'sent', "customerNotifiedAt" = now(),
+              "customerNotifyReason" = $2, "updatedAt" = now()
+          WHERE "autotaskTicketId" = $1 AND "customerNotifiedAt" IS NULL
+        `, String(action.autotaskTicketId), `sent by technician ${session.user.email}`);
+      } catch { /* table absent on an older deploy — the note itself was posted */ }
+
       // Set ticket status to Waiting Customer if requested
       if (payload.setStatusWaitingCustomer) {
         // Log the status change intent (actual Autotask ticket PATCH may not work per CLAUDE.md)
