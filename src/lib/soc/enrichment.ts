@@ -47,6 +47,9 @@ import {
   saasAlertFacts,
   buildAccountChecks,
   buildAccountFindings,
+  buildWindowsLogonFindings,
+  parseWindowsLogonFailure,
+  windowsLogonFacts,
   formatLocalTime,
   locationText,
   resolveCompanyProfile,
@@ -282,6 +285,7 @@ export async function enrichTicket(
     if (!signals.geo.alertIp && saasBodyForFacts.ip && privateRange(saasBodyForFacts.ip) === null) signals.geo.alertIp = saasBodyForFacts.ip;
   }
 
+  const winLogonForFacts = parseWindowsLogonFailure(ticket.description || '');
   const accountInput = saasBodyForFacts?.userName ? {
     alertIp: saasBodyForFacts.ip,
     userName: saasBodyForFacts.userName,
@@ -318,8 +322,16 @@ export async function enrichTicket(
     profile: company.profile,
     primary,
     contextSummaries,
-    alertFacts: saasBodyForFacts ? saasAlertFacts(saasBodyForFacts) : [],
-    accountFindings: saasBodyForFacts?.userName && accountInput
+    alertFacts: saasBodyForFacts ? saasAlertFacts(saasBodyForFacts) : winLogonForFacts ? windowsLogonFacts(winLogonForFacts) : [],
+    accountFindings: winLogonForFacts
+      ? buildWindowsLogonFindings(winLogonForFacts, {
+          // The same failure on the same computer in the Datto RMM alerts read for this check.
+          recentCount: Math.max(1, device.rmmAlerts.filter(r =>
+            (r.deviceHostname ?? '').toLowerCase() === (winLogonForFacts.workstation ?? '').toLowerCase()
+            && /failed to log on/i.test(r.contextText)).length),
+          alertLocalTime: formatLocalTime(toIsoUtc(ticket.createDate), company.profile.timezone),
+        })
+      : saasBodyForFacts?.userName && accountInput
       ? buildAccountFindings({
           ...accountInput,
           clientIsScript: !!saasBodyForFacts.userAgent && !/mozilla\/|edg\/|chrome\/|safari\/|firefox\/|outlook|teams|onedrive|microsoft office/i.test(saasBodyForFacts.userAgent),
@@ -421,6 +433,24 @@ export function primaryDetection(
       timestampUtc: body.detectionUtc ?? body.platformTimeUtc,
       actionReported: body.threatSource ? `threat source: ${body.threatSource}` : null,
       executionStatus: body.executionStatus,
+    };
+  }
+  const winLogon = parseWindowsLogonFailure(bodyText);
+  if (winLogon) {
+    const code = winLogon.subStatus && winLogon.subStatus !== '0x0' ? winLogon.subStatus : winLogon.status;
+    return {
+      retrieved: true,
+      recordSource: 'Datto RMM event-log alert (ticket body)',
+      incidentId: winLogon.alertId,
+      threatName: 'Windows failed logon (event 4625)',
+      // A failed logon at the keyboard is a user event; over the network, or a
+      // lockout, it is a possible password-guessing attempt.
+      signal: winLogon.remote || code === '0xc0000234' ? 'suspicious' : 'informational',
+      deviceHostname: winLogon.workstation ?? hostname,
+      user: winLogon.targetAccount ? `${winLogon.targetDomain ? `${winLogon.targetDomain}\\` : ''}${winLogon.targetAccount}` : null,
+      timestampUtc: toIsoUtc(ticket.createDate),
+      actionReported: `logon failed: ${winLogon.failureReason ?? code ?? 'unknown reason'}`,
+      executionStatus: null,
     };
   }
   const saasBody = sourceSystem === 'saas_alerts' ? parseSaasAlertsBody(bodyText) : null;

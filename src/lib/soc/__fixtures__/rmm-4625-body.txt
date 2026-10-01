@@ -1,0 +1,37 @@
+This alert ticket was generated from AEM alert  #00000000-1111-2222-3333-444444444444 for the trigger "An account failed to log on.
+
+Subject:
+	Security ID:		S-1-5-21-0000000000-0000000000-0000000000-1001
+	Account Name:		Alex
+	Account Domain:		PC-01
+	Logon ID:		0x5E9A7
+
+Logon Type:			2
+
+Account For Which Logon Failed:
+	Security ID:		S-1-0-0
+	Account Name:		Alex
+	Account Domain:		PC-01
+
+Failure Information:
+	Failure Reason:		Unknown user name or bad password.
+	Status:			0xC000006E
+	Sub Status:		0xC000006E
+
+Process Information:
+	Caller Process ID:	0x4ecc
+	Caller Process Name:	C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+
+Network Information:
+	Workstation Name:	PC-01
+	Source Network Address:	-
+	Source Port:		-
+
+Detailed Authentication Information:
+	Logon Process:		Advapi  
+	Authentication Package:	Negotiate
+	Transited Services:	-
+	Package Name (NTLM only):	-
+	Key Length:		0
+
+This event is generated when a logon request fails." within the policy "Windows: Account Security Monitoring". We last saw this Aspire TC-885 (Acer) device online at 2026-10-01 08:15:47 UTC. The last known user was "PC-01\Alex".

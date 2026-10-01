@@ -859,6 +859,11 @@ export function classifyFromEvidence(input: ClassificationInput): Classification
     return { ...base, classification: 'insufficient_data', confidence: 0.3, riskLevel: 'medium', rationale }
   }
 
+  if (input.primary.signal === 'informational' && corroborations.length === 0) {
+    rationale.push(`${input.primary.recordSource} reported a user-level event${input.primary.threatName ? ` (${input.primary.threatName})` : ''}, not a detection, and no independent source reported anything about this device, user or IOC.`)
+    return { ...base, classification: 'likely_false_positive', confidence: 0.6, riskLevel: 'low', rationale }
+  }
+
   if (corroborations.length > 0) {
     rationale.push(`${corroborations.length} independent, attributed signal(s) from ${sources.join(', ')} about the same device, user or IOC.`)
     if (multiScopeCompromise) rationale.push(`Corroborated on ${devices.size} device(s) / ${users.size} account(s).`)
@@ -1318,6 +1323,128 @@ export function resolveUserDevices(a: {
   for (const [k, r] of byHost) r.strength = strongHosts.has(k) ? 'strong' : r.basis.length >= 2 ? 'likely' : 'possible'
   const rank = { strong: 0, likely: 1, possible: 2 }
   return [...byHost.values()].sort((x, y) => rank[x.strength] - rank[y.strength])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Windows failed logon (event 4625) raised as a Datto RMM event-log alert
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Microsoft "Table 11: Windows Logon Types" (event 4625 reference). */
+const LOGON_TYPES: Record<string, string> = {
+  '2': 'Interactive — someone at this computer', '3': 'Network — from another computer', '4': 'Batch', '5': 'Service',
+  '7': 'Unlock — unlocking this computer', '8': 'NetworkCleartext — from another computer', '9': 'NewCredentials',
+  '10': 'RemoteInteractive — Remote Desktop', '11': 'CachedInteractive — cached credentials at this computer',
+}
+/** Microsoft NTSTATUS values (MS-ERREF), the ones a failed logon carries. */
+const NTSTATUS: Record<string, string> = {
+  '0xc000006e': 'the user name and password were VALID, but an account restriction blocked the logon (STATUS_ACCOUNT_RESTRICTION)',
+  '0xc000006a': 'wrong password (STATUS_WRONG_PASSWORD)',
+  '0xc0000064': 'the account does not exist (STATUS_NO_SUCH_USER)',
+  '0xc000006d': 'bad user name or authentication information (STATUS_LOGON_FAILURE)',
+  '0xc0000234': 'the account is LOCKED OUT after too many failed attempts (STATUS_ACCOUNT_LOCKED_OUT)',
+  '0xc0000071': 'the password has expired (STATUS_PASSWORD_EXPIRED)',
+  '0xc0000224': 'the password must be changed before first logon (STATUS_PASSWORD_MUST_CHANGE)',
+  '0xc000006f': 'logon outside authorised hours', '0xc0000070': 'logon from an unauthorised workstation',
+  '0xc0000072': 'the account is disabled', '0xc0000193': 'the account has expired',
+  '0xc000015b': 'the user has not been granted this logon type on this computer',
+}
+
+export interface WindowsLogonFailure {
+  alertId: string | null
+  policy: string | null
+  device: string | null
+  lastUser: string | null
+  subjectAccount: string | null
+  targetAccount: string | null
+  targetDomain: string | null
+  logonType: string | null
+  failureReason: string | null
+  status: string | null
+  subStatus: string | null
+  callerProcess: string | null
+  workstation: string | null
+  sourceAddress: string | null
+  remote: boolean
+}
+
+/** Parse a Datto RMM "An account failed to log on" (event 4625) alert body. Null when it is not one. */
+export function parseWindowsLogonFailure(text: string): WindowsLogonFailure | null {
+  if (!/An account failed to log on/i.test(text)) return null
+  const after = (label: string, from = 0) => {
+    const i = text.indexOf(label, from)
+    if (i < 0) return { v: null as string | null, at: -1 }
+    const m = text.slice(i + label.length).match(/^[ \t]*:?[ \t]*([^\r\n]*)/)
+    const v = m?.[1]?.trim() ?? ''
+    return { v: v && v !== '-' ? v : (v === '-' ? '-' : null), at: i }
+  }
+  const failedIdx = text.indexOf('Account For Which Logon Failed')
+  const subj = after('Account Name:')
+  const tgt = failedIdx >= 0 ? after('Account Name:', failedIdx) : { v: null, at: -1 }
+  const tgtDom = failedIdx >= 0 ? after('Account Domain:', failedIdx) : { v: null, at: -1 }
+  const src = after('Source Network Address:').v
+  const type = after('Logon Type:').v
+  const local = !src || src === '-' || src === '::1' || src === '127.0.0.1'
+  return {
+    alertId: text.match(/AEM alert\s+#([0-9a-f-]{36})/i)?.[1] ?? null,
+    policy: text.match(/within the policy\s+"([^"]+)"/i)?.[1] ?? null,
+    device: text.match(/Workstation Name:\s*([A-Za-z0-9._-]+)/)?.[1] ?? null,
+    lastUser: text.match(/last known user was\s+"([^"]+)"/i)?.[1] ?? null,
+    subjectAccount: subj.v === '-' ? null : subj.v,
+    targetAccount: tgt.v === '-' ? null : tgt.v,
+    targetDomain: tgtDom.v === '-' ? null : tgtDom.v,
+    logonType: type,
+    failureReason: after('Failure Reason:').v,
+    status: after('Status:').v?.toLowerCase() ?? null,
+    subStatus: after('Sub Status:').v?.toLowerCase() ?? null,
+    callerProcess: after('Caller Process Name:').v === '-' ? null : after('Caller Process Name:').v,
+    workstation: after('Workstation Name:').v,
+    sourceAddress: src === '-' ? null : src,
+    remote: !local || ['3', '8', '10'].includes(type ?? ''),
+  }
+}
+
+/** The 4625 fields a technician needs, each with Microsoft's meaning. */
+export function windowsLogonFacts(w: WindowsLogonFailure): AlertFact[] {
+  const f: AlertFact[] = []
+  f.push({ label: 'What happened', value: `A logon to ${w.targetDomain ? `${w.targetDomain}\\` : ''}${w.targetAccount ?? 'an account'} failed on ${w.workstation ?? w.device ?? 'the computer'} (Windows event 4625)` })
+  if (w.logonType) f.push({ label: 'Logon type', value: w.logonType, meaning: LOGON_TYPES[w.logonType] ? `Microsoft: ${LOGON_TYPES[w.logonType]}.` : undefined })
+  const code = w.subStatus && w.subStatus !== '0x0' ? w.subStatus : w.status
+  if (code) f.push({ label: 'Why it failed', value: `${w.failureReason ?? ''} ${code}`.trim(), meaning: NTSTATUS[code] ? `Microsoft: ${NTSTATUS[code]}.` : undefined })
+  if (w.callerProcess) {
+    const exe = w.callerProcess.split('\\').pop() ?? w.callerProcess
+    const meaning = /msedge\.exe|chrome\.exe|firefox\.exe/i.test(exe)
+      ? 'A web browser asked for the Windows account password — browsers do this before showing or filling saved passwords. Not a remote attempt.'
+      : /winlogon\.exe|lsass\.exe|logonui\.exe/i.test(exe) ? 'The Windows sign-in screen.' : undefined
+    f.push({ label: 'Process that asked', value: w.callerProcess, meaning })
+  }
+  f.push({
+    label: 'From',
+    value: w.sourceAddress ?? 'no network address (local)',
+    meaning: w.remote ? 'The attempt came over the network — check where that address is.' : 'Made at the computer itself, not from the network.',
+  })
+  if (w.policy) f.push({ label: 'Datto RMM monitor', value: w.policy })
+  if (w.alertId) f.push({ label: 'Datto RMM alert id', value: w.alertId })
+  return f
+}
+
+/** Bottom line + next step for a Windows failed logon, from the event's own fields and how often it recurs. */
+export function buildWindowsLogonFindings(w: WindowsLogonFailure, ctx: { recentCount: number; alertLocalTime: string | null }): AccountFindings {
+  const code = w.subStatus && w.subStatus !== '0x0' ? w.subStatus : w.status
+  const who = w.targetAccount ?? 'the user'
+  const where = w.workstation ?? w.device ?? 'the computer'
+  const exe = w.callerProcess?.split('\\').pop() ?? null
+  const browser = !!exe && /msedge\.exe|chrome\.exe|firefox\.exe/i.test(exe)
+  const summary: string[] = []
+  summary.push(`${who}'s logon failed on ${where}${w.remote ? `, over the network from ${w.sourceAddress ?? 'an unknown address'}` : ', at the computer itself (not from the network)'}.`)
+  if (code && NTSTATUS[code]) summary.push(`Reason (Microsoft): ${NTSTATUS[code]}.`)
+  if (browser) summary.push(`The prompt came from ${exe} — a browser asking for the Windows password, typically before it shows or fills saved passwords.`)
+  summary.push(ctx.recentCount > 1 ? `This has happened ${ctx.recentCount} times on ${where} in the period checked.` : 'This is the only such alert on this computer in the period checked.')
+  const lowRisk = !w.remote && code !== '0xc0000234' && ctx.recentCount < 5
+  const when = ctx.alertLocalTime ?? 'the alert time'
+  const nextStep = lowRisk
+    ? `Ask ${who} whether ${browser ? `${exe} asked for their Windows password` : 'they mistyped their Windows password'} around ${when}. If yes, no further action — close as expected user activity.${code === '0xc000006e' ? ' The restriction code means the password itself was right; if it repeats, check the account\'s logon restrictions (for example a blank password, which Windows only allows at the sign-in screen).' : ''}`
+    : `Treat as a possible password-guessing attempt: confirm with ${who}, check ${w.remote ? `where ${w.sourceAddress ?? 'the source'} is` : 'who had access to the computer'}, and review the account's other failed logons.`
+  return { summary, nextStep }
 }
 
 export interface AccountFindings {
