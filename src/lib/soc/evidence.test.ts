@@ -18,6 +18,9 @@ import {
   deviceUserMatches,
   resolveUserDevices,
   buildAccountFindings,
+  parseWindowsLogonFailure,
+  windowsLogonFacts,
+  buildWindowsLogonFindings,
   parseSaasAlertsBody,
   saasAlertFacts,
   guardNarrative,
@@ -524,5 +527,56 @@ describe('buildAccountFindings — the bottom line and next step (T20260930.0005
   it('an IP that matches none of the sign-ins is not called the user', () => {
     const r = buildAccountFindings({ ...base, alertIp: '203.0.113.9', privilegeEvents: [] })
     expect(r.summary[0]).toMatch(/matches none of .* treat it as possibly not Ghenel/)
+  })
+})
+
+
+describe('Windows failed logon (event 4625) from a Datto RMM alert (T20261001.0011, sanitised)', () => {
+  const body = readFileSync(joinPath(__dirname, '__fixtures__/rmm-4625-body.txt'), 'utf8')
+
+  it('parses the account, logon type, failure code, caller process and source', () => {
+    const w = parseWindowsLogonFailure(body)!
+    expect(w.targetAccount).toBe('Alex')
+    expect(w.targetDomain).toBe('PC-01')
+    expect(w.logonType).toBe('2')
+    expect(w.status).toBe('0xc000006e')
+    expect(w.callerProcess).toMatch(/msedge\.exe$/)
+    expect(w.sourceAddress).toBeNull()
+    expect(w.remote).toBe(false)
+    expect(w.policy).toBe('Windows: Account Security Monitoring')
+    expect(w.alertId).toBe('00000000-1111-2222-3333-444444444444')
+  })
+
+  it('facts carry Microsoft\'s meanings — 0xC000006E means the password was VALID', () => {
+    const f = windowsLogonFacts(parseWindowsLogonFailure(body)!)
+    expect(f.find((x) => x.label === 'Why it failed')!.meaning).toMatch(/user name and password were VALID, but an account restriction blocked the logon/)
+    expect(f.find((x) => x.label === 'Logon type')!.meaning).toBe('Microsoft: Interactive — someone at this computer.')
+    expect(f.find((x) => x.label === 'Process that asked')!.meaning).toMatch(/browser asked for the Windows account password/)
+    expect(f.find((x) => x.label === 'From')!.meaning).toMatch(/at the computer itself/)
+  })
+
+  it('a local, browser-prompted failure is low risk with a concrete question; a lockout or remote failure is not', () => {
+    const w = parseWindowsLogonFailure(body)!
+    const r = buildWindowsLogonFindings(w, { recentCount: 2, alertLocalTime: 'Thu, Oct 1, 2026, 11:31 AM EDT' })
+    expect(r.summary[0]).toBe("Alex's logon failed on PC-01, at the computer itself (not from the network).")
+    expect(r.summary[3]).toBe('This has happened 2 times on PC-01 in the period checked.')
+    expect(r.nextStep).toMatch(/^Ask Alex whether msedge\.exe asked for their Windows password around Thu, Oct 1, 2026, 11:31 AM EDT\. If yes, no further action/)
+    const remote = buildWindowsLogonFindings({ ...w, remote: true, sourceAddress: '203.0.113.5' }, { recentCount: 1, alertLocalTime: null })
+    expect(remote.nextStep).toMatch(/^Treat as a possible password-guessing attempt/)
+    const locked = buildWindowsLogonFindings({ ...w, status: '0xc0000234', subStatus: '0x0' }, { recentCount: 1, alertLocalTime: null })
+    expect(locked.nextStep).toMatch(/^Treat as a possible password-guessing attempt/)
+  })
+
+  it('an informational primary with nothing corroborating is "likely false positive", low risk — never an automatic customer email', () => {
+    const r = classifyFromEvidence({
+      primary: { retrieved: true, recordSource: 'Datto RMM event-log alert (ticket body)', incidentId: 'x', threatName: 'Windows failed logon (event 4625)', signal: 'informational', deviceHostname: 'PC-01', user: 'PC-01\\Alex', timestampUtc: null, actionReported: null, executionStatus: null },
+      events: [], knownBenign: { matched: false }, technicianVerified: false, m365BenignReenrollment: false, identityChange: false, uncorroboratedCap: 0.5,
+    } as never)
+    expect(r.classification).toBe('likely_false_positive')
+    expect(r.riskLevel).toBe('low')
+  })
+
+  it('not a 4625 body → null', () => {
+    expect(parseWindowsLogonFailure('Disk usage above 90%')).toBeNull()
   })
 })
