@@ -785,6 +785,29 @@ async function assessGroup(
     }
   }
 
+  // When the update was NOT sent automatically (no Technical contact or
+  // matching user, kill switch off, SOC dry run), a technician must still be
+  // able to send it: queue the approvable "send customer message" action, as
+  // before automatic sending existed. Approving it posts the customer-visible
+  // note, which Autotask's workflow rule emails to the ticket contact.
+  if (rt.persist && shouldQueueManualSend({ wantsMessage, hasMessage: !!customerMessage, notifyState: notify.state, ticketResolved, plan })) {
+    await createPendingAction({
+      incidentId,
+      autotaskTicketId: primary.autotaskTicketId,
+      ticketNumber: primary.ticketNumber,
+      companyName: primary.companyName || null,
+      actionType: 'send_customer_message',
+      actionPayload: {
+        noteTitle: 'Security Alert Update',
+        noteBody: customerMessage,
+        notePublish: 1,
+        recipient: "the ticket's contact in Autotask (check it before approving — Autotask emails that person)",
+        notSentBecause: plan.statusLine,
+      },
+      previewSummary: `Send the security update on ticket #${primary.ticketNumber} — not sent automatically: ${plan.statusLine}`.slice(0, 500),
+    });
+  }
+
   if (rt.persist && (notify.state === 'sent' || notify.state === 'refused' || notify.state === 'send_failed') && plan.action !== 'none') {
     await logActivity({
       analysisId: null, incidentId, autotaskTicketId: primary.autotaskTicketId,
@@ -1013,6 +1036,18 @@ async function createIncident(
     RETURNING id
   `;
   return result[0].id;
+}
+
+/**
+ * Should a technician get an approvable "send customer message" action? Yes
+ * whenever the update is wanted but did not go out automatically and could
+ * still be sent — no recipient resolved, kill switch off, or SOC dry run.
+ * Never after a send, on a resolved ticket, for a twin, or a second time.
+ */
+export function shouldQueueManualSend(a: { wantsMessage: boolean; hasMessage: boolean; notifyState: string; ticketResolved: boolean; plan: NotifyPlan }): boolean {
+  if (!a.wantsMessage || !a.hasMessage || a.notifyState === 'sent' || a.ticketResolved) return false
+  if (a.plan.action === 'explain') return true
+  return a.plan.action === 'none' && (a.plan.reason === 'kill switch off' || a.plan.reason === 'soc dry run')
 }
 
 async function createPendingAction(action: {

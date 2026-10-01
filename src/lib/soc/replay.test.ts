@@ -655,3 +655,35 @@ describe('SaaS Alerts alert → primary detection and note (T20260930.0005)', ()
     expect(note).toMatch(/Check Entra Enterprise applications for recent consents/)
   })
 })
+
+describe('manual "send customer message" fallback (T20260930.0005: no way to send once auto-send did not)', () => {
+  it('queued when no recipient was resolved, the kill switch is off, or the SOC is in dry run', async () => {
+    const { shouldQueueManualSend } = await import('./engine')
+    const base = { wantsMessage: true, hasMessage: true, notifyState: 'not_sent', ticketResolved: false }
+    expect(shouldQueueManualSend({ ...base, plan: { action: 'explain', reason: 'The ticket has no company', statusLine: 'NOT SENT' } })).toBe(true)
+    expect(shouldQueueManualSend({ ...base, plan: { action: 'none', reason: 'kill switch off', statusLine: '' } })).toBe(true)
+    expect(shouldQueueManualSend({ ...base, plan: { action: 'none', reason: 'soc dry run', statusLine: '' } })).toBe(true)
+  })
+  it('never after a send, on a resolved ticket, for a twin, a repeat, or a classification that needs no update', async () => {
+    const { shouldQueueManualSend } = await import('./engine')
+    const base = { wantsMessage: true, hasMessage: true, notifyState: 'not_sent', ticketResolved: false }
+    const explain = { action: 'explain' as const, reason: 'x', statusLine: '' }
+    expect(shouldQueueManualSend({ ...base, notifyState: 'sent', plan: explain })).toBe(false)
+    expect(shouldQueueManualSend({ ...base, ticketResolved: true, plan: explain })).toBe(false)
+    expect(shouldQueueManualSend({ ...base, wantsMessage: false, plan: explain })).toBe(false)
+    expect(shouldQueueManualSend({ ...base, plan: { action: 'none', reason: 'already sent for this incident', statusLine: '' } })).toBe(false)
+    expect(shouldQueueManualSend({ ...base, plan: { action: 'none', reason: 'twin ticket', statusLine: '' } })).toBe(false)
+  })
+})
+
+describe('security-ticket detection: Windows failed-logon alerts in the Monitoring Alert queue (T20261001.0011)', () => {
+  it('a Datto RMM "An account failed to log on" alert is a security ticket', async () => {
+    const { isSecurityTicket } = await import('./rules')
+    const t = { title: 'An account failed to log on.  Subject: Security ID: S-1-5-21-…', description: 'within the policy "Windows: Account Security Monitoring"', queueLabel: 'Monitoring Alert', sourceLabel: 'Monitoring Alert' }
+    expect(isSecurityTicket(t as never)).toBe(true)
+  })
+  it('an ordinary disk alert in the same queue is not', async () => {
+    const { isSecurityTicket } = await import('./rules')
+    expect(isSecurityTicket({ title: 'Disk usage above 90% on C:', description: 'perf_disk_usage', queueLabel: 'Monitoring Alert', sourceLabel: 'Monitoring Alert' } as never)).toBe(false)
+  })
+})
