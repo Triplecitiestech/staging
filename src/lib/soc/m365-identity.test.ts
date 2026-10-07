@@ -59,3 +59,14 @@ describe('privilege / app-grant audit records (what a Stage 3c alert actually di
     expect(e.details).toEqual(['ConsentContext.IsAdminConsent: True', 'ConsentAction.Permissions: Scope: Mail.Read, offline_access'])
   })
 })
+
+describe('guest-account creation is read from the audit log (T20261007.0015)', () => {
+  it('"Add user" / "Invite external user" are guest adds; a consent is a grant', async () => {
+    const { isGuestAddActivity, toPrivilegeEvent } = await import('./m365-identity')
+    expect(isGuestAddActivity({ activityDisplayName: 'Add user' })).toBe(true)
+    expect(isGuestAddActivity({ activityDisplayName: 'Invite external user' })).toBe(true)
+    expect(isGuestAddActivity({ activityDisplayName: 'Consent to application' })).toBe(false)
+    const e = toPrivilegeEvent({ activityDisplayName: 'Add user', activityDateTime: '2026-10-07T20:21:37Z', result: 'success', initiatedBy: { user: { userPrincipalName: 'user@example.com' } }, targetResources: [{ type: 'User', userPrincipalName: 'guest_partner.example#EXT#@tenant.onmicrosoft.com' }] })
+    expect(e).toMatchObject({ kind: 'guest_added', initiatedBy: 'user@example.com', targets: ['User: guest_partner.example#EXT#@tenant.onmicrosoft.com'] })
+  })
+})

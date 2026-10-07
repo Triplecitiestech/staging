@@ -127,11 +127,15 @@ export async function PUT(request: NextRequest) {
     } else if (action.actionType === 'send_customer_message') {
       // Customer-facing note via Autotask API — publish type 1 (All Autotask Users = visible to customer)
       const { AutotaskClient } = await import('@/lib/autotask');
+      const { resolveSocCustomerNoteType } = await import('@/lib/soc/delivery');
       const client = new AutotaskClient();
+      // The dedicated SOC note type is what the Autotask email rule keys on.
+      const noteType = await resolveSocCustomerNoteType();
+      if (noteType.warning) console.warn('[SOC] customer note type fallback:', noteType.warning);
       await client.createTicketNote(parseInt(String(action.autotaskTicketId), 10), {
         title: String(payload.noteTitle || 'SOC Security Alert - Action Required'),
         description: String(payload.noteBody || ''),
-        noteType: 1,
+        noteType: noteType.id,
         publish: 1, // All Autotask Users (customer-visible)
       });
 

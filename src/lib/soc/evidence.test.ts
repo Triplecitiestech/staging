@@ -22,6 +22,11 @@ import {
   windowsLogonFacts,
   buildWindowsLogonFindings,
   parseSaasAlertsBody,
+  explainAsGuestInvite,
+  extractIpv4s,
+  isCollectorUserAgent,
+  isMicrosoftServiceAddress,
+  siblingSaasEvents,
   saasAlertFacts,
   guardNarrative,
   isVerifiedVisibility,
@@ -392,7 +397,11 @@ describe('SaaS Alerts ticket body (T20260930.0005: the SOC kept only the email a
     const from = f.find((x) => x.label === 'From')!
     expect(from.value).toBe('2001:4453:658:2800:cda5:3382:16bb:7e91 — Sariaya, Philippines (Philippine Long Distance Telephone Company, isp)')
     expect(from.meaning).toMatch(/known anonymous/)
-    expect(f.find((x) => x.label === 'Client')!.meaning).toMatch(/Not a web browser/)
+    // Retracted 2026-10-07: this UA appeared on unrelated accounts and networks
+    // (a PH residential ISP and a Microsoft hosting address), so it is the
+    // collector's, not evidence that a script acted.
+    expect(f.find((x) => x.label === 'Client')!.meaning).toMatch(/service that collected the event/)
+    expect(f.find((x) => x.label === 'Client')!.meaning).not.toMatch(/made by a script/)
     expect(f.find((x) => x.label === 'SaaS Alerts data quality')!.meaning).toMatch(/tenant audit log/)
   })
 
@@ -578,5 +587,103 @@ describe('Windows failed logon (event 4625) from a Datto RMM alert (T20261001.00
 
   it('not a 4625 body → null', () => {
     expect(parseWindowsLogonFailure('Disk usage above 90%')).toBeNull()
+  })
+})
+
+
+describe('T20261007.0015 — a guest added by sharing, from Microsoft\'s own address, is not "possibly not the user"', () => {
+  // Sanitised copies: the Stage 3c alert re-pointed at the Microsoft hosting
+  // address it really came from, and the "New User Added" note SaaS Alerts
+  // posted on the same ticket 23 minutes earlier.
+  const alertBody = readFileSync(joinPath(__dirname, '__fixtures__/saas-alerts-stage3c-body.txt'), 'utf8')
+    .replace(/2001:4453:658:2800:cda5:3382:16bb:7e91/g, '72.152.162.16')
+    .replace('Philippine Long Distance Telephone Company', 'Microsoft Corporation')
+    .replace('Type: isp', 'Type: hosting')
+    .replace('Route: 2001:4453::/32', 'Route: 72.152.0.0/14')
+    .replace('IOC TriggeredAt: 2026-09-30 12:35:03 GMT', 'IOC TriggeredAt: 2026-10-07 20:45:01 GMT')
+  const siblingNote = readFileSync(joinPath(__dirname, '__fixtures__/saas-alerts-new-user-added-note.txt'), 'utf8')
+  const alert = parseSaasAlertsBody(alertBody)!
+  const guestUpn = 'guest_partner.example#EXT#@tenant.onmicrosoft.com'
+  const signIns = [1, 2, 3].map((n) => ({ time: `2026-10-07T1${n}:00:00Z`, ip: '198.51.100.7', location: 'NY', device: 'Windows', deviceName: 'TCT-001', status: 'success' }))
+  const devices = [{ hostname: 'TCT-001', extIpAddress: '198.51.100.7', lastUser: 'AzureAD\\ExampleUser', description: null, lastSeen: null, online: true }]
+  const base = {
+    alertIp: alert.ip, userName: alert.userName, fullName: alert.fullName, alertTimeUtc: alert.iocTriggeredAtUtc,
+    devices, managedDevices: [], signIns, m365Gap: null,
+    alertIpIsMicrosoftService: isMicrosoftServiceAddress(alert),
+  }
+
+  it('a Microsoft hosting address is recognised; an ISP address is not', () => {
+    expect(isMicrosoftServiceAddress(alert)).toBe(true)
+    expect(isMicrosoftServiceAddress(parseSaasAlertsBody(readFileSync(joinPath(__dirname, '__fixtures__/saas-alerts-stage3c-body.txt'), 'utf8'))!)).toBe(false)
+    expect(isMicrosoftServiceAddress({ ipOwner: 'Microsoft Corporation', ipType: 'isp' })).toBe(false)
+  })
+
+  it('the collector user agent is not read as "a script did this"', () => {
+    expect(isCollectorUserAgent('google-api-nodejs-client/10.6.2')).toBe(true)
+    expect(isCollectorUserAgent('python-requests/2.31')).toBe(false)
+  })
+
+  it('reads the sibling "New User Added" note and skips the alert\'s own event', () => {
+    const ev = siblingSaasEvents([{ id: 1, description: siblingNote }, { id: 2, description: alertBody }, { id: 3, description: 'Recap for this thread' }], alert.eventId)
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toMatchObject({ noteId: 1, activityType: 'IAM Event - New User Added', operation: 'Add user', subject: guestUpn, timeUtc: '2026-10-07T20:21:37Z', userName: 'user@example.com' })
+  })
+
+  it('explains the alert as a guest invite from the ticket\'s own SaaS Alerts event when the audit log holds no grant', () => {
+    const siblingEvents = siblingSaasEvents([{ id: 1, description: siblingNote }], alert.eventId)
+    const g = explainAsGuestInvite({ ...base, privilegeEvents: [], siblingEvents })!
+    expect(g).toEqual({ guest: guestUpn, addedBy: 'user@example.com', atUtc: '2026-10-07T20:21:37Z', source: 'SaaS Alerts event on this ticket' })
+  })
+
+  it('explains it from the audit log "Add user" by the same account too', () => {
+    const g = explainAsGuestInvite({ ...base, siblingEvents: [], privilegeEvents: [{ kind: 'guest_added', initiatedBy: 'USER@example.com', time: '2026-10-07T20:21:37Z', activity: 'Add user', result: 'success', ip: null, targets: [`User: ${guestUpn}`], details: [] }] })!
+    expect(g.source).toBe('Microsoft 365 audit log')
+    expect(g.guest).toBe(guestUpn)
+  })
+
+  it('never explains it away when the audit log holds a real grant, was not read, or the guest was added by someone else', () => {
+    const siblingEvents = siblingSaasEvents([{ id: 1, description: siblingNote }], alert.eventId)
+    const grant = { kind: 'grant' as const, initiatedBy: 'user@example.com', time: '2026-10-07T20:40:00Z', activity: 'Consent to application', result: 'success', ip: null, targets: ['ServicePrincipal: X'], details: [] }
+    expect(explainAsGuestInvite({ ...base, privilegeEvents: [grant], siblingEvents })).toBeNull()
+    expect(explainAsGuestInvite({ ...base, privilegeEvents: null, siblingEvents })).toBeNull()
+    expect(explainAsGuestInvite({ ...base, privilegeEvents: [], siblingEvents: siblingSaasEvents([{ id: 1, description: siblingNote.replace('User Name: user@example.com', 'User Name: other@example.com') }], alert.eventId) })).toBeNull()
+    expect(explainAsGuestInvite({ ...base, privilegeEvents: [], siblingEvents: siblingSaasEvents([{ id: 1, description: siblingNote.replace(guestUpn, 'staff@example.com') }], alert.eventId) })).toBeNull()
+  })
+
+  it('bottom line: Microsoft\'s service, a sharing invitation, and a close-if-confirmed next step — never "possibly not"', () => {
+    const siblingEvents = siblingSaasEvents([{ id: 1, description: siblingNote }], alert.eventId)
+    const r = buildAccountFindings({ ...base, privilegeEvents: [], siblingEvents, clientIsScript: false, alertLocalTime: 'Wed, Oct 7, 2026, 4:45 PM EDT' })
+    const text = r.summary.join('\n')
+    expect(text).not.toMatch(/possibly not/)
+    expect(text).not.toMatch(/script or app library/)
+    expect(text).toMatch(/72\.152\.162\.16 belongs to Microsoft's cloud/)
+    expect(text).toMatch(/Most likely a sharing invitation: user@example\.com added the guest guest_partner\.example#EXT#@tenant\.onmicrosoft\.com/)
+    expect(r.nextStep).toMatch(/^Confirm with Example that they shared something with guest_partner/)
+    expect(r.nextStep).toMatch(/no customer update is needed/)
+  })
+
+  it('account checks list the sibling event and do not compare a Microsoft address with sign-ins or the computer', () => {
+    const siblingEvents = siblingSaasEvents([{ id: 1, description: siblingNote }], alert.eventId)
+    const f = buildAccountChecks({ ...base, privilegeEvents: [], siblingEvents })
+    expect(f.find((x) => x.label.startsWith('Other SaaS Alerts event on this ticket'))!.meaning).toMatch(/guest account/)
+    expect(f.find((x) => x.label === 'Sign-ins from the alert IP')!.value).toBe('Not compared')
+    expect(f.find((x) => x.label.startsWith("Account's computer"))!.meaning).toMatch(/not compared — the alert address is Microsoft's own service/)
+  })
+
+  it('classification: likely false positive, low risk — so no customer email', () => {
+    const siblingEvents = siblingSaasEvents([{ id: 1, description: siblingNote }], alert.eventId)
+    const c = classifyFromEvidence({
+      primary: { retrieved: true, recordSource: 'SaaS Alerts alert (ticket body)', incidentId: null, signal: 'suspicious', threatName: alert.iocName, deviceHostname: null, user: alert.userName, timestampUtc: alert.iocTriggeredAtUtc, actionReported: null, executionStatus: null },
+      events: [], knownBenign: { matched: false, matchedOn: null }, technicianVerified: false, identityChange: true, m365BenignReenrollment: false,
+      guestInvite: explainAsGuestInvite({ ...base, privilegeEvents: [], siblingEvents }), uncorroboratedCap: 0.5,
+    })
+    expect(c.classification).toBe('likely_false_positive')
+    expect(c.riskLevel).toBe('low')
+    expect(c.confidence).toBe(0.7)
+    expect(c.rationale[0]).toMatch(/added the guest .* no consent, role or app change/)
+  })
+
+  it('a CIDR route is not listed as an IP address', () => {
+    expect(extractIpv4s('Ip Address: 72.152.162.16\nRoute: 72.152.0.0/14')).toEqual(['72.152.162.16'])
   })
 })

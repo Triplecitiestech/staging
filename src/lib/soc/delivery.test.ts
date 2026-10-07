@@ -74,9 +74,9 @@ type C = SocContactSnapshot
 const NEIL: C = { id: 30683673, companyID: 420, firstName: 'Neil', lastName: 'Cantral', isActive: 1, emailAddress: 'neil@ezred.example.invalid', customerContactRole: 'Yes', receivesEmailNotifications: true }
 const EMILY: C = { id: 30683593, companyID: 420, firstName: 'Emily', lastName: 'Armstrong', isActive: 1, emailAddress: 'EmilyArmstrong@ezred.example.invalid', customerContactRole: null, receivesEmailNotifications: true }
 const KASIE: C = { id: 30683523, companyID: 420, firstName: 'Kasie', lastName: 'Schmitz', isActive: 1, emailAddress: 'KasieSchmitz@ezred.example.invalid', customerContactRole: null, receivesEmailNotifications: true }
-function reads(contacts: C[], ticketContact: number | null = null): SocReads {
+function reads(contacts: C[], ticketContact: number | null = null, companyID: number | null = 420): SocReads {
   return {
-    getTicket: async () => ({ id: 36075, ticketNumber: 'T20260925.0023', title: 't', companyID: 420, contactID: ticketContact }),
+    getTicket: async () => ({ id: 36075, ticketNumber: 'T20260925.0023', title: 't', companyID, contactID: ticketContact }),
     getContact: async (id) => contacts.find((c) => c.id === id) ?? null,
     listCompanyContacts: async () => contacts,
     getNote: async () => null,
@@ -108,6 +108,16 @@ describe('item 8 — who receives it: case A / B / C', () => {
     const p = await plan(reads([EMILY, KASIE], null))
     expect(p.action).toBe('send')
     if (p.action === 'send') expect(p.recipient).toMatchObject({ contactId: EMILY.id, routeCase: 'B', audience: 'end_user', setContactFirst: true })
+  })
+  it('company 0 (the owner company, Triple Cities Tech) is a real company — routed like any other (T20261007.0015)', async () => {
+    const tct = { ...NEIL, id: 30683739, companyID: 0, emailAddress: 'it@owner.example.invalid' }
+    const p = await plan(reads([tct], null, 0))
+    expect(p.action).toBe('send')
+    if (p.action === 'send') expect(p.recipient).toMatchObject({ contactId: 30683739, routeCase: 'A' })
+    expect((await plan(reads([], null, 0), { deviceLastUser: null })).statusLine).not.toMatch(/has no company/)
+  })
+  it('only a MISSING company id means "no company"', async () => {
+    expect((await plan(reads([NEIL], null, null))).statusLine).toBe('NOT SENT — the ticket has no company.')
   })
   it('the RMM user matches on email local part or first+last name, never partially', () => {
     expect(normalizeUserToken('AzureAD\\EmilyArmstrong')).toBe('emilyarmstrong')
@@ -168,5 +178,22 @@ describe('the dry-run store never writes', () => {
     await s.get('1', '9')
     await expect(s.update('1', '9', { status: 'complete' })).rejects.toThrow(/read-only/)
     expect(queries.every((q) => /^\s*SELECT/i.test(q))).toBe(true)
+  })
+})
+
+describe('the SOC customer note carries its own note type (T20261007.0015: the email rule fired on a raw SaaS Alerts note)', () => {
+  it('resolves "SOC Customer Update" by label, never a hardcoded id', async () => {
+    const { __setPicklistFetcher, clearPicklistCache } = await import('@/lib/connector/autotask-picklists')
+    const { resolveSocCustomerNoteType } = await import('./delivery')
+    clearPicklistCache()
+    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 3, label: 'Task Notes' }, { id: 102, label: 'SOC Customer Update' }])
+    expect(await resolveSocCustomerNoteType()).toEqual({ id: 102, warning: null })
+    clearPicklistCache()
+    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 3, label: 'Task Notes' }])
+    const missing = await resolveSocCustomerNoteType()
+    expect(missing.id).toBe(1)
+    expect(missing.warning).toMatch(/No TicketNotes\.noteType value is labelled "SOC Customer Update"/)
+    __setPicklistFetcher(null)
+    clearPicklistCache()
   })
 })

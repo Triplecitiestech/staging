@@ -579,6 +579,7 @@ async function assessGroup(
     technicianVerified: deviceVerification?.verified === true,
     identityChange: signals?.identityChange ?? false,
     m365BenignReenrollment: m365Benign,
+    guestInvite: enrichment.accountBenign ?? null,
     uncorroboratedCap: config.confidence_uncorroborated_cap,
   });
   if (signals) {

@@ -1,0 +1,37 @@
+Organization: Triple Cities Tech
+Product: Microsoft - UserManagement
+Joint type: UserManagement
+Activity type: IAM Event - New User Added
+Event Description: guest_partner.example#EXT#@tenant.onmicrosoft.com
+Date/Time: 2026-10-07 20:21:37 GMT
+Status: low
+Pull Time: 2026-10-07 20:43:30 GMT
+Ip Address: 72.152.162.16
+Country: United States
+Region: VA
+City: Dulles Town Center
+IP Address Owner: Microsoft Corporation
+Type: hosting
+Route: 72.152.0.0/14
+IP Threat Information: 
+known abuser: false, 
+known attacker: false, 
+known anonymous: false, 
+known threat: false, 
+known bogon: false, 
+tor network: false, 
+known proxy: false
+Operation: Add user
+User Name: user@example.com
+Full Name: Example User
+User Id: 00000000-0000-0000-0000-000000000000
+User Licensed: true
+Partner Name: Triple Cities Tech
+Partner Domain: triplecitiestech.com
+Customer Name: Triple Cities Tech
+Device Status Type: Incomplete Event Data
+Event ID: Directory_00000000-0000-0000-0000-000000000001_R0BPC_12720638
+Correlation Id: 00000000-0000-0000-0000-000000000001
+Recommended Action: This logged event does not require immediate action but may be useful for future analysis. 
+
+[SaaS Alerts Analysis](https://manage.saasalerts.com/reports?x=2)

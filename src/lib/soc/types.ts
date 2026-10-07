@@ -529,6 +529,14 @@ export interface M365ManagedDevice {
 }
 
 export interface M365PrivilegeEvent {
+  /**
+   * grant = consent / role / app or credential change (access that persists).
+   * guest_added = a user or B2B guest account created ("Add user", "Invite
+   * external user") — what sharing a file with an outside person produces.
+   */
+  kind?: 'grant' | 'guest_added';
+  /** Who Entra recorded as initiating it (user UPN or app name). */
+  initiatedBy?: string | null;
   time: string;
   activity: string;
   category: string | null;
@@ -717,6 +725,8 @@ export interface EnrichmentBundle {
   accountChecks?: import('./evidence').AlertFact[];
   /** The computed bottom line + next step for an account alert. */
   accountFindings?: import('./evidence').AccountFindings | null;
+  /** A benign explanation the account checks established (e.g. a guest invite by the same account); null = none. */
+  accountBenign?: import('./evidence').GuestInviteExplanation | null;
 }
 
 // ── Known Benign Security Events ──

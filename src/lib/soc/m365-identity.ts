@@ -63,6 +63,16 @@ interface RawDirectoryAudit {
  * grant" alert is about. Matched on Entra's own category first, activity name
  * second; everything else the account did is left out.
  */
+/**
+ * A user or B2B guest account being created — "Add user" / "Invite external
+ * user" in UserManagement. Sharing a OneDrive/SharePoint file with someone
+ * outside the company creates exactly this (T20261007.0015: guest
+ * a customer guest (#EXT#) added 23 minutes before a Stage 3c alert).
+ */
+export function isGuestAddActivity(a: { activityDisplayName?: string; category?: string }): boolean {
+  return /^(add user|invite external user|add external user|redeem external user invite)$/i.test((a.activityDisplayName ?? '').trim())
+}
+
 export function isPrivilegeActivity(a: { activityDisplayName?: string; category?: string }): boolean {
   if (/^(ApplicationManagement|RoleManagement)$/i.test(a.category ?? '')) return true;
   return /consent|app role|role assignment|member to role|service principal|delegated permission|oauth|application|credential|certificate|owner/i.test(a.activityDisplayName ?? '');
@@ -78,6 +88,8 @@ function privilegeDetails(t: NonNullable<RawDirectoryAudit['targetResources']>[n
 
 export function toPrivilegeEvent(a: RawDirectoryAudit): M365PrivilegeEvent {
   return {
+    kind: isGuestAddActivity(a) ? 'guest_added' : 'grant',
+    initiatedBy: a.initiatedBy?.user?.userPrincipalName || a.initiatedBy?.app?.displayName || null,
     time: a.activityDateTime || '',
     activity: a.activityDisplayName || 'unknown activity',
     category: a.category ?? null,
@@ -206,7 +218,7 @@ export async function fetchM365Identity(params: {
       const upn = userPrincipalName?.toLowerCase() ?? null;
       privilegeEvents = (data.value || [])
         .filter(a => idFilter || (upn && (a.initiatedBy?.user?.userPrincipalName || '').toLowerCase() === upn))
-        .filter(isPrivilegeActivity)
+        .filter(a => isPrivilegeActivity(a) || isGuestAddActivity(a))
         .map(toPrivilegeEvent)
         .sort((x, y) => x.time.localeCompare(y.time));
       // The SaaS Alerts "User Id" is assumed to be the Entra object id; if the
@@ -219,7 +231,7 @@ export async function fetchM365Identity(params: {
         );
         privilegeEvents = (all.value || [])
           .filter(a => (a.initiatedBy?.user?.userPrincipalName || '').toLowerCase() === upn)
-          .filter(isPrivilegeActivity)
+          .filter(a => isPrivilegeActivity(a) || isGuestAddActivity(a))
           .map(toPrivilegeEvent)
           .sort((x, y) => x.time.localeCompare(y.time));
       }
