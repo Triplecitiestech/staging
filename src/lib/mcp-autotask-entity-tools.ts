@@ -63,7 +63,7 @@ import {
   type EntityOperation,
 } from '@/lib/connector/autotask-catalogue'
 import { findExemption } from '@/lib/connector/autotask-exemptions'
-import { writePolicyFor } from '@/lib/connector/autotask-write-policy'
+import { isReservedTicketNoteType, RESERVED_NOTE_TYPE_MESSAGE, writePolicyFor } from '@/lib/connector/autotask-write-policy'
 import {
   FAILURE_ENVELOPE_TOOL_NOTE,
   failureResult,
@@ -479,6 +479,15 @@ export function registerAutotaskEntityTools(server: any) {
         const name = resolveEntity(entity)
         await assertOperationPermitted(name, 'create')
         assertNotExempt(name, 'create')
+        if (name === 'TicketNotes' && isReservedTicketNoteType(fields.noteType)) {
+          throwClassified({
+            reasonCode: 'POLICY_BLOCKED',
+            message: RESERVED_NOTE_TYPE_MESSAGE,
+            remediation: 'Use another note type. To email a customer, use autotask_add_customer_note (notifyContact) instead.',
+            surface: 'autotask',
+            details: { entity: name, noteType: fields.noteType },
+          })
+        }
         const plan = await planFields(name, 'create', fields)
         const policy = writePolicyFor(name)
 
@@ -570,6 +579,15 @@ export function registerAutotaskEntityTools(server: any) {
         const name = resolveEntity(entity)
         await assertOperationPermitted(name, 'update')
         assertNotExempt(name, 'update')
+        if (name === 'TicketNotes' && isReservedTicketNoteType(fields.noteType)) {
+          throwClassified({
+            reasonCode: 'POLICY_BLOCKED',
+            message: RESERVED_NOTE_TYPE_MESSAGE,
+            remediation: 'Use another note type. To email a customer, use autotask_add_customer_note (notifyContact) instead.',
+            surface: 'autotask',
+            details: { entity: name, noteType: fields.noteType },
+          })
+        }
         const plan = await planFields(name, 'update', fields)
         const policy = writePolicyFor(name)
 

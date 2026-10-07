@@ -35,6 +35,7 @@ import { getPool } from '@/lib/db-pool'
 import { isSendableEmailAddress } from '@/lib/customer-mail'
 import { observeNotificationAdvance } from '@/lib/autotask-activity'
 import { automationSwitchState, type AutomationSwitchState } from '@/lib/connector/kill-switches'
+import { SOC_CUSTOMER_NOTE_TYPE } from '@/lib/connector/autotask-write-policy'
 import type { CompanySecurityProfile, CustomerAudience } from './evidence'
 import type { SocClassification } from './types'
 
@@ -120,16 +121,24 @@ export const CUSTOMER_UPDATE_PUBLISH = 1
  * (condition "Note Type equal to SOC Customer Update"). Without that, the rule
  * fired on ANY customer-visible note by any resource — SaaS Alerts' raw event
  * notes included (T20261007.0015 emailed a raw "New User Added" dump).
- * Resolved by LABEL at runtime: note-type ids are instance-specific. The type
- * is created by an Autotask admin; until it exists the note falls back to
- * "Task Summary" (1) and the fallback is reported, never silent.
+ * Created by an admin 2026-10-07 as id 201; rule 102 now requires it, so a
+ * note of any other type is NOT emailed. Resolved by LABEL at runtime, with 201
+ * as the fallback when the picklist cannot be read; any drift is reported.
+ * The template inserts the note body verbatim ([Ticket: Note Description
+ * (plain text)]), so the body must be the plain customer message only.
  */
-export const SOC_CUSTOMER_NOTE_TYPE_LABEL = 'SOC Customer Update'
-export const SOC_CUSTOMER_NOTE_TYPE_FALLBACK = 1
+export const SOC_CUSTOMER_NOTE_TYPE_LABEL = SOC_CUSTOMER_NOTE_TYPE.label
+/** Live id 201 (read back 2026-10-07); used only if the live picklist cannot be read. */
+export const SOC_CUSTOMER_NOTE_TYPE_FALLBACK = SOC_CUSTOMER_NOTE_TYPE.id
 
 export async function resolveSocCustomerNoteType(): Promise<{ id: number; warning: string | null }> {
   const { resolvePicklistId } = await import('@/lib/connector/autotask-picklists')
   const r = await resolvePicklistId('TicketNotes', 'noteType', SOC_CUSTOMER_NOTE_TYPE_LABEL, SOC_CUSTOMER_NOTE_TYPE_FALLBACK)
+  if (r.resolvedFrom !== 'fallback' && r.id !== SOC_CUSTOMER_NOTE_TYPE.id) {
+    // The label moved to a different id: the email rule is keyed on the TYPE, so
+    // follow the live label, but say so.
+    return { id: r.id, warning: `"${SOC_CUSTOMER_NOTE_TYPE_LABEL}" is now id ${r.id}, not ${SOC_CUSTOMER_NOTE_TYPE.id}. Check that workflow rule 102 still names this note type.` }
+  }
   return { id: r.id, warning: r.resolvedFrom === 'fallback' ? (r.warning ?? 'Note type not resolved.') : null }
 }
 

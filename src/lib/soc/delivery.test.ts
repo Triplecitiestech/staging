@@ -182,18 +182,83 @@ describe('the dry-run store never writes', () => {
 })
 
 describe('the SOC customer note carries its own note type (T20261007.0015: the email rule fired on a raw SaaS Alerts note)', () => {
-  it('resolves "SOC Customer Update" by label, never a hardcoded id', async () => {
+  it('resolves "SOC Customer Update" to live id 201', async () => {
     const { __setPicklistFetcher, clearPicklistCache } = await import('@/lib/connector/autotask-picklists')
     const { resolveSocCustomerNoteType } = await import('./delivery')
     clearPicklistCache()
-    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 3, label: 'Task Notes' }, { id: 102, label: 'SOC Customer Update' }])
-    expect(await resolveSocCustomerNoteType()).toEqual({ id: 102, warning: null })
-    clearPicklistCache()
-    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 3, label: 'Task Notes' }])
-    const missing = await resolveSocCustomerNoteType()
-    expect(missing.id).toBe(1)
-    expect(missing.warning).toMatch(/No TicketNotes\.noteType value is labelled "SOC Customer Update"/)
+    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 3, label: 'Task Notes' }, { id: 201, label: 'SOC Customer Update' }])
+    expect(await resolveSocCustomerNoteType()).toEqual({ id: 201, warning: null })
     __setPicklistFetcher(null)
     clearPicklistCache()
+  })
+
+  it('falls back to 201 — never to a type the email rule ignores — when the picklist cannot be read', async () => {
+    const { __setPicklistFetcher, clearPicklistCache } = await import('@/lib/connector/autotask-picklists')
+    const { resolveSocCustomerNoteType } = await import('./delivery')
+    clearPicklistCache()
+    __setPicklistFetcher(async () => { throw new Error('network down') })
+    const r = await resolveSocCustomerNoteType()
+    expect(r.id).toBe(201)
+    expect(r.warning).toMatch(/Could not read the live TicketNotes\.noteType picklist/)
+    __setPicklistFetcher(null)
+    clearPicklistCache()
+  })
+
+  it('reports it when the label has moved to another id', async () => {
+    const { __setPicklistFetcher, clearPicklistCache } = await import('@/lib/connector/autotask-picklists')
+    const { resolveSocCustomerNoteType } = await import('./delivery')
+    clearPicklistCache()
+    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 205, label: 'SOC Customer Update' }])
+    const r = await resolveSocCustomerNoteType()
+    expect(r.id).toBe(205)
+    expect(r.warning).toMatch(/now id 205, not 201.*rule 102/)
+    __setPicklistFetcher(null)
+    clearPicklistCache()
+  })
+})
+
+describe('note type 201 is reserved for the SOC — every other write path refuses it', () => {
+  it('recognises 201 however it arrives, and nothing else', async () => {
+    const { isReservedTicketNoteType, SOC_CUSTOMER_NOTE_TYPE } = await import('@/lib/connector/autotask-write-policy')
+    expect(SOC_CUSTOMER_NOTE_TYPE).toEqual({ id: 201, label: 'SOC Customer Update' })
+    expect(isReservedTicketNoteType(201)).toBe(true)
+    expect(isReservedTicketNoteType('201')).toBe(true)
+    for (const v of [1, 3, 13, null, undefined, '']) expect(isReservedTicketNoteType(v)).toBe(false)
+  })
+
+  it('the connector note writer refuses 201 before sending anything', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const { createTicketNote } = await import('@/lib/autotask-write')
+    await expect(createTicketNote(1, { title: 't', description: 'd', publish: 1, noteType: 201 })).rejects.toThrow(/reserved for the SOC analyzer/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+})
+
+describe('the live SOC writer posts the customer update as noteType 201, publish 1, body = the message only', () => {
+  it('sends exactly what Autotask rule 102 and its plain-text template need', async () => {
+    vi.resetModules()
+    const posted: Array<Record<string, unknown>> = []
+    vi.doMock('@/lib/autotask', () => ({
+      AutotaskClient: class {
+        async createTicketNote(ticketId: number, data: Record<string, unknown>) { posted.push({ ticketId, ...data }); return { id: 777 } }
+      },
+    }))
+    const { __setPicklistFetcher, clearPicklistCache } = await import('@/lib/connector/autotask-picklists')
+    clearPicklistCache()
+    __setPicklistFetcher(async () => [{ id: 1, label: 'Task Summary' }, { id: 201, label: 'SOC Customer Update' }])
+    const { liveWriter } = await import('./delivery')
+    const w = await liveWriter()
+    const message = 'We received a security alert about the account user@example.com.\n\nWhat we recommend, in this order:\n1. Confirm with the account holder.'
+    const r = await w.createCustomerNote(36101, 'Security Alert Update', message)
+    expect(r).toEqual({ noteId: 777, noteTypeWarning: null })
+    expect(posted).toEqual([{ ticketId: 36101, title: 'Security Alert Update', description: message, noteType: 201, publish: 1 }])
+    // The internal assessment note never uses the reserved type.
+    await w.createInternalNote(36101, 'SOC Analyst Assessment', 'internal')
+    expect(posted[1]).toMatchObject({ noteType: 1, publish: 2 })
+    __setPicklistFetcher(null)
+    clearPicklistCache()
+    vi.doUnmock('@/lib/autotask')
+    vi.resetModules()
   })
 })
