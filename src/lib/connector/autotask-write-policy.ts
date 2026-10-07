@@ -126,6 +126,26 @@ export const OPERATIONAL_ENTITIES: readonly string[] = [
 const operationalSet = new Set(OPERATIONAL_ENTITIES.map((e) => e.toLowerCase()))
 
 /**
+ * Ticket note type reserved for the SOC analyzer's customer-visible update.
+ *
+ * Autotask workflow rule 102 "SOC - Email Ticket Contact on Customer-Visible
+ * Note" emails the ticket contact ONLY for notes of this type, and its template
+ * inserts the note body verbatim. So a note of this type IS a customer email:
+ * only the SOC may write it. Id 201 was created by an admin on 2026-10-07 and
+ * read back live (TicketNotes.noteType 201 "SOC Customer Update",
+ * autotask_entity_picklist). Every other ticket-note write path refuses it.
+ */
+export const SOC_CUSTOMER_NOTE_TYPE = { id: 201, label: 'SOC Customer Update' } as const
+
+/** True when a write is asking for the SOC-only note type. */
+export function isReservedTicketNoteType(noteType: unknown): boolean {
+  return noteType != null && Number(noteType) === SOC_CUSTOMER_NOTE_TYPE.id
+}
+
+export const RESERVED_NOTE_TYPE_MESSAGE =
+  `TicketNotes noteType ${SOC_CUSTOMER_NOTE_TYPE.id} ("${SOC_CUSTOMER_NOTE_TYPE.label}") is reserved for the SOC analyzer: Autotask workflow rule 102 emails the ticket contact for every note of that type, so writing one anywhere else sends a customer email.`
+
+/**
  * The write policy for one entity.
  *
  * Never throws and never returns "unavailable": an unknown entity is `staged`,

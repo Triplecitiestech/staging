@@ -11,6 +11,8 @@
 //
 // TicketNotes publish: 1 = External/customer-visible, 2 = Internal only.
 
+import { isReservedTicketNoteType, RESERVED_NOTE_TYPE_MESSAGE } from '@/lib/connector/autotask-write-policy'
+
 const RAW_BASE = process.env.AUTOTASK_API_BASE_URL || ''
 
 function baseUrl(): string {
@@ -183,6 +185,9 @@ export async function createTicketNote(
   data: { title: string; description: string; publish?: number; noteType?: number },
   impersonationResourceId?: number
 ): Promise<unknown> {
+  // The SOC writes its customer note through AutotaskClient, never here; a
+  // connector write of that type would fire the customer-email rule.
+  if (isReservedTicketNoteType(data.noteType)) throw new Error(RESERVED_NOTE_TYPE_MESSAGE)
   const payload = { ticketID, title: data.title, description: data.description, noteType: data.noteType ?? 1, publish: data.publish ?? 1 }
   try {
     return await post(`Tickets/${ticketID}/Notes`, payload, impersonationResourceId)

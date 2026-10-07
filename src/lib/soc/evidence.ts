@@ -216,6 +216,9 @@ export function extractIpv4s(text: string): string[] {
     // Skip Windows version strings like 10.0.26100 that are not four octets anyway,
     // and 0.0.0.0 placeholders.
     if (ip === '0.0.0.0') continue
+    // A CIDR route ("72.152.0.0/14" in a SaaS Alerts body) is a network, not an
+    // address anything connected from (T20261007.0015 listed 72.152.0.0).
+    if (text[(m.index ?? 0) + ip.length] === '/') continue
     found.add(ip)
   }
   return Array.from(found).sort()
@@ -791,6 +794,12 @@ export interface ClassificationInput {
   technicianVerified: boolean
   identityChange: boolean
   m365BenignReenrollment: boolean
+  /**
+   * A specific benign explanation the account checks proved from the tenant
+   * or the ticket's own SaaS Alerts events (e.g. the same account added a
+   * guest by sharing, with no consent, role or app change). Null = none.
+   */
+  guestInvite?: GuestInviteExplanation | null
   uncorroboratedCap: number
 }
 
@@ -839,7 +848,7 @@ export function classifyFromEvidence(input: ClassificationInput): Classification
     multiScopeCompromise,
   }
 
-  const positiveBenign = input.knownBenign.matched || input.technicianVerified || input.m365BenignReenrollment
+  const positiveBenign = input.knownBenign.matched || input.technicianVerified || input.m365BenignReenrollment || !!input.guestInvite
   if (positiveBenign && corroborations.length === 0) {
     if (input.knownBenign.matched) {
       rationale.push(`Matches a Known Benign catalogue entry (matched on ${input.knownBenign.matchedOn ?? 'artifact'}) and nothing independent contradicts it.`)
@@ -849,6 +858,11 @@ export function classifyFromEvidence(input: ClassificationInput): Classification
     if (input.technicianVerified) {
       rationale.push('Source IP verified as a TCT technician device and nothing independent contradicts it.')
       return { ...base, classification: 'likely_false_positive', confidence: 0.8, riskLevel: 'low', rationale }
+    }
+    if (input.guestInvite) {
+      const g = input.guestInvite
+      rationale.push(`${g.addedBy} added the guest ${g.guest}${g.atUtc ? ` at ${g.atUtc}` : ''} before the alert (${g.source}) — the pattern of sharing a file with someone outside the company — and the Microsoft 365 audit log holds no consent, role or app change by that account.`)
+      return { ...base, classification: 'likely_false_positive', confidence: 0.7, riskLevel: 'low', rationale }
     }
     rationale.push('The client\'s own Microsoft 365 tenant confirms a benign re-enrollment (method removed and a strong method re-registered).')
     return { ...base, classification: 'likely_false_positive', confidence: 0.75, riskLevel: 'low', rationale }
@@ -1114,6 +1128,8 @@ export interface SaasAlertBody {
   fullName: string | null
   /** Entra object id of the account ("User Id"). */
   userId: string | null
+  /** The directory operation SaaS Alerts recorded, e.g. "Add user". */
+  operation: string | null
   userAgent: string | null
   deviceStatus: string | null
   eventId: string | null
@@ -1172,6 +1188,7 @@ export function parseSaasAlertsBody(text: string): SaasAlertBody | null {
     userName: line('User Name'),
     fullName: line('Full Name'),
     userId: line('User Id'),
+    operation: line('Operation'),
     userAgent: line('Device User Agent'),
     deviceStatus: line('Device Status Type'),
     eventId: line('Event ID'),
@@ -1188,10 +1205,33 @@ export function locationText(b: Pick<SaasAlertBody, 'city' | 'region' | 'country
   return parts.length ? parts.join(', ') : null
 }
 
+/**
+ * The alert address belongs to Microsoft's own cloud (SaaS Alerts reports the
+ * owner and the network type). On a directory event that is Microsoft's
+ * service acting for the account — SharePoint creating a sharing guest, Entra
+ * applying a change — NOT the person's own connection, so it can be compared
+ * with neither their sign-ins nor their computer's IP (T20261007.0015).
+ */
+export function isMicrosoftServiceAddress(b: Pick<SaasAlertBody, 'ipOwner' | 'ipType'>): boolean {
+  return /\bmicrosoft\b/i.test(b.ipOwner ?? '') && /hosting|data ?cent(er|re)|cloud/i.test(b.ipType ?? '')
+}
+
+/**
+ * User agents that SaaS Alerts reports on events for UNRELATED accounts and
+ * networks — the same "google-api-nodejs-client/10.6.2" on a residential
+ * Philippine address (T20260930.0005) and a Microsoft data-centre address
+ * (T20261007.0015). A value shared across unrelated actors describes the
+ * pipeline that fetched the event, not what the person ran.
+ */
+export function isCollectorUserAgent(ua: string | null | undefined): boolean {
+  return /^google-api-nodejs-client\//i.test(ua ?? '')
+}
+
 /** The SaaS Alerts fields a technician needs first, in the order they need them. */
 export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
   const f: AlertFact[] = []
   if (b.activityType) f.push({ label: 'What happened', value: b.activityType })
+  if (b.operation) f.push({ label: 'Operation', value: b.operation })
   if (b.eventDescription) f.push({ label: 'Detail', value: b.eventDescription.replace(/\s*\n\s*/g, ' ') })
   const who = [b.fullName, b.userName].filter(Boolean).join(' — ')
   if (who) f.push({ label: 'Account', value: who })
@@ -1204,7 +1244,9 @@ export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
     f.push({
       label: 'From',
       value: `${b.ip}${loc ? ` — ${loc}` : ''}${owner ? ` (${owner})` : ''}`,
-      meaning: b.ipFlagsTrue.length ? `SaaS Alerts flags this address: ${b.ipFlagsTrue.join(', ')}.` : 'SaaS Alerts flags none of abuser / attacker / threat / proxy / Tor on this address.',
+      meaning: isMicrosoftServiceAddress(b)
+        ? "A Microsoft cloud (hosting) address — on a directory event this is Microsoft's service acting for the account, not the person's own connection. It cannot be compared with their sign-ins or their computer."
+        : b.ipFlagsTrue.length ? `SaaS Alerts flags this address: ${b.ipFlagsTrue.join(', ')}.` : 'SaaS Alerts flags none of abuser / attacker / threat / proxy / Tor on this address.',
     })
   }
   if (b.userAgent) {
@@ -1213,7 +1255,9 @@ export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
       value: b.userAgent,
       meaning: BROWSER_UA.test(b.userAgent)
         ? undefined
-        : 'Not a web browser or Office app — this action was made by a script, app or API library. Identify which app/integration uses it.',
+        : isCollectorUserAgent(b.userAgent)
+          ? 'SaaS Alerts reports this same value on events for unrelated accounts and networks, so it most likely belongs to the service that collected the event — it does not say what the person used.'
+          : 'Not a web browser or Office app — this action was made by a script, app or API library. Identify which app/integration uses it.',
     })
   }
   if (b.deviceStatus) f.push({ label: 'SaaS Alerts data quality', value: b.deviceStatus, meaning: /incomplete/i.test(b.deviceStatus) ? 'SaaS Alerts did not receive the full event — the app or role name is not in the alert and must be read from the tenant audit log.' : undefined })
@@ -1221,6 +1265,69 @@ export function saasAlertFacts(b: SaasAlertBody): AlertFact[] {
   if (b.eventId) f.push({ label: 'SaaS Alerts event id', value: b.eventId })
   for (const l of b.links) f.push({ label: l.label, value: l.url })
   return f
+}
+
+/** Another SaaS Alerts event already on the same ticket (its own note). */
+export interface SiblingSaasEvent {
+  noteId: number | null
+  activityType: string | null
+  operation: string | null
+  /** For "New User Added" this is the account that was created. */
+  subject: string | null
+  timeUtc: string | null
+  ip: string | null
+  userName: string | null
+  eventId: string | null
+}
+
+/**
+ * Read the OTHER SaaS Alerts events SaaS Alerts posted as notes on this ticket.
+ * They were ignored, so T20261007.0015 never saw the "New User Added" event —
+ * a guest created by the same account from the same address 23 minutes before
+ * the alert fired — which is what explained it.
+ */
+export function siblingSaasEvents(notes: Array<{ id?: number | null; description?: string | null }>, alertEventId: string | null): SiblingSaasEvent[] {
+  const out: SiblingSaasEvent[] = []
+  for (const n of notes) {
+    const b = parseSaasAlertsBody(n.description ?? '')
+    if (!b || (alertEventId && b.eventId === alertEventId)) continue
+    const desc = n.description?.match(/^\s*Event Description:[ \t]*([^\r\n]*)/im)?.[1]?.trim() || null
+    out.push({
+      noteId: n.id ?? null, activityType: b.activityType, operation: b.operation, subject: desc,
+      timeUtc: b.eventTimeUtc, ip: b.ip, userName: b.userName, eventId: b.eventId,
+    })
+  }
+  return out.sort((x, y) => (x.timeUtc ?? '').localeCompare(y.timeUtc ?? ''))
+}
+
+/** A B2B guest's user principal name carries the "#EXT#" marker (Microsoft Entra guest naming). */
+const isGuestUpn = (x: string | null | undefined) => /#EXT#/i.test(x ?? '')
+
+export interface GuestInviteExplanation {
+  guest: string
+  addedBy: string
+  atUtc: string | null
+  source: 'Microsoft 365 audit log' | 'SaaS Alerts event on this ticket'
+}
+
+/**
+ * Does a guest account, added BY THE SAME ACCOUNT before the alert, explain a
+ * "privilege or app grant" alert that the tenant cannot confirm? Requires the
+ * tenant to have been READ (privilegeEvents not null) and to hold NO consent,
+ * role or app change — never inferred from absence of data.
+ */
+export function explainAsGuestInvite(a: Pick<AccountCheckInput, 'userName' | 'alertTimeUtc' | 'privilegeEvents' | 'siblingEvents'>): GuestInviteExplanation | null {
+  if (!a.privilegeEvents || !a.userName) return null
+  if (a.privilegeEvents.some((e) => (e.kind ?? 'grant') === 'grant')) return null
+  const me = a.userName.toLowerCase()
+  const alertMs = a.alertTimeUtc ? Date.parse(a.alertTimeUtc) : NaN
+  const before = (t: string | null | undefined) => !t || Number.isNaN(alertMs) || Date.parse(t) <= alertMs + 5 * 60_000
+  const fromAudit = a.privilegeEvents.find((e) => e.kind === 'guest_added' && (e.initiatedBy ?? '').toLowerCase() === me && e.targets.some(isGuestUpn) && before(e.time))
+  if (fromAudit) return { guest: fromAudit.targets.find(isGuestUpn)!.replace(/^[^:]*:\s*/, ''), addedBy: a.userName, atUtc: fromAudit.time, source: 'Microsoft 365 audit log' }
+  const fromNote = (a.siblingEvents ?? []).find((e) => /new user added/i.test(e.activityType ?? '') && /add user|invite/i.test(e.operation ?? 'add user')
+    && (e.userName ?? '').toLowerCase() === me && isGuestUpn(e.subject) && before(e.timeUtc))
+  if (fromNote) return { guest: fromNote.subject!, addedBy: a.userName, atUtc: fromNote.timeUtc, source: 'SaaS Alerts event on this ticket' }
+  return null
 }
 
 /** A Datto RMM device as the account check needs it. */
@@ -1239,7 +1346,11 @@ export interface AccountCheckInput {
   fullName: string | null
   alertTimeUtc: string | null
   devices: AccountDeviceInput[]
-  privilegeEvents: Array<{ time: string; activity: string; result: string; ip: string | null; targets: string[]; details: string[] }> | null
+  privilegeEvents: Array<{ kind?: 'grant' | 'guest_added'; initiatedBy?: string | null; time: string; activity: string; result: string; ip: string | null; targets: string[]; details: string[] }> | null
+  /** Other SaaS Alerts events already posted on the same ticket — evidence, not noise. */
+  siblingEvents?: SiblingSaasEvent[]
+  /** The alert address is Microsoft's own cloud (see isMicrosoftServiceAddress). */
+  alertIpIsMicrosoftService?: boolean
   signIns: Array<{ time: string; ip: string | null; location: string | null; device: string | null; deviceName?: string | null; status: string }> | null
   /** Intune devices whose user is the account; null = not read. */
   managedDevices?: Array<{ deviceName: string; operatingSystem: string | null; lastSyncDateTime: string | null; complianceState: string | null }> | null
@@ -1466,7 +1577,13 @@ export function buildAccountFindings(a: AccountCheckInput & { clientIsScript: bo
   const summary: string[] = []
   // Who: the alert IP against the account's own sign-ins.
   let sameIp = 0
-  if (a.signIns && a.alertIp) {
+  const guest = explainAsGuestInvite(a)
+  if (a.alertIp && a.alertIpIsMicrosoftService) {
+    // A Microsoft hosting address on a directory event is Microsoft's own
+    // service acting for the account — comparing it with the person's
+    // sign-ins says nothing about who did it (T20261007.0015).
+    summary.push(`The alert address ${a.alertIp} belongs to Microsoft's cloud: Microsoft's service carried out the change for ${who}'s account, so it is not compared with ${firstName}'s own sign-ins or computer.`)
+  } else if (a.signIns && a.alertIp) {
     sameIp = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase()).length
     const ok = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase() && /^success/.test(s.status)).length
     summary.push(sameIp
@@ -1484,7 +1601,8 @@ export function buildAccountFindings(a: AccountCheckInput & { clientIsScript: bo
   const top = resolved[0]
   if (top) {
     const d = top.rmm
-    const ipLine = !d || !d.extIpAddress || !a.alertIp ? 'its IP could not be compared with the alert'
+    const ipLine = a.alertIpIsMicrosoftService ? "its IP is not compared — the alert address is Microsoft's own service"
+      : !d || !d.extIpAddress || !a.alertIp ? 'its IP could not be compared with the alert'
       : d.extIpAddress.toLowerCase() === a.alertIp.toLowerCase() ? 'it has the SAME public IP as the alert'
         : isV6(a.alertIp) !== isV6(d.extIpAddress) ? `its public IP (${d.extIpAddress}) cannot be compared with the IPv${isV6(a.alertIp) ? '6' : '4'} alert address`
           : `its public IP (${d.extIpAddress}) is DIFFERENT from the alert's`
@@ -1494,21 +1612,34 @@ export function buildAccountFindings(a: AccountCheckInput & { clientIsScript: bo
   }
   // What: the tenant's record of the grant.
   if (a.privilegeEvents && a.privilegeEvents.length) {
-    const e = a.privilegeEvents[0]
+    const e = a.privilegeEvents.find((x) => (x.kind ?? 'grant') === 'grant') ?? a.privilegeEvents[0]
     summary.push(`Microsoft 365 recorded: "${e.activity}"${e.targets.length ? ` on ${e.targets.join(', ')}` : ''}${e.details.length ? ` — ${e.details[0]}` : ''}${a.privilegeEvents.length > 1 ? ` (+${a.privilegeEvents.length - 1} more)` : ''}.`)
+    if (!a.privilegeEvents.some((x) => (x.kind ?? 'grant') === 'grant')) {
+      summary.push('Microsoft 365 has no consent, role or app change by this account within 6 hours — only a new guest account.')
+    }
   } else if (a.privilegeEvents) {
-    summary.push('Microsoft 365 has NO record of a consent, role or app change by this account within 6 hours — the grant SaaS Alerts reported is not confirmed by the tenant.')
+    summary.push(guest
+      ? 'Microsoft 365 has no consent, role or app change by this account within 6 hours.'
+      : 'Microsoft 365 has NO record of a consent, role or app change by this account within 6 hours — the grant SaaS Alerts reported is not confirmed by the tenant.')
   } else {
     summary.push(`What was granted is unknown: the Microsoft 365 audit log could not be read${a.m365Gap ? ` (${a.m365Gap})` : ''}.`)
+  }
+  if (guest) {
+    summary.push(`Most likely a sharing invitation: ${guest.addedBy} added the guest ${guest.guest} at ${guest.atUtc} (${guest.source}), before the alert. Sharing a file or folder with someone outside the company creates a guest account like this.`)
   }
   if (a.clientIsScript) summary.push('The action came from a script or app library, not a web browser.')
 
   const when = a.alertLocalTime ?? a.alertTimeUtc ?? 'the alert time'
   let nextStep: string
-  if (a.privilegeEvents && a.privilegeEvents.length) {
-    nextStep = `Ask ${firstName} whether they intended "${a.privilegeEvents[0].activity}"${a.privilegeEvents[0].targets.length ? ` on ${a.privilegeEvents[0].targets[0]}` : ''} at ${when}. If not: remove the consent or role, revoke ${firstName}'s sessions, and escalate — a password reset alone does not remove an OAuth grant.`
+  if (guest) {
+    nextStep = `Confirm with ${firstName} that they shared something with ${guest.guest} around ${guest.atUtc}. If yes, close the ticket — no customer update is needed. If not, remove the guest account and treat it as unauthorised.`
+  } else if (a.privilegeEvents && a.privilegeEvents.some((e) => (e.kind ?? 'grant') === 'grant')) {
+    const g = a.privilegeEvents.find((x) => (x.kind ?? 'grant') === 'grant')!
+    nextStep = `Ask ${firstName} whether they intended "${g.activity}"${g.targets.length ? ` on ${g.targets[0]}` : ''} at ${when}. If not: remove the consent or role, revoke ${firstName}'s sessions, and escalate — a password reset alone does not remove an OAuth grant.`
   } else if (a.privilegeEvents && sameIp > 0) {
     nextStep = `Ask ${firstName} what app or script they connected to their account at ${when}${a.clientIsScript ? ' (the alert shows a script library, not a browser)' : ''}. If they don't recognise it, open the SaaS Alerts IOC details link for the raw event and treat it as unauthorised.`
+  } else if (a.privilegeEvents && a.alertIpIsMicrosoftService) {
+    nextStep = `Ask ${firstName} what they changed in Microsoft 365 at ${when}; the address is Microsoft's own service, so it does not show who acted. If they don't recognise it, open the SaaS Alerts IOC details link for the raw event.`
   } else if (a.privilegeEvents) {
     nextStep = `The alert IP is not one ${firstName} signed in from, and Microsoft 365 has no record of the grant — open the SaaS Alerts IOC details link for the raw event, and confirm with ${firstName} before closing.`
   } else {
@@ -1529,8 +1660,11 @@ export function buildAccountChecks(a: AccountCheckInput): AlertFact[] {
   if (a.privilegeEvents === null) {
     f.push({ label: 'Microsoft 365 audit log', value: 'Not read', meaning: a.m365Gap ?? 'The tenant could not be queried.' })
   } else if (a.privilegeEvents.length === 0) {
-    f.push({ label: 'Microsoft 365 audit log', value: 'No consent, role or app change initiated by this account in the ±6h window', meaning: 'The tenant has no matching record — SaaS Alerts may have classified a different action as a grant. Open the SaaS Alerts IOC link to see the raw event.' })
+    f.push({ label: 'Microsoft 365 audit log', value: 'No consent, role, app change or new account by this account in the ±6h window', meaning: 'The tenant has no matching record — SaaS Alerts may have classified a different action as a grant. Open the SaaS Alerts IOC link to see the raw event.' })
   } else {
+    if (!a.privilegeEvents.some((e) => (e.kind ?? 'grant') === 'grant')) {
+      f.push({ label: 'Microsoft 365 audit log', value: 'No consent, role or app change by this account in the ±6h window' })
+    }
     for (const e of a.privilegeEvents) {
       f.push({
         label: `Microsoft 365 audit log — ${e.time.replace(/\.\d+Z$/, 'Z')}`,
@@ -1539,8 +1673,19 @@ export function buildAccountChecks(a: AccountCheckInput): AlertFact[] {
       })
     }
   }
+  // 1b. Other SaaS Alerts events on this ticket.
+  for (const e of a.siblingEvents ?? []) {
+    f.push({
+      label: `Other SaaS Alerts event on this ticket — ${e.timeUtc ?? 'time unknown'}`,
+      value: `${e.activityType ?? 'event'}${e.operation ? ` (${e.operation})` : ''}${e.subject ? `: ${e.subject}` : ''}${e.userName ? ` · by ${e.userName}` : ''}${e.ip ? ` · from ${e.ip}` : ''}`,
+      meaning: isGuestUpn(e.subject) ? 'A guest account (#EXT#) — created when something is shared with a person outside the company.' : undefined,
+    })
+  }
   // 2. Sign-ins: was the alert IP one the account actually signed in from?
-  if (a.signIns && a.alertIp) {
+  //    Not when the address is Microsoft's own service — there is nothing to compare.
+  if (a.signIns && a.alertIp && a.alertIpIsMicrosoftService) {
+    f.push({ label: 'Sign-ins from the alert IP', value: 'Not compared', meaning: `${a.alertIp} is a Microsoft cloud address — Microsoft's service acted for the account, so the person's own sign-ins are not expected to come from it.` })
+  } else if (a.signIns && a.alertIp) {
     const same = a.signIns.filter((s) => s.ip && s.ip.toLowerCase() === a.alertIp!.toLowerCase())
     const samePrefix = isV6(a.alertIp) ? a.signIns.filter((s) => s.ip && isV6(s.ip) && v6Prefix64(s.ip) === v6Prefix64(a.alertIp!) && !same.includes(s)) : []
     const first = same[0] ?? samePrefix[0]
@@ -1572,6 +1717,7 @@ export function buildAccountChecks(a: AccountCheckInput): AlertFact[] {
     const d = r.rmm
     let verdict: string
     if (!d) verdict = 'not in Datto RMM, so no public IP to compare'
+    else if (a.alertIpIsMicrosoftService) verdict = "not compared — the alert address is Microsoft's own service, not a device"
     else if (!a.alertIp || !d.extIpAddress) verdict = 'cannot compare — one of the two addresses is missing'
     else if (d.extIpAddress.toLowerCase() === a.alertIp.toLowerCase()) verdict = 'SAME public IP as the alert'
     else if (isV6(a.alertIp) !== isV6(d.extIpAddress)) verdict = `cannot compare — the alert IP is IPv${isV6(a.alertIp) ? '6' : '4'} and Datto RMM reports IPv${isV6(d.extIpAddress) ? '6' : '4'} for the device; a home connection commonly has both`

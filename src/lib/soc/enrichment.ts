@@ -48,6 +48,11 @@ import {
   buildAccountChecks,
   buildAccountFindings,
   buildWindowsLogonFindings,
+  explainAsGuestInvite,
+  isCollectorUserAgent,
+  isMicrosoftServiceAddress,
+  siblingSaasEvents,
+  type SiblingSaasEvent,
   parseWindowsLogonFailure,
   windowsLogonFacts,
   formatLocalTime,
@@ -286,6 +291,20 @@ export async function enrichTicket(
   }
 
   const winLogonForFacts = parseWindowsLogonFailure(ticket.description || '');
+  // Other SaaS Alerts events SaaS Alerts already posted on this same ticket
+  // (it appends related events as notes) — evidence, e.g. the "New User Added"
+  // guest invite that explains a "privilege grant" alert (T20261007.0015).
+  // Read-only; a failed read degrades to "none" and is recorded as a gap.
+  let siblingEvents: SiblingSaasEvent[] = [];
+  if (saasBodyForFacts?.userName && ticket.autotaskTicketId) {
+    try {
+      const { AutotaskClient } = await import('@/lib/autotask');
+      const notes = await new AutotaskClient().getTicketNotes(Number(ticket.autotaskTicketId));
+      siblingEvents = siblingSaasEvents(notes.map(n => ({ id: n.id, description: n.description ?? '' })), saasBodyForFacts.eventId ?? null);
+    } catch {
+      dataGaps.push('The ticket\'s other SaaS Alerts notes could not be read — related events on this ticket were not considered.');
+    }
+  }
   const accountInput = saasBodyForFacts?.userName ? {
     alertIp: saasBodyForFacts.ip,
     userName: saasBodyForFacts.userName,
@@ -295,6 +314,8 @@ export async function enrichTicket(
     managedDevices: m365Identity ? (m365Identity.managedDevices ?? null) : null,
     privilegeEvents: m365Identity ? (m365Identity.privilegeEvents ?? []) : null,
     signIns: m365Identity ? m365Identity.signIns : null,
+    siblingEvents,
+    alertIpIsMicrosoftService: isMicrosoftServiceAddress(saasBodyForFacts),
     m365Gap,
   } : null;
   const changeContext = detectAutotaskChangeContext(company.work, { fromUtc: changeFrom, toUtc: changeTo, excludeTicketIds: [Number(ticket.autotaskTicketId)] });
@@ -334,23 +355,12 @@ export async function enrichTicket(
       : saasBodyForFacts?.userName && accountInput
       ? buildAccountFindings({
           ...accountInput,
-          clientIsScript: !!saasBodyForFacts.userAgent && !/mozilla\/|edg\/|chrome\/|safari\/|firefox\/|outlook|teams|onedrive|microsoft office/i.test(saasBodyForFacts.userAgent),
+          clientIsScript: !!saasBodyForFacts.userAgent && !isCollectorUserAgent(saasBodyForFacts.userAgent) && !/mozilla\/|edg\/|chrome\/|safari\/|firefox\/|outlook|teams|onedrive|microsoft office/i.test(saasBodyForFacts.userAgent),
           alertLocalTime: accountInput.alertTimeUtc ? formatLocalTime(accountInput.alertTimeUtc, company.profile.timezone) : null,
         })
       : null,
-    accountChecks: saasBodyForFacts?.userName
-      ? buildAccountChecks({
-          alertIp: saasBodyForFacts.ip,
-          userName: saasBodyForFacts.userName,
-          fullName: saasBodyForFacts.fullName,
-          alertTimeUtc: saasBodyForFacts.iocTriggeredAtUtc ?? saasBodyForFacts.eventTimeUtc,
-          devices: device.devices.map(d => ({ hostname: d.hostname, extIpAddress: d.extIpAddress || null, lastUser: d.lastUser || null, description: d.description || null, lastSeen: d.lastSeen || null, online: typeof d.online === 'boolean' ? d.online : null })),
-          managedDevices: m365Identity ? (m365Identity.managedDevices ?? null) : null,
-          privilegeEvents: m365Identity ? (m365Identity.privilegeEvents ?? []) : null,
-          signIns: m365Identity ? m365Identity.signIns : null,
-          m365Gap,
-        })
-      : [],
+    accountChecks: accountInput ? buildAccountChecks(accountInput) : [],
+    accountBenign: accountInput ? explainAsGuestInvite(accountInput) : null,
     alertTriage: saasBodyForFacts?.triage ?? null,
   };
 }

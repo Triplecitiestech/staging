@@ -35,6 +35,7 @@ import { getPool } from '@/lib/db-pool'
 import { isSendableEmailAddress } from '@/lib/customer-mail'
 import { observeNotificationAdvance } from '@/lib/autotask-activity'
 import { automationSwitchState, type AutomationSwitchState } from '@/lib/connector/kill-switches'
+import { SOC_CUSTOMER_NOTE_TYPE } from '@/lib/connector/autotask-write-policy'
 import type { CompanySecurityProfile, CustomerAudience } from './evidence'
 import type { SocClassification } from './types'
 
@@ -93,7 +94,8 @@ export interface SocWriter extends SocReads {
   updateNote(ticketId: number, noteId: number, body: string): Promise<void>
   setTicketContact(ticketId: number, contactId: number): Promise<void>
   /** Post a CUSTOMER-VISIBLE note (publish 1). Autotask's workflow rule emails the ticket contact. */
-  createCustomerNote(ticketId: number, title: string, body: string): Promise<{ noteId: number | null }>
+  /** Posted under the SOC Customer Update note type; noteTypeWarning is set when that type could not be resolved. */
+  createCustomerNote(ticketId: number, title: string, body: string): Promise<{ noteId: number | null; noteTypeWarning?: string | null }>
   /**
    * Autotask's own record of whether it notified the customer:
    * Tickets.lastCustomerNotificationDateTime. `ok: false` = could not be read.
@@ -112,6 +114,33 @@ export interface CustomerNotificationObservation {
 }
 
 export const CUSTOMER_UPDATE_PUBLISH = 1
+
+/**
+ * The SOC's customer update is posted under its OWN ticket note type so the
+ * Autotask workflow rule that emails the ticket contact can be limited to it
+ * (condition "Note Type equal to SOC Customer Update"). Without that, the rule
+ * fired on ANY customer-visible note by any resource — SaaS Alerts' raw event
+ * notes included (T20261007.0015 emailed a raw "New User Added" dump).
+ * Created by an admin 2026-10-07 as id 201; rule 102 now requires it, so a
+ * note of any other type is NOT emailed. Resolved by LABEL at runtime, with 201
+ * as the fallback when the picklist cannot be read; any drift is reported.
+ * The template inserts the note body verbatim ([Ticket: Note Description
+ * (plain text)]), so the body must be the plain customer message only.
+ */
+export const SOC_CUSTOMER_NOTE_TYPE_LABEL = SOC_CUSTOMER_NOTE_TYPE.label
+/** Live id 201 (read back 2026-10-07); used only if the live picklist cannot be read. */
+export const SOC_CUSTOMER_NOTE_TYPE_FALLBACK = SOC_CUSTOMER_NOTE_TYPE.id
+
+export async function resolveSocCustomerNoteType(): Promise<{ id: number; warning: string | null }> {
+  const { resolvePicklistId } = await import('@/lib/connector/autotask-picklists')
+  const r = await resolvePicklistId('TicketNotes', 'noteType', SOC_CUSTOMER_NOTE_TYPE_LABEL, SOC_CUSTOMER_NOTE_TYPE_FALLBACK)
+  if (r.resolvedFrom !== 'fallback' && r.id !== SOC_CUSTOMER_NOTE_TYPE.id) {
+    // The label moved to a different id: the email rule is keyed on the TYPE, so
+    // follow the live label, but say so.
+    return { id: r.id, warning: `"${SOC_CUSTOMER_NOTE_TYPE_LABEL}" is now id ${r.id}, not ${SOC_CUSTOMER_NOTE_TYPE.id}. Check that workflow rule 102 still names this note type.` }
+  }
+  return { id: r.id, warning: r.resolvedFrom === 'fallback' ? (r.warning ?? 'Note type not resolved.') : null }
+}
 
 export const ASSESSMENT_NOTE_TITLE = 'SOC Analyst Assessment'
 
@@ -191,8 +220,8 @@ export async function liveWriter(): Promise<SocWriter> {
   const { AutotaskClient } = await import('@/lib/autotask')
   const client = new AutotaskClient()
   const reads = await liveReads()
-  const createNote = async (ticketId: number, note: { title: string; description: string; publish: number }) => {
-    const created = await client.createTicketNote(ticketId, { title: note.title, description: note.description, noteType: 1, publish: note.publish })
+  const createNote = async (ticketId: number, note: { title: string; description: string; publish: number; noteType?: number }) => {
+    const created = await client.createTicketNote(ticketId, { title: note.title, description: note.description, noteType: note.noteType ?? 1, publish: note.publish })
     return { itemId: created?.id || undefined }
   }
   const readStamp = async (ticketId: number): Promise<{ ok: boolean; value: string | null }> => {
@@ -217,8 +246,9 @@ export async function liveWriter(): Promise<SocWriter> {
       await client.patchTicket(ticketId, { contactID: contactId })
     },
     async createCustomerNote(ticketId, title, body) {
-      const r = await createNote(ticketId, { title, description: body, publish: CUSTOMER_UPDATE_PUBLISH })
-      return { noteId: r.itemId ?? null }
+      const type = await resolveSocCustomerNoteType()
+      const r = await createNote(ticketId, { title, description: body, publish: CUSTOMER_UPDATE_PUBLISH, noteType: type.id })
+      return { noteId: r.itemId ?? null, noteTypeWarning: type.warning }
     },
     readCustomerNotificationStamp: readStamp,
     async observeCustomerNotification(ticketId, before) {
@@ -779,7 +809,10 @@ export async function planCustomerNotify(input: NotifyPlanInput, reads: SocReads
   const ticket = await reads.getTicket(input.ticketId)
   if (!ticket) return { action: 'explain', reason: 'The ticket could not be read back from Autotask, so no recipient could be resolved.', statusLine: 'NOT SENT — the ticket could not be read back.' }
 
-  if (!ticket.companyID) {
+  // companyID 0 is a REAL company in Autotask — the owner company (Triple
+  // Cities Tech itself). Only a missing id means "no company"; `!companyID`
+  // read 0 as absent and refused every alert on TCT's own tenant (T20261007.0015).
+  if (ticket.companyID == null) {
     return { action: 'explain', reason: 'The ticket has no company, so no contact could be chosen.', statusLine: 'NOT SENT — the ticket has no company.' }
   }
 
@@ -932,8 +965,12 @@ export async function executeCustomerNotify(args: {
   // an advance afterwards is attributable to it.
   const before = await writer.readCustomerNotificationStamp(ticketId)
   let noteId: number | null = null
+  let noteTypeWarning: string | null = null
   try {
-    noteId = (await writer.createCustomerNote(ticketId, CUSTOMER_UPDATE_TITLE, message)).noteId
+    const created = await writer.createCustomerNote(ticketId, CUSTOMER_UPDATE_TITLE, message)
+    noteId = created.noteId
+    noteTypeWarning = created.noteTypeWarning ?? null
+    if (noteTypeWarning) notes.push(`note type "${SOC_CUSTOMER_NOTE_TYPE_LABEL}" not resolved — posted as fallback`)
   } catch (e) {
     const reason = `Posting the customer-visible note failed (${e instanceof Error ? e.message : String(e)}).`
     await explain(reason)
@@ -952,7 +989,8 @@ export async function executeCustomerNotify(args: {
   await writer.createInternalNote(
     ticketId,
     observation.notified === true ? 'SOC — Customer emailed by Autotask' : 'SOC — Customer update posted (email not confirmed)',
-    socAuditNoteBody({ contactName, contactId: plan.recipient.contactId, routeCase: plan.recipient.routeCase, basis: plan.recipient.basis, noteId, postedAt, observation }),
+    socAuditNoteBody({ contactName, contactId: plan.recipient.contactId, routeCase: plan.recipient.routeCase, basis: plan.recipient.basis, noteId, postedAt, observation })
+      + (noteTypeWarning ? `\n\nNOTE TYPE: the customer note could not be posted as "${SOC_CUSTOMER_NOTE_TYPE_LABEL}" (${noteTypeWarning}). The Autotask email rule keyed on that type will not fire for it.` : ''),
   )
   // 'sent' = the customer-visible note exists; that is what makes it once per
   // incident. Whether Autotask emailed it is carried in the observation.
